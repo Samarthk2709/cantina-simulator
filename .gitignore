@@ -1,0 +1,10 @@
+# Local deployment metadata and credentials
+.vercel/
+.env
+.env.*
+!.env.example
+
+# Local tooling
+.DS_Store
+node_modules/
+*.log
