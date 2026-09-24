@@ -1,6 +1,6 @@
 # Cantina Simulator
 
-A sparse, staged security simulator modeled on [Paradigm’s RSI game](https://www.paradigm.xyz/research/rsi/game): an expanding production diagram, one milestone, a chronological log, and recurring-budget controls.
+A staged security company simulator with an expanding production diagram, milestones, a chronological log, and recurring-budget controls.
 
 ## Play
 

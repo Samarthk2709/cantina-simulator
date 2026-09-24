@@ -1,8 +1,8 @@
-# Cantina Simulator — reference rebuild
+# Cantina Simulator — game design
 
-Replace the dashboard with the interaction model of Paradigm's RSI game. Initially local; published to the user-authorized personal Vercel account on September 23, 2026. See README.md for the production target and verification.
+Build a staged security company simulator. Initially local; published to the user-authorized personal Vercel account on September 23, 2026. See README.md for the production target and verification.
 
-Observed by playing the reference: title screen; sparse 60/40 diagram/log split; one manual action at the start; outputs and connectors appear after activity; milestones freeze time and expose an explicit funding action; funding unlocks a new stage and a short stage introduction; headcount and compute use up/down recurring-budget controls; scarce inputs are highlighted; the graph expands only as systems become available.
+Core interactions: title screen; sparse 60/40 diagram/log split; one manual action at the start; outputs and connectors appear after activity; milestones freeze time and expose an explicit funding action; funding unlocks a new stage and a short stage introduction; headcount and compute use up/down recurring-budget controls; scarce inputs are highlighted; the graph expands only as systems become available.
 
 Cantina styling verified at cantina.xyz (redirects to cantina.security): official cream globe and wordmark SVGs, deep navy surfaces, rust-red accent, Overused Grotesk body and Space Grotesk headings. Use the downloaded official assets in dist/assets.
 
