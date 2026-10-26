@@ -1,0 +1,307 @@
+/* Stage 2 additions on top of the published First Office stylesheet (original/style.css). */
+@font-face{font-family:"Nib Pixel";src:url(assets/pixelify-sans.woff2) format("woff2");font-display:swap}
+:root{--nib:#7ff0d8;--nib-ink:#0d2f33;--cream:#f2ebd1}
+/* Motion rules, used by every animation in the game (60 fps, so 1 frame ≈ 17 ms):
+   1. Anticipation: pull back ~6 frames (100 ms) against the direction of travel before moving.
+   2. Offset: things that arrive together start 3 frames (--stagger) apart, never as one block.
+   3. Motion blur: only fast movers blur, and only while they travel; they are sharp at rest. */
+:root{--stagger:50ms;--wind:cubic-bezier(.3,0,.7,1);--settle:cubic-bezier(.16,1,.3,1)}
+
+/* ---- chrome ---- */
+.chapter{position:absolute;left:18px;top:16px;z-index:3;display:grid;gap:4px;pointer-events:none}
+.chapter span{font:600 12px var(--mono);letter-spacing:.24em;color:var(--ink-2)}
+.chapter small{font-size:13px;color:var(--muted)}
+#nib-layer{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+.hud .company-status>*{pointer-events:auto}
+.focus-meter{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;background:var(--paper);border:1px solid var(--line-2);border-radius:7px;font:12px var(--mono);color:var(--muted)}
+.focus-meter .k{letter-spacing:.12em;text-transform:uppercase}
+.focus-meter .meter{width:96px}
+.focus-meter strong{color:var(--ink);font-weight:500;min-width:7ch;text-align:right}
+.meter{display:inline-block;height:6px;background:#0b181e;border-radius:3px;overflow:hidden;vertical-align:middle;border:1px solid var(--line)}
+.meter i{display:block;height:100%;background:var(--amber);transition:width .35s ease-out}
+.meter i.low{background:var(--danger-ink)}
+.hud #coffee,.hud #sleep{background:var(--paper);border:1px solid var(--line-2);color:var(--ink);border-radius:7px;font-size:13px}
+.hud #coffee[data-icon]{padding-left:32px}
+.hud #cups{font:12px var(--mono);color:var(--amber);margin-left:2px}
+.hud #sleep{color:var(--cream)}
+.hud #date{display:flex;align-items:center;height:40px;padding:0 12px;background:var(--paper);border:1px solid var(--line-2);border-radius:7px;font:600 12px var(--mono);letter-spacing:.12em;color:var(--ink-2)}
+
+/* dock: Nib's line replaces the published direction box */
+.dock .nib-line{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;background:#0b181e;border:1px solid var(--line-2);border-radius:7px;font-size:13px;line-height:1.35;color:var(--ink-2);overflow:hidden}
+.nib-line b{flex:none;font:600 11px var(--mono);letter-spacing:.14em;color:var(--nib)}
+.nib-line span{overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#nib-chip{border-color:var(--nib)!important}
+#nib-chip canvas{width:23px;height:20px;image-rendering:pixelated;border:2px solid #a8a18c;border-radius:2px}
+.dock>button[data-station].fresh{animation:dock-in .42s backwards;animation-delay:calc(var(--i,0) * var(--stagger))}
+@keyframes dock-in{0%{opacity:0;transform:translateY(6px);animation-timing-function:var(--wind)}24%{opacity:1;transform:translateY(8px);animation-timing-function:var(--settle)}100%{opacity:1;transform:none}}
+/* Toasts and Nib's bubble: dip back 2px, then settle (the published `rise`, with anticipation). */
+.toast{animation-duration:.34s}
+@keyframes rise{0%{opacity:0;transform:translateY(-4px);animation-timing-function:var(--wind)}30%{opacity:1;transform:translateY(-6px);animation-timing-function:var(--settle)}100%{opacity:1;transform:none}}
+#stats-open .k{font-size:11px;color:var(--muted)}
+
+/* ---- Nib's bubble ---- */
+.nib-bubble{position:fixed;z-index:13;width:min(340px,calc(100vw - 24px));padding:12px 14px 12px;background:var(--paper);border:1px solid var(--nib);border-radius:8px;box-shadow:var(--shadow);animation:rise .34s}
+.nib-bubble .who{display:inline-block;margin-bottom:6px;padding:1px 6px;background:var(--nib);color:var(--nib-ink);font:600 10px var(--mono);letter-spacing:.16em;border-radius:3px}
+.nib-text{margin:0;font:15px/1.45 var(--sans);color:var(--ink)}
+.nib-foot{display:grid;gap:6px;margin-top:10px}
+.nib-foot:empty{display:none}
+.nib-choice{display:flex;gap:10px;align-items:flex-start;width:100%;min-height:40px;padding:8px 10px;text-align:left;font-size:13px;line-height:1.35;background:#0b181e;border:1px solid var(--line-2);color:var(--ink);border-radius:6px}
+.nib-choice:hover,.nib-choice:focus-visible{border-color:var(--nib);background:var(--paper-2)}
+.nib-choice kbd{flex:none;font:11px var(--mono);color:var(--nib);border:1px solid var(--line-2);border-radius:3px;padding:0 4px;margin-top:1px}
+.nib-next{justify-self:end;min-height:36px}
+
+/* ---- night ---- */
+.night{position:absolute;inset:0;z-index:5;display:grid;place-items:start center;padding-top:90px;background:radial-gradient(ellipse at 70% 75%,rgba(4,10,20,.55),rgba(2,6,12,.88) 60%);opacity:0;transition:opacity .6s ease;pointer-events:all}
+.night.on{opacity:1}
+.night p{margin:0;padding:8px 14px;font:600 13px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cream);background:rgba(8,19,26,.7);border:1px solid var(--line-2);border-radius:6px}
+
+/* ---- toasts ---- */
+.toast.good{border-color:var(--good)}
+.toast.bad{border-color:var(--danger-ink)}
+.toast.crit{border-color:var(--amber);background:var(--amber-soft);color:#ffe7a8;font-weight:600}
+
+/* ---- window ---- */
+#panel-dialog{max-height:calc(100dvh - 170px)!important}
+#panel-dialog.roomy{width:560px;left:calc(50% + 20px)}
+#panel-body h2{margin:0 0 4px;font-size:20px;letter-spacing:-.01em}
+#panel-body h3{margin:18px 0 8px;font-size:13px;font-weight:600;color:var(--ink-2);text-transform:uppercase;letter-spacing:.08em}
+#panel-body .lede{margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.45}
+#panel-body p{line-height:1.45}
+.win-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.win-head button{flex:none}
+.eyebrow{margin:0 0 4px;font:600 11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.fine{font-size:12px;color:var(--muted)}
+.hint-line{margin:10px 0;padding:8px 10px;border-left:2px solid var(--nib);background:rgba(127,240,216,.06);font-size:13px;color:var(--ink-2)}
+.tag{display:inline-block;padding:3px 8px;border:1px solid var(--line-2);border-radius:999px;font:11px var(--mono);color:var(--muted);white-space:nowrap}
+.tag.good{border-color:rgba(141,214,167,.5);color:var(--good)}
+button.small{min-height:32px;padding:0 10px;font-size:12px}
+.empty{padding:18px;text-align:center;color:var(--muted);border:1px dashed var(--line-2);border-radius:8px}
+
+/* bounty board */
+.programs{display:grid;gap:10px}
+.program{padding:12px 14px;background:#0b181e;border:1px solid var(--line-2);border-radius:8px}
+.program.current{border-color:var(--amber)}
+.program.locked{opacity:.7}
+.program header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.program h3{margin:0!important;font-size:16px!important;text-transform:none!important;letter-spacing:0!important;color:var(--ink)!important}
+.program .kind{margin:2px 0 6px;font-size:12px;color:var(--muted)}
+.program p{margin:0 0 8px;font-size:13px}
+.stars{color:var(--amber);letter-spacing:1px;font-size:12px}.stars i{font-style:normal;color:var(--line-2)}
+.mini{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 6px}
+.mini dt{font-size:11px;color:var(--muted)}.mini dd{margin:2px 0 0;font:13px var(--mono);color:var(--ink)}
+.crowd{display:inline-block;width:46px;height:5px;background:var(--line);border-radius:3px;overflow:hidden;vertical-align:middle}.crowd i{display:block;height:100%;background:var(--danger-ink)}
+.lock{margin:6px 0 0!important;font-size:12px!important;color:var(--amber)}
+.program .wide{margin:4px 0 0;min-height:40px}
+
+/* target map */
+.target-map{position:relative;height:210px;margin:6px 0 8px;background:#0b181e linear-gradient(rgba(127,240,216,.04) 1px,transparent 1px) 0 0/100% 21px;border:1px solid var(--line-2);border-radius:8px}
+.target-map svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.target-map line{stroke:var(--line-2);stroke-width:.6;stroke-dasharray:1.5 1.5;vector-effect:non-scaling-stroke}
+.target-map line.lit{stroke:var(--cream);stroke-dasharray:none;opacity:.55}
+.room{position:absolute;z-index:1;translate:-50% -50%;width:27%;min-height:62px;display:grid;place-items:center;align-content:center;gap:5px;padding:6px;background:var(--paper-2);border:1px solid var(--cream);border-radius:6px;color:var(--ink);font-size:13px;line-height:1.2}
+.room b{font-weight:600}
+.room.sel{border-color:var(--amber);box-shadow:0 0 0 2px rgba(232,181,74,.35)}
+.room.dark{background:transparent;border:1px dashed var(--line-2);color:var(--muted)}
+.room.dark b{font-size:15px}
+.room.dark small{font:10px var(--mono);letter-spacing:.06em}
+.room.mappable{border-color:var(--muted);cursor:pointer}
+.room.mappable:hover{border-color:var(--amber);color:var(--ink)}
+.room.dark:disabled{opacity:.45}
+.pips{display:flex;gap:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--line-2);flex:none}
+.dot.open{background:var(--nib)}.dot.locked{background:transparent;border:1px solid var(--muted)}.dot.tray{background:#7cc4f0}.dot.draft{background:var(--amber)}.dot.accepted{background:var(--good);box-shadow:inset 0 0 0 2px #0b181e}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 6px;font-size:11px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:5px}
+.room-title{margin-top:12px!important}
+.slots,.cands,.shoplist,.patterns,.chains,.log,.ladder{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.slot,.cand,.shop{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#0b181e;border:1px solid var(--line);border-radius:7px}
+.slot>div,.cand>div:first-child,.shop>div{flex:1;min-width:0;display:grid;gap:2px}
+.slot b,.cand b,.shop b{font-size:14px;font-weight:600}
+.slot small,.cand small,.shop small{font-size:12px;color:var(--muted)}
+.slot.accepted{opacity:.75}
+.slot button,.shop button{min-height:34px;padding:0 12px;font-size:13px}
+
+/* hunt */
+.code{display:grid;margin:8px 0 10px;padding:6px 0;background:#061015;border:1px solid var(--line-2);border-radius:8px;overflow-x:auto}
+.code-line{display:flex;gap:12px;align-items:baseline;width:100%;min-height:30px;padding:4px 12px;background:transparent;border:0;border-left:3px solid transparent;border-radius:0;text-align:left;color:var(--ink);box-shadow:none;cursor:pointer}
+.code-line .ln{flex:none;font:11px var(--mono);color:var(--muted)}
+.code-line code{font:12.5px/1.5 var(--mono);white-space:pre-wrap;padding-left:2ch;text-indent:-2ch;color:#d8e8ee}
+.code-line:hover:not(:disabled),.code-line:focus-visible{background:rgba(232,181,74,.08);border-left-color:var(--amber)}
+.code-line.miss{background:rgba(249,112,102,.07);border-left-color:var(--danger-ink)}
+.code-line.miss code{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(249,112,102,.5)}
+.code-line.hit{background:rgba(127,240,216,.12);border-left-color:var(--nib);animation:flash .6s ease-out}
+.code-line.hit code{color:var(--nib)}
+.code-line:disabled{cursor:default}
+@keyframes flash{0%{background:rgba(127,240,216,.5)}100%{background:rgba(127,240,216,.12)}}
+.feedback{margin:8px 0;padding:10px 12px;border-radius:7px;font-size:13px;line-height:1.45;border:1px solid var(--line-2);background:#0b181e}
+.feedback.hit{border-color:rgba(127,240,216,.5)}.feedback.hit b{color:var(--nib)}
+.feedback.miss{border-color:rgba(249,112,102,.45)}.feedback.miss b{color:var(--danger-ink)}
+.feedback .cost{font:11px var(--mono);color:var(--danger-ink);white-space:nowrap}
+.feedback button{margin-left:6px}
+
+/* report */
+.sec{margin:0 0 12px}
+.sec h4{margin:0 0 6px;font:600 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);display:flex;gap:8px;align-items:center}
+.sec.weak h4{color:var(--amber)}
+.opts{display:grid;gap:5px}
+.opt{width:100%;min-height:36px;padding:7px 10px;text-align:left;font-size:13px;line-height:1.35;background:#0b181e;border:1px solid var(--line);color:var(--ink-2);border-radius:6px;box-shadow:none}
+.opt:hover:not(:disabled){border-color:var(--line-2);color:var(--ink)}
+.opt.on{border-color:var(--amber);color:var(--ink);background:var(--amber-soft)}
+.opt:disabled{opacity:.4}
+.triage{margin:5px 0 0!important;font-size:12px;color:var(--muted)}
+.triage b{font-weight:600;color:var(--ink-2)}
+.triage.t0{color:var(--good)}.triage.t2{color:var(--danger-ink)}
+.paper{position:relative;margin:14px 0 10px;padding:14px 16px;background:#efe6cf;color:#2a2416;border-radius:4px;box-shadow:0 6px 18px rgba(0,0,0,.35);font-size:13px}
+.paper p{margin:0 0 6px!important}
+.paper .paper-head{font:600 10px var(--mono);letter-spacing:.18em;color:#7a6d4f}
+.paper .blank{color:#a59a7c}
+.stamp{position:absolute;right:14px;bottom:10px;display:grid;justify-items:center;padding:4px 10px;border:3px solid #2f8a63;color:#2f8a63;border-radius:6px;transform:rotate(-8deg);font:600 12px var(--mono);letter-spacing:.1em;background:rgba(239,230,207,.85);animation:stamp .46s}
+.stamp b{font-size:14px}
+.stamp.crit{border-color:#b4502a;color:#b4502a}
+/* The stamp lifts before it slams, blurs on the way down (the only fast mover), then lands sharp with a small bounce. */
+@keyframes stamp{0%{transform:rotate(-8deg) scale(2.2);opacity:0;filter:blur(0);animation-timing-function:ease-out}
+  22%{transform:rotate(-8deg) scale(2.45);opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.6,0,1,.6)}
+  42%{transform:rotate(-8deg) scale(1.55);filter:blur(2.5px);animation-timing-function:cubic-bezier(.4,.6,1,1)}
+  58%{transform:rotate(-8deg) scale(.92);filter:blur(0);animation-timing-function:cubic-bezier(.2,1.4,.4,1)}
+  100%{transform:rotate(-8deg) scale(1);opacity:1;filter:blur(0)}}
+
+/* Nib's pattern book */
+.pattern{display:grid;grid-template-columns:1fr 130px;grid-template-rows:auto auto;gap:2px 12px;padding:10px 12px;background:#0b181e;border:1px solid var(--line);border-radius:7px}
+.pattern.dim{opacity:.6}
+.p-name{display:grid;gap:2px}.p-name b{font-size:14px}.p-name small{font-size:12px;color:var(--muted)}
+.p-bar{display:flex;align-items:center;gap:8px;justify-content:flex-end}.p-bar .meter{width:80px}.p-bar .meter i{background:var(--nib)}.p-bar strong{font:13px var(--mono);min-width:4ch;text-align:right}
+.p-lessons{grid-column:2;text-align:right;font:11px var(--mono);color:var(--muted)}
+
+/* ops */
+.cand{flex-wrap:wrap}
+.cand-acts{flex-basis:100%}
+.conf{display:flex;align-items:center;gap:8px;white-space:nowrap;font:11px var(--mono);color:var(--muted);margin-top:4px}
+.conf .meter{width:70px}.conf .meter i{background:#7cc4f0}
+.cand-acts{display:flex;gap:6px;flex-wrap:wrap}
+.cand-acts button{min-height:34px;padding:0 10px;font-size:12px}
+.cand-acts small{font:10px var(--mono);opacity:.8;margin-left:4px}
+
+/* shop & rig */
+.shop.owned{border-color:rgba(141,214,167,.35)}
+.estimate{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0}
+.estimate div{padding:10px;background:#0b181e;border:1px solid var(--line);border-radius:7px;display:grid;gap:4px}
+.estimate span{font-size:11px;color:var(--muted)}.estimate b{font:18px var(--mono)}
+
+/* ledger */
+.ladder{grid-template-columns:repeat(4,1fr);gap:6px}
+.ladder li{padding:8px;background:#0b181e;border:1px solid var(--line);border-radius:7px;display:grid;gap:2px;opacity:.6}
+.ladder li.on{opacity:1;border-color:var(--amber)}.ladder li.past{opacity:.85}
+.ladder b{font-size:13px}.ladder span{font:11px var(--mono);color:var(--amber)}.ladder small{font-size:11px;color:var(--muted);line-height:1.3}
+.log li{display:flex;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.log li span{flex:none;font:11px var(--mono);color:var(--muted);padding-top:2px}
+.log li.good{color:var(--good)}.log li.bad{color:var(--danger-ink)}.log li.crit{color:var(--amber);font-weight:600}
+
+/* hq */
+.goalbar{height:8px;margin:8px 0 6px;background:#0b181e;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.goalbar i{display:block;height:100%;background:var(--good)}
+.chain{padding:10px 12px;background:#0b181e;border:1px solid var(--line);border-radius:7px;display:grid;gap:8px}
+.chain.ready{border-color:var(--amber)}.chain.done{border-color:rgba(141,214,167,.5)}
+.chain>b{font-size:14px}
+.halves{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px}
+.half{padding:3px 8px;border:1px dashed var(--line-2);border-radius:5px;color:var(--muted)}
+.half.ok{border-style:solid;border-color:rgba(141,214,167,.5);color:var(--good)}
+.halves .link{color:#c4572b;font-weight:700}
+
+/* ending */
+.stage-modal{max-width:460px}
+.ending canvas{width:96px;height:126px;image-rendering:pixelated;margin:0 auto 12px;display:block}
+.ending h1{font-size:28px;margin:0 0 6px}
+.ending blockquote{margin:16px 0;padding:12px 14px;background:var(--paper-2);border-left:3px solid var(--nib);border-radius:4px;text-align:left;font-size:14px;line-height:1.5}
+.ending cite{display:block;margin-top:6px;font:12px var(--mono);color:var(--nib);font-style:normal}
+
+/* menu */
+#settings-body input{font:inherit;min-height:40px;padding:0 10px;color:var(--ink);background:#0b181e;border:1px solid var(--line-2);border-radius:7px;flex:1;min-width:0}
+
+@media (max-width:900px){#panel-dialog.roomy{left:12px;right:12px;width:auto}}
+@media (max-width:650px){
+  .chapter{display:none}
+  .focus-meter .k{display:none}.focus-meter .meter{width:56px}
+  .hud #coffee{font-size:0;padding-left:30px}.hud #coffee #cups{font-size:12px}
+  .ladder{grid-template-columns:repeat(2,1fr)}
+  .estimate b{font-size:15px}
+  .room{width:30%;min-height:54px;font-size:12px}
+  .code-line code{font-size:12px}
+  .nib-bubble{width:calc(100vw - 24px)}
+}
+@media (prefers-reduced-motion:reduce){.night{transition:none}.stamp,.code-line.hit,.dock>button[data-station]{animation:none}}
+
+/* toasts sit under the HUD, clear of windows and the dock */
+.stage-toasts{position:fixed;z-index:15;top:64px;bottom:auto!important;left:50%;right:auto;transform:translateX(-50%);align-items:center;max-width:min(520px,calc(100% - 24px));pointer-events:none}
+.stage-toasts .toast{background:var(--paper);border:1px solid var(--line-2);color:var(--ink)}
+.stage-toasts .toast.good{border-color:var(--good)}.stage-toasts .toast.bad{border-color:var(--danger-ink)}
+.stage-toasts .toast.crit{border-color:var(--amber);background:var(--amber-soft);color:#ffe7a8}
+
+/* the published hover adds side bars to every button; Stage 2's list buttons use their own hover */
+.code-line:hover:not(:disabled),.opt:hover:not(:disabled),.room:hover:not(:disabled),.nib-choice:hover,.program button:hover:not(:disabled){box-shadow:none}
+
+/* Narrow screens: goal + wallet, then Nib's line, then one row of station buttons. */
+@media (max-width:1000px) and (min-height:521px){
+  .dock{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+  .dock #goal-open{grid-area:1/1/2/6!important;margin:0!important;min-height:44px}
+  .dock #stats-open{grid-area:1/6/2/-1!important;min-width:0!important;flex-direction:row!important;gap:6px!important}
+  .dock #stats-open[hidden]~*,.dock:has(#stats-open[hidden]) #goal-open{grid-column:1/-1!important}
+  .dock #founder-chips{grid-area:2/1/3/2!important;justify-self:start;padding:0;border:0}
+  .dock .nib-line{grid-area:2/2/3/-1!important;margin:0!important;min-height:44px;font-size:12px}
+  .dock>button[data-station]{grid-row:3!important;min-width:0!important;min-height:50px;padding:4px 2px;font-size:11px}
+  .dock>button[data-station]:nth-of-type(n){grid-column:auto}
+}
+
+/* Phones: the window sits above the dock instead of over it. */
+@media (max-width:700px){
+  #panel-dialog,#panel-dialog.roomy{left:8px!important;right:8px;width:auto!important;max-width:none;bottom:calc(var(--dock-top,170px) + 8px)!important;max-height:calc(100dvh - var(--dock-top,170px) - 72px)!important}
+}
+
+/* ---- Windows open in the centre, compact, with one breadcrumb line (2026-10-25) ---- */
+#panel-dialog,#panel-dialog.roomy{left:50%!important;right:auto!important;top:calc(50% - 14px)!important;bottom:auto!important;transform:translate(-50%,-50%)!important;
+  width:min(560px,calc(100vw - 32px))!important;max-height:calc(100dvh - 230px)!important;box-shadow:0 24px 70px rgba(0,0,0,.55)}
+#panel-dialog.roomy{width:min(640px,calc(100vw - 32px))!important}
+#panel-dialog .bar{min-height:40px}
+#panel-dialog #panel-title{font:600 12px var(--mono);letter-spacing:.06em;text-transform:none;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#panel-dialog .body{padding:14px 16px 16px}
+#panel-dialog h2{font-size:17px;margin:0}
+#panel-dialog h3{margin:14px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+#panel-dialog .win-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+#panel-dialog .win-head h2{flex:1}
+#panel-dialog .fine{font-size:12px;color:var(--muted);margin:8px 0}
+#panel-dialog .hint-line{font-size:12.5px;margin:8px 0}
+#panel-dialog .map-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 4px}
+#panel-dialog .map-foot .legend{margin:0}
+#panel-dialog .programs{gap:10px}
+#panel-dialog .program{padding:12px}
+#panel-dialog .hq-goal{margin:0 0 6px;font-weight:600}
+/* A soft scrim so the open window is the one thing in focus; the world stays visible behind it. */
+body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;inset:0;z-index:4;background:rgba(4,10,14,.45);pointer-events:none}
+
+/* ---- Nib docked to the open window: one strip on top of it ---- */
+.nib-bubble.docked{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 12px;border-radius:8px;animation:none}
+.nib-bubble.docked .who{margin:0}
+.nib-bubble.docked .nib-text{flex:1;min-width:0;margin:0;font-size:13.5px}
+.nib-bubble.docked .nib-foot{display:flex;flex-wrap:wrap;gap:6px;margin:0;flex-basis:100%}
+.nib-bubble.docked:not(.asks) .nib-foot{display:none}
+.nib-bubble.docked .nib-next{margin-left:auto}
+@media (max-width:700px){#panel-dialog,#panel-dialog.roomy{top:auto!important;bottom:calc(var(--dock-top,170px) + 8px)!important;transform:translateX(-50%)!important;max-height:calc(100dvh - var(--dock-top,170px) - 120px)!important}}
+/* Bounty board: one compact row per program */
+#panel-dialog .programs{gap:8px}
+#panel-dialog .program{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head act" "mini act";column-gap:14px;row-gap:4px;align-items:center;padding:10px 12px}
+#panel-dialog .program header{grid-area:head;justify-content:flex-start;gap:10px}
+#panel-dialog .program .kind{display:none}
+#panel-dialog .program .mini{grid-area:mini;margin:0;gap:4px 16px}
+#panel-dialog .program .mini dt{display:inline;margin-right:5px}#panel-dialog .program .mini dd{display:inline;margin:0}
+#panel-dialog .program .mini div{white-space:nowrap}
+#panel-dialog .program > button,#panel-dialog .program .lock{grid-area:act;margin:0;min-height:36px;width:auto;padding:0 14px}
+#panel-dialog .program .lock{font-size:12px;max-width:140px;padding:0}
+.nib-bubble.docked .nib-foot:has(.nib-next){flex-basis:auto}
+/* Toasts sit just above the dock, out of the way of windows and Nib */
+.stage-toasts{top:auto!important;bottom:calc(var(--dock-top,120px) + 10px)!important}
+/* Report: each section is one row of three choices */
+#panel-dialog .sec{margin:0 0 10px}
+#panel-dialog .sec .opts{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+#panel-dialog .sec .opt{font-size:12px;padding:6px 8px;min-height:44px}
+#panel-dialog .triage{font-size:12px;margin:4px 0 0}
+#panel-dialog .hq .opts,#panel-dialog .chain .opts{grid-template-columns:1fr}
+@media (max-width:600px){#panel-dialog .sec .opts{grid-template-columns:1fr}}

@@ -1,0 +1,213 @@
+/* Stage 3 UI, after Grok Bot: a roster of agents (name + what each is doing in a few words), one timeline per
+   agent with its tool steps folded away, and cards only where you have to decide something. The avatar's
+   motion shows its state; there are no status lights, dashboards or settings. */
+(window.Stage3Boot = window.Stage3Boot || []).push(function () {
+  'use strict';
+  const A = window.Stage3Agents, C = window.Stage3Scope, G = window.Stage2, E = window.Stage2Engine, D = window.Stage2Data;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  const setHTML = (el, html) => { if (el && el.__html !== html) { el.innerHTML = html; el.__html = html; } };
+  const money = v => '$' + Math.round(v).toLocaleString('en-US');
+
+  // ---------- avatar: avatars.js draws the whole cast. State is carried by motion and the eyes. ----------
+  // idle · thinking · working · waiting · sad · done, as in Grok Bot's six states.
+  function state(a) {
+    if (a.q) return 'waiting';
+    if (Date.now() - a.lastPenalty < 6000) return 'sad';
+    if (a.status === 'thinking' || a.status === 'queued') return 'thinking';
+    if (a.status === 'walking' || a.status === 'working') return 'working';
+    if (a.status === 'done') return 'done';
+    return 'idle';
+  }
+  const FACE = {waiting: 'ask', sad: 'sad', thinking: 'think', working: 'think', done: 'happy', idle: 'idle'};
+  const avatar = (a, cls) => `<span class="s3-av st-${state(a)} ${cls || ''}" style="--i:${A.list().indexOf(a)}">${window.Avatars.svg(a.id, {mood: FACE[state(a)], lit: state(a) === 'thinking'})}</span>`;
+
+  // ---------- shell ----------
+  $('focus').insertAdjacentHTML('beforebegin', '<button id="s3-toggle" class="s3-toggle" type="button"></button>');
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="s3-layer"></div>
+    <section id="s3-view" hidden aria-label="Team"><nav id="s3-side" aria-label="Agents"></nav><main id="s3-main"></main></section>`);
+  let view = {kind: 'agent', id: 'nib'}, open = false;
+  const openSteps = new Set(); // "agent:index" of step groups you unfolded
+  function setOpen(v) {
+    if (v && G.ui().win) G.close();
+    // The team view swallows key releases, so let go of any walking key now or the founder keeps walking.
+    if (v) ['up', 'down', 'left', 'right'].forEach(d => G.world.move?.(d, false));
+    open = v; $('s3-view').hidden = !v; document.body.classList.toggle('s3-agents-open', v);
+    if (v) renderMain(); else $('world')?.focus({preventScroll: true});
+    renderToggle();
+  }
+  function renderToggle() {
+    const need = A.list().filter(a => a.q).length, busy = A.busy();
+    setHTML($('s3-toggle'), `Team${need ? ` <b class="need">${need} need${need > 1 ? '' : 's'} you</b>` : busy ? ` <span>${busy} working</span>` : ''}`);
+  }
+
+  // ---------- agents on the office floor ----------
+  const sprites = {};
+  function drawLayer() {
+    const w = G.world, layer = $('s3-layer');
+    const show = w && !open && w.getState().room === 'office';
+    layer.hidden = !show;
+    if (show) {
+      const rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width;
+      for (const a of A.list()) {
+        if (!a.pos) continue;
+        let el = sprites[a.id];
+        if (!el) { el = sprites[a.id] = document.createElement('button'); el.className = 's3-agent' + (a.id === 'nib' ? ' nib' : ''); el.dataset.chat = a.id; layer.appendChild(el); }
+        // Walk bob is offset 3 frames (50 ms) per agent; during the wind-up the agent crouches a pixel and leans back.
+        const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k;
+        const bob = a.crouch ? -k : a.moving ? Math.round(Math.sin((performance.now() + i * 50) / 90) * k) : 0, lean = a.crouch ? -(a.facing || 1) * k : 0;
+        el.classList.toggle('flip', a.facing < 0);
+        el.style.cssText = `left:${rect.left + a.pos.x * k + lean - wd / 2}px;top:${rect.top + a.pos.y * k - h + 2 * k - bob}px;width:${wd}px;height:${h}px`;
+        const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking';
+        // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
+        setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(A.phrase(a)))}</span>` : ''}`);
+        el.setAttribute('aria-label', `${a.name}: ${A.phrase(a)}. Open chat.`);
+      }
+      for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
+    }
+    requestAnimationFrame(drawLayer);
+  }
+  const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
+  requestAnimationFrame(drawLayer);
+  // Penalties also show as a small toast in the office, in the game's own toast style.
+  C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
+
+  // ---------- roster ----------
+  function renderSide() {
+    const s = G.live(), sel = (k, id) => view.kind === k && (id === undefined || view.id === id) ? 'sel' : '';
+    const rows = A.list().map(a => `<button class="s3-row ${sel('agent', a.id)} ${a.q ? 'need' : ''}" data-go="agent:${a.id}">${avatar(a)}<span class="txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(A.phrase(a))}</span></span></button>`).join('');
+    const next = A.hireable()[0], r = next && A.roster[next];
+    const rules = A.RULES.filter(x => A.crew().rules.all?.[x.k]).length;
+    setHTML($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
+      ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
+      <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
+      <div class="s3-foot">${s.rep}/60 rep to Elite · ${money(s.cash)}</div>`);
+  }
+
+  // ---------- one agent's timeline ----------
+  function renderMain() {
+    const main = $('s3-main'); main.__html = null;
+    if (view.kind === 'rules') { main.innerHTML = rulesView(); return; }
+    const a = A.get(view.id) || A.list()[0]; view.id = a.id;
+    main.innerHTML = `<section class="s3-pane" data-pane="${a.id}"><header data-ph></header><div class="s3-msgs" data-msgs></div>
+      <div class="s3-composer"><input data-input="${a.id}" autocomplete="off" placeholder="Tell ${esc(a.name)} what to do…" aria-label="Message ${esc(a.name)}"><div class="s3-hint" data-hint></div></div></section>`;
+    update();
+    main.querySelector('[data-input]').focus();
+  }
+  function head(a) {
+    const g = a.status === 'resting' || a.q ? A.phrase(a) : a.task && a.task.finished !== true ? A.gistOf(a.task) : '';
+    return `${avatar(a)}<div class="who"><b>${esc(a.name)}</b><span>${esc(g || (a.id === 'nib' ? 'Co-lead' : 'Agent'))}</span></div>${A.live(a) || a.status === 'queued' ? `<button class="s3-link" data-stop="${a.id}">Stop</button>` : ''}`;
+  }
+  const STEP = new Set(['tool', 'rule', 'typing', 'sys']);
+  function timeline(a) {
+    const out = [], log = a.log;
+    for (let i = 0; i < log.length; i++) {
+      const m = log[i];
+      if (STEP.has(m.kind)) {
+        const start = i, steps = [];
+        while (i < log.length && STEP.has(log[i].kind)) { if (log[i].kind !== 'sys') steps.push(log[i]); i++; }
+        i--;
+        if (!steps.length) continue;
+        // Notes the agent wrote for you (rule) stay visible; the mechanical steps fold away.
+        const notes = steps.filter(x => x.kind === 'rule').map(x => `<div class="m-say m-note-plain">${esc(x.text)}</div>`).join('');
+        const tools = steps.filter(x => x.kind !== 'rule');
+        const key = a.id + ':' + log[start].id, isOpen = openSteps.has(key);
+        if (tools.length) out.push(`<div class="m-steps ${isOpen ? 'open' : ''}"><button class="s3-link" data-steps="${key}">${isOpen ? '▾' : '▸'} ${tools.length} step${tools.length > 1 ? 's' : ''}</button>${isOpen ? `<div class="list">${tools.map(x => `<div>${esc(x.text)}</div>`).join('')}</div>` : ''}</div>`);
+        out.push(notes);
+        continue;
+      }
+      out.push(msg(a, m));
+    }
+    if (a.q) out.push(`<div class="m-card ask"><b>${esc(a.q.text)}</b><div class="opts">${a.q.opts.map((o, i) => `<button data-ans="${a.id}:${i}" class="${i === 0 ? 'primary' : ''}">${esc(o.label)}</button>`).join('')}</div></div>`);
+    else if (A.live(a) || a.status === 'queued') out.push(`<div class="m-now">${esc(A.phrase(a))}</div>`);
+    return out.join('');
+  }
+  function fixBtn(a, m) {
+    const r = m.fix && A.RULES.find(x => x.k === m.fix);
+    return r && !A.rule(a, r.k) ? `<button class="s3-link" data-fix="${r.k}">Add to AGENTS.md: “${esc(r.text)}”</button>` : '';
+  }
+  function msg(a, m) {
+    switch (m.kind) {
+      case 'user': return `<div class="m-user">${esc(m.text)}</div>`;
+      case 'say': return `<div class="m-say ${m.pending ? 'pending' : ''}">${esc(m.text)}</div>`;
+      case 'win': return `<div class="m-win">✓ ${esc(m.text)}</div>`;
+      case 'good': return `<div class="m-say">${esc(m.text)}</div>`;
+      case 'bad': return `<div class="m-say muted">${esc(m.text)}</div>`;
+      case 'note': return `<div class="m-say muted">${esc(m.text)}${fixBtn(a, m)}</div>`;
+      case 'ask': return '';
+      case 'refuse': return `<div class="m-card"><b>Didn't start</b>${esc(m.text)}</div>`;
+      case 'pen': return `<div class="m-card pen"><b>${esc(m.title || 'Penalty')}</b>${esc(m.text)}${fixBtn(a, m)}</div>`;
+      case 'brief': { const b = m.task || {}; return `<div class="m-task">${esc(b.label)} · stops when ${esc(b.stop)}${b.budget != null ? ` · budget ${money(b.budget)}` : ''}</div>`; }
+      case 'done': { const s = m.stats || {};
+        if (!s.accepted && !s.pens && !s.spent) return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${esc(m.text)}</div>`;
+        return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${s.accepted} bug${s.accepted === 1 ? '' : 's'} · ${money(s.earned)}${s.pens ? ` · ${s.pens} penalt${s.pens === 1 ? 'y' : 'ies'}` : ''}${s.spent ? ` · spent ${money(s.spent)}` : ''}</div>`; }
+      default: return '';
+    }
+  }
+  function update() {
+    renderSide(); renderToggle();
+    if (!open || view.kind === 'rules') return;
+    const el = document.querySelector('#s3-main [data-pane]'), a = el && A.get(el.dataset.pane); if (!a) return;
+    setHTML(el.querySelector('[data-ph]'), head(a));
+    const box = el.querySelector('[data-msgs]'), key = a.ver + ':' + (a.q ? 1 : 0) + ':' + A.phrase(a) + ':' + openSteps.size;
+    if (box.__key !== key) {
+      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+      box.innerHTML = timeline(a); if (atBottom || !box.__key) box.scrollTop = box.scrollHeight; box.__key = key;
+    }
+  }
+  // Under the message bar: how the game read it, plus the one warning that matters most.
+  function hint(id) {
+    const a = A.get(id), input = document.querySelector(`[data-input="${id}"]`), out = document.querySelector('[data-hint]');
+    if (!input || !out) return;
+    const text = input.value.trim();
+    if (!text) return void (out.innerHTML = '');
+    if (A.isQuestion(text)) return void (out.innerHTML = 'Question · ' + esc(a.name) + ' will answer');
+    const t = A.parseLocal(text);
+    if (t.job === 'none') return void (out.innerHTML = A.model().ok ? '' : 'Not a task the game recognizes');
+    const w = A.lint(a, t)[0];
+    out.innerHTML = `${esc(A.label(t))}${t.until ? ' · until ' + esc(A.stopLabel(t)) : ''}${A.live(a) ? ' · replaces the current task' : ''}${w ? `<span class="warn">${esc(w)}</span>` : ''}`;
+  }
+  function rulesView() {
+    const rules = A.crew().rules;
+    const rows = A.RULES.map(r => { const on = !!rules.all?.[r.k]; return `<label class="rule"><input type="checkbox" data-rule="${r.k}" ${on ? 'checked' : ''}><span>${esc(r.text)}<small class="${on ? '' : 'without'}">${on ? esc(r.cost) : 'Without it: ' + esc(r.without)}</small></span></label>`; }).join('');
+    const oos = D.ALL_TARGETS.map(t => `${t.name}: ${C.outOfScope(t.id).map(id => t.rooms.find(x => x[0] === id)[1]).join(', ')}${A.crew().strikes[t.id] ? ` (${A.crew().strikes[t.id]}/${C.BAN_AT} strikes)` : ''}${C.banned(t.id) ? ' · banned' : ''}`).join(' · ');
+    return `<div class="s3-doc"><h2>AGENTS.md</h2><p class="muted">Every agent reads this before every step. Each rule switches on one thing they'd otherwise skip.</p>${rows}<p class="muted small">Off limits · ${esc(oos)}</p></div>`;
+  }
+
+  // ---------- events ----------
+  document.addEventListener('click', e => {
+    const el = e.target.closest('button,input[type=checkbox]'); if (!el) return;
+    const d = el.dataset;
+    if (el.id === 's3-toggle') return setOpen(!open);
+    if (d.chat) { view = {kind: 'agent', id: d.chat}; return setOpen(true); }
+    if (!el.closest('#s3-view')) return;
+    if ('office' in d) return setOpen(false);
+    if (d.go) { const [kind, id] = d.go.split(':'); view = {kind, id}; renderMain(); }
+    else if (d.ans) { const [id, i] = d.ans.split(':'); A.answer(id, +i); }
+    else if (d.stop) A.stop(d.stop);
+    else if (d.steps) { openSteps.has(d.steps) ? openSteps.delete(d.steps) : openSteps.add(d.steps); }
+    else if (d.fix) { A.setRule('all', d.fix, true); G.toast('Added to AGENTS.md', 'good'); }
+    else if (d.rule) { A.setRule('all', d.rule, el.checked); renderMain(); }
+    else if (d.hire) { if (A.hire(d.hire)) { view = {kind: 'agent', id: d.hire}; renderMain(); } }
+    update();
+  });
+  function sendFrom(id) { const i = document.querySelector(`[data-input="${id}"]`); if (!i) return; if (!i.value.trim()) { i.value = ''; return; } A.send(id, i.value); i.value = ''; hint(id); i.focus(); }
+  document.addEventListener('input', e => { if (e.target.dataset?.input) hint(e.target.dataset.input); });
+  // While the team view is open it owns the keyboard, so typing never walks you around the office.
+  window.addEventListener('keydown', e => {
+    if (!open || document.querySelector('#modal[open], #settings-dialog[open]')) return;
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); return setOpen(false); }
+    if (e.key === 'Enter' && e.target.dataset?.input) { e.preventDefault(); sendFrom(e.target.dataset.input); }
+  }, true);
+  window.addEventListener('keyup', e => { if (open) e.stopPropagation(); }, true);
+
+  let pending = false, lastRefresh = 0;
+  A.onChange(() => {
+    if (pending) return; pending = true;
+    requestAnimationFrame(() => { pending = false; update(); if (Date.now() - lastRefresh > 800) { lastRefresh = Date.now(); G.hud(); } });
+  });
+  renderSide(); renderToggle();
+  window.Stage3UI = {open: id => { view = {kind: 'agent', id: id || 'nib'}; setOpen(true); }, close: () => setOpen(false), isOpen: () => open};
+});

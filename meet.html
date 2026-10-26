@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First Office · Meet Nib</title>
+<link rel="icon" href="original/assets/office-mark.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:'Pixelify Sans';src:url(assets/pixelify-sans.woff2) format('woff2');font-weight:400 700;font-display:swap}
+:root{
+  --night:#17153a; --wall:#1f1c4a; --floor:#2a2560; --lamp:#ffcf7a;
+  --paper:#f1e8d4; --screen:#7ff0d8; --ink:#0c0a22; --muted:#a49fc8; --ground:max(34%,310px);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#000;color:var(--paper);font-family:'Pixelify Sans',monospace;font-size:18px;line-height:1.45;
+  /* The font's fi/fl ligatures render as odd single glyphs ("find" looked like "Find"). */
+  font-variant-ligatures:none;font-feature-settings:'liga' 0,'clig' 0}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--screen);outline-offset:3px}
+
+.stage{position:relative;height:100vh;min-height:480px;overflow:hidden;background:#000}
+/* Room ambience around the light. Hidden until the lamp has finished flickering on. */
+.ambient{position:absolute;inset:0;background:var(--wall)}
+/* Lamp light: a banded cone from the bulb down to the floor (hard stops keep the pixel look). */
+.cone{position:absolute;left:50%;top:calc(16vh + 10px);bottom:calc(var(--ground) - 12vh);width:min(680px,96vw);transform:translateX(-50%);
+  clip-path:polygon(calc(50% - 14px) 0,calc(50% + 14px) 0,100% 100%,0 100%);
+  background:linear-gradient(rgba(255,207,122,.34) 0 18%,rgba(255,207,122,.22) 18% 48%,rgba(255,207,122,.13) 48% 80%,rgba(255,207,122,.08) 80%)}
+.cord{position:absolute;left:50%;top:0;width:4px;height:16vh;background:var(--ink);transform:translateX(-50%)}
+.bulb{position:absolute;left:50%;top:16vh;width:28px;height:14px;background:var(--lamp);transform:translateX(-50%);
+  box-shadow:0 -6px 0 0 var(--ink),0 0 0 6px rgba(255,207,122,.4),0 0 0 14px rgba(255,207,122,.16),0 0 56px 26px rgba(255,207,122,.45)}
+.pool{position:absolute;left:50%;bottom:calc(var(--ground) - 12vh + 2px);width:min(560px,80vw);height:12vh;transform:translateX(-50%);
+  border-radius:50%;background:radial-gradient(closest-side,rgba(255,207,122,.28),rgba(255,207,122,.1) 60%,rgba(255,207,122,.04) 61%,transparent)}
+/* Permanent darkness outside the lamp's reach. Sits above the room, below the dialogue UI. */
+.shade{position:absolute;inset:0;z-index:4;pointer-events:none;
+  background:radial-gradient(ellipse 36% 50% at 50% 42%,transparent 0 30%,rgba(0,0,0,.5) 55%,rgba(0,0,0,.9) 82%,#000 100%)}
+.goal,.talk,.status{z-index:5}
+.actor{position:absolute;left:50%;bottom:calc(var(--ground) - 16px);transform:translateX(-50%);width:clamp(110px,12vw,160px)}
+.actor svg{display:block;width:100%;height:auto;shape-rendering:crispEdges;overflow:visible}
+#nib{animation:bob 2.4s steps(2) infinite}
+@keyframes bob{50%{transform:translateY(2px)}}
+
+.goal{position:absolute;top:24px;left:24px;min-width:220px;padding:14px 18px;background:var(--ink);border:4px solid var(--paper);
+  opacity:0;transform:translateY(-10px)}
+/* Pixel frames, held (step-end). Anticipation: the card lifts 2px for ~6 frames before it drops in. Offset: rows follow 3 frames apart. */
+.goal.on{opacity:1;transform:none;animation:goal-in .42s step-end backwards}
+@keyframes goal-in{0%{opacity:0;transform:translateY(-10px)}12%{opacity:1;transform:translateY(-12px)}36%{transform:translateY(-6px)}54%{transform:translateY(-2px)}72%{transform:none}}
+.goal.on h2,.goal.on dt,.goal.on dd{animation:pop-in .3s step-end backwards}
+.goal.on h2{animation-delay:.2s}
+.goal.on dt:nth-of-type(1),.goal.on dd:nth-of-type(1){animation-delay:.25s}
+.goal.on dt:nth-of-type(2),.goal.on dd:nth-of-type(2){animation-delay:.3s}
+@keyframes pop-in{0%{opacity:0;transform:translateY(3px)}34%{opacity:1;transform:translateY(4px)}67%{transform:translateY(-1px)}100%{transform:none}}
+.goal h2{color:var(--lamp);font-weight:600;font-size:16px}
+.goal dl{display:grid;grid-template-columns:1fr auto;gap:2px 24px;margin-top:6px;font-size:19px}
+.goal dd{text-align:right}
+
+.talk{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);width:min(720px,calc(100vw - 32px))}
+.box{position:relative;min-height:116px;padding:26px 28px 22px;background:var(--ink);
+  border:4px solid var(--paper);box-shadow:0 0 0 4px var(--ink),8px 8px 0 4px rgba(12,10,34,.5);cursor:pointer}
+.name{position:absolute;top:-16px;left:20px;padding:2px 12px;background:var(--lamp);color:var(--ink);font-weight:600;border:4px solid var(--ink)}
+#line{font-size:24px;line-height:1.6;letter-spacing:.03em;word-spacing:.12em;max-width:56ch;min-height:72px}
+.more{position:absolute;right:18px;bottom:10px;color:var(--lamp);visibility:hidden;animation:nudge 1s steps(2) infinite}
+.box.waiting .more{visibility:visible}
+@keyframes nudge{50%{transform:translateY(3px)}}
+.thinking #line{color:var(--muted)}
+.say{display:flex;gap:10px;margin-top:16px}
+.say input{flex:1;min-width:0;padding:12px 14px;background:var(--paper);color:var(--ink);border:4px solid var(--ink);font-size:19px}
+.say input::placeholder{color:#5f5a80}
+.say input:disabled{opacity:.8}
+.btn,.say button,.chips button{background:var(--lamp);color:var(--ink);border:4px solid var(--ink);padding:10px 18px;font-weight:600;cursor:pointer;box-shadow:0 4px 0 var(--ink)}
+.btn:active,.say button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.say button:disabled,.chips button:disabled{opacity:.7;cursor:default}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;min-height:44px}
+.chips button{background:transparent;color:var(--paper);border-color:var(--muted);box-shadow:none;padding:6px 12px;font-weight:400;font-size:17px;letter-spacing:.02em}
+.chips button:hover:not(:disabled){border-color:var(--paper)}
+/* Suggestion chips arrive 3 frames apart, each with a 1px dip first. */
+.chips button{animation:pop-in .3s step-end backwards;animation-delay:calc(var(--i,0) * 50ms)}
+
+.status{position:absolute;right:16px;bottom:10px;font-size:15px;color:#c4bfe0;text-align:right}
+.status button{background:none;border:0;color:#c4bfe0;text-decoration:underline;cursor:pointer;font-size:15px}
+
+/* Pitch black until the lamp comes on. Everything outside the lamp's reach is still black underneath (.shade),
+   so fading this layer only ever reveals the bulb, Nib and the floor around him. */
+.dark{position:absolute;inset:0;background:#000;display:grid;place-items:end center;padding-bottom:max(48px,8vh);z-index:6}
+.dark[hidden]{display:none}
+/* Light-on sequence, driven by classes on .stage:
+   off     everything black (only the button overlay shows)
+   flicker only the lamp's triangle (bulb, cone, pool, Nib) sputters on; the rest stays black
+   lit     the room ambience and dialogue fade in around the triangle */
+.stage.off .ambient,.stage.off .talk,.stage.off .status,.stage.off .lamp{opacity:0}
+.stage.flicker .lamp{animation:twinkle 1.8s linear forwards}
+@keyframes twinkle{0%{opacity:0}8%{opacity:.25}13%{opacity:.06}21%{opacity:.32}27%{opacity:.12}37%{opacity:.45}43%{opacity:.3}
+  60%{opacity:.8;animation-timing-function:ease-out}100%{opacity:1}}
+.stage.lit .ambient,.stage.lit .talk,.stage.lit .status{transition:opacity 1.4s ease-in}
+.dark .btn{font-size:20px;padding:14px 26px}
+.next{position:absolute;inset:0;z-index:7;display:grid;place-content:center;gap:20px;text-align:center;background:var(--ink);
+  opacity:0;pointer-events:none;transition:opacity 1.2s}
+.next.on{opacity:1;pointer-events:auto}
+.next p{font-size:28px;color:var(--lamp)}
+.next span{color:var(--muted)}
+
+@media (max-width:860px){.status{position:relative;z-index:5;margin:8px 0 0;text-align:left}}
+@media (max-width:520px){#line{font-size:19px}.goal{top:12px;left:12px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.dark.out{display:none}}
+</style>
+</head>
+<body>
+<main class="stage" aria-label="Meet Nib">
+  <div class="ambient"></div>
+  <div class="cone lamp"></div><div class="pool lamp"></div>
+  <div class="cord"></div><div class="bulb lamp"></div>
+  <div class="actor lamp"><svg id="nib" viewBox="0 0 16 21" role="img" aria-label="Nib, a small character with a monitor for a head"></svg></div>
+  <div class="shade"></div>
+
+  <aside class="goal" id="goal" aria-label="Current goal">
+    <h2>First job</h2>
+    <dl><dt>Bugs</dt><dd id="goalBugs">0 / 20</dd><dt>Critical</dt><dd id="goalCrits">0 / 1</dd></dl>
+  </aside>
+
+  <div class="talk">
+    <div class="box" id="box" role="log" aria-live="polite">
+      <span class="name">Nib</span>
+      <p id="line"></p>
+      <span class="more" aria-hidden="true">▼</span>
+    </div>
+    <form class="say" id="say">
+      <input id="msg" aria-label="Message to Nib" placeholder="Say something to Nib" autocomplete="off" maxlength="200" disabled>
+      <button id="send" disabled>Send</button>
+    </form>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="status"><span id="ai">Checking AI…</span> · <button type="button" id="reset">Start over</button></div>
+
+  <div class="next" id="next" aria-live="polite">
+    <p>Chapter 2 · First job together</p>
+    <span>Nib will remember you.</span>
+  </div>
+
+  <div class="dark" id="dark"><button class="btn" id="wake" autofocus>Turn on the light</button></div>
+</main>
+
+<script src="avatars.js"></script>
+<script>
+/* ---------- pixel art: avatars.js, shared with the office and the team ---------- */
+const nibArt=(mood,f)=>Avatars.rects('nib',{mood,f}).map(([x,y,w,h,c])=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
+
+/* ---------- scene and dialogue ---------- */
+const $=id=>document.getElementById(id);
+const stage=document.querySelector('.stage');
+const nib=$('nib'), box=$('box'), line=$('line'), input=$('msg'), send=$('send'), chips=$('chips'), goal=$('goal');
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const wait=ms=>new Promise(r=>setTimeout(r,reduced?0:ms));
+
+let mood='off', frame=0;
+const draw=()=>{nib.innerHTML=nibArt(mood,frame)};
+const setMood=m=>{mood=m;draw();};
+draw();
+setInterval(()=>{frame++; if(mood==='talk'||mood==='think') draw();},140);
+setInterval(()=>{ if(mood==='idle'){setMood('blink');setTimeout(()=>{if(mood==='blink')setMood('idle');},130);} },3200);
+
+let typing=null, finishTyping=null, advance=null;
+function typeLine(text,after){
+  return new Promise(res=>{
+    setMood('talk'); line.textContent=''; let i=0;
+    const done=()=>{clearInterval(typing);typing=null;finishTyping=null;line.textContent=text;setMood(after);res();};
+    if(reduced){done();return;}
+    typing=setInterval(()=>{line.textContent=text.slice(0,++i); if(i>=text.length) done();},33);
+    finishTyping=done; // timer ids are numbers in browsers, so the skip handler can't hang off `typing`
+  });
+}
+function waitNext(){ box.classList.add('waiting'); return new Promise(r=>advance=()=>{advance=null;box.classList.remove('waiting');r();}); }
+function skipOrNext(){ if(finishTyping) finishTyping(); else if(advance) advance(); }
+box.addEventListener('click',skipOrNext);
+document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&document.activeElement!==input&&(typing||advance)){e.preventDefault();skipOrNext();} });
+
+// Lines are strings (typed) or functions (run between lines). Nothing advances without a click or Enter.
+async function speak(lines,end='idle'){
+  lock(true);
+  for(let i=0;i<lines.length;i++){
+    const l=lines[i];
+    if(typeof l==='function'){l();continue;}
+    history.push({role:'nib',text:l});
+    const last=!lines.slice(i+1).some(x=>typeof x==='string');
+    await typeLine(l,last?end:'idle');
+    if(!last) await waitNext();
+  }
+  lock(false);
+}
+function lock(on){ input.disabled=on; send.disabled=on; chips.querySelectorAll('button').forEach(b=>b.disabled=on); if(!on) input.focus(); }
+function setChips(list){ chips.innerHTML=''; list.forEach((t,i)=>{const b=document.createElement('button');b.type='button';b.style.setProperty('--i',i);b.textContent=t;b.onclick=()=>submit(t);chips.append(b);}); }
+
+/* ---------- memory (read by later stages) ---------- */
+const KEY='first-office-nib-v1';
+let mem; try{mem=JSON.parse(localStorage.getItem(KEY))||{};}catch{mem={};}
+mem.facts=Array.isArray(mem.facts)?mem.facts:[];
+const save=()=>localStorage.setItem(KEY,JSON.stringify(mem));
+// Starting over clears the office too, or the old save (and the old name) would come straight back.
+function resetAll(){['first-office-nib-v1','first-office-game-v1','first-office-crew-v1','first-office-avatar-v1'].forEach(k=>localStorage.removeItem(k));location.reload();}
+$('reset').onclick=resetAll;
+
+/* ---------- beats: the page decides when the stage moves; the model only writes lines ---------- */
+// Fixed facts come from game data, never from the model.
+const GOAL={bugs:20,criticals:1,critChance:0.05};
+$('goalBugs').textContent=`0 / ${GOAL.bugs}`; $('goalCrits').textContent=`0 / ${GOAL.criticals}`;
+const PITCH=["I'm here to help you run a security company. We find bugs, and we get paid for them.",
+  `Our first job: find ${GOAL.bugs} bugs, and at least ${GOAL.criticals===1?'one':GOAL.criticals} critical.`,
+  ()=>goal.classList.add('on'),
+  `Criticals are rare. About one find in ${Math.round(1/GOAL.critChance)}. Want to start?`];
+const CRITICAL=["A critical is the most serious kind of security bug.",
+  "It lets an attacker take over a system or reach private data, often with no login at all.",
+  `They're rare. Each bug we find has about a ${GOAL.critChance*100}% chance of being one.`];
+const KW={
+  purpose:/\b(what (do|should|are) we|why are (you|we)|job|work|goal|purpose|start|build|company|bugs?)\b/i,
+  critical:/\bcrit(ical)?s?\b/i,
+  accept:/\b(yes|yeah|yep|sure|ok|okay|let'?s|do it|go|ready|start)\b/i,
+  decline:/\b(no|nope|not yet|later|wait|hold on)\b/i
+};
+const SCRIPTED={
+  talk:()=>["I'm a small model, so I'll be honest: I'm not sure.","Try asking who I am, or what we do here."],
+  offer:()=>["No pressure. Want to start?"],
+  decline:()=>["No rush. I'll be here.","Say the word when you're ready."],
+  return:n=>[`Welcome back, ${n}. The first job is still waiting.`]
+};
+let beat='name', nameTries=0, freeTurns=0, aiOk=false;
+const history=[];
+
+async function ask(message){
+  if(!aiOk) return null;
+  try{
+    const r=await fetch('/api/nib/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({beat,message,history:history.slice(-9,-1),memory:{playerName:mem.playerName||'',facts:mem.facts}})});
+    if(!r.ok) return null;
+    const out=await r.json();
+    if(out.remember?.length){mem.facts=[...new Set([...mem.facts,...out.remember])].slice(-5);save();}
+    return out;
+  }catch{return null;}
+}
+// Finds a name in replies like "Sam", "call me Sam", "I'm Sam", "my name is Sam". Returns '' when unsure.
+const NOT_NAMES=/^(hi|hey|hello|yo|ok|okay|yes|no|why|what|who|how|um|uh|the|a|an|just|not|nice|good|fine|sure|nib|you|me|i|so|there|here|very|really|tired|great|well|bored|happy|sad|ready|back|new|from|in|at|on|going|doing|looking|trying|thanks|thank)$/i;
+function guessName(text){
+  const t=text.trim().replace(/[.!?,]+$/,'');
+  const m=t.match(/(?:^|\s)(?:call me|i'?m|i am|my name(?:'s| is)|name(?:'s| is)|it'?s|this is)\s+(\p{L}[\p{L}'-]{0,23})/iu);
+  let n=m?m[1]:'';
+  if(!n){ const w=t.replace(/^(hi|hey|hello|yo)[,\s]+/i,'').split(/\s+/); if(w.length<=2&&/^\p{L}[\p{L}'-]{0,23}$/u.test(w[0]))n=w[0]; }
+  return n&&!NOT_NAMES.test(n)?n[0].toUpperCase()+n.slice(1):'';
+}
+function pitch(lead=[]){ beat='offer'; return {lines:[...lead,...PITCH],mood:'idle',chips:["Let's do it","What's a critical?"]}; }
+function accept(){
+  beat='done'; mem.completedAt=new Date().toISOString(); mem.acceptedFirstTry??=true; save();
+  // Stage 2 is the office at /. Same server, so it reads this memory (name, facts) directly.
+  return {lines:["Good. Let's find somewhere to work.",()=>setTimeout(()=>{$('next').classList.add('on');setTimeout(()=>location.href='/',reduced?300:2600);},reduced?0:1400)],mood:'happy',chips:[]};
+}
+
+async function decide(text){
+  if(beat==='name'){
+    // Code finds the name; the model is only asked when code can't tell.
+    let n=guessName(text);
+    if(!n){ const ai=await ask(text); n=ai?.name&&!NOT_NAMES.test(ai.name)?ai.name:'';
+      if(!n&&nameTries++<1) return {lines:ai?ai.say:["I didn't catch a name. What should I call you?"]}; }
+    mem.playerName=n||'friend'; save();
+    input.placeholder='Say something to Nib';
+    // Straight from the greeting into Nib's purpose and the first job; no free-talk step.
+    return pitch([`Nice to meet you, ${mem.playerName}.`]);
+  }
+  const ai=await ask(text);
+  if(beat==='talk'){
+    if(KW.critical.test(text)||ai?.intent==='ask_critical') return {lines:CRITICAL,chips:['What do we do?']};
+    if(KW.purpose.test(text)||ai?.intent==='ask_purpose') return pitch();
+    if(++freeTurns>=3) return pitch([...(ai?ai.say:[]),"Can I tell you why I'm here?"]);
+    return {lines:ai?ai.say:SCRIPTED.talk(),mood:ai?.mood};
+  }
+  // offer: a decline keyword always wins over an accept from either source.
+  const declined=KW.decline.test(text)||ai?.intent==='decline';
+  if(KW.critical.test(text)||ai?.intent==='ask_critical') return {lines:[...CRITICAL,'Want to start?'],chips:["Let's do it"]};
+  if(!declined&&(KW.accept.test(text)||ai?.intent==='accept')) return accept();
+  if(declined){ if(KW.decline.test(text)){mem.acceptedFirstTry=false; save();} return {lines:ai?ai.say:SCRIPTED.decline(),chips:["Let's do it"]}; }
+  return {lines:ai?ai.say:SCRIPTED.offer(),mood:ai?.mood,chips:["Let's do it","What's a critical?"]};
+}
+
+async function submit(text){
+  text=text.trim().slice(0,200); if(!text||input.disabled||beat==='done') return;
+  input.value=''; lock(true); chips.innerHTML='';
+  history.push({role:'player',text});
+  box.classList.add('thinking'); line.textContent='Nib is thinking…'; setMood('think');
+  const [r]=await Promise.all([decide(text),wait(500)]);
+  box.classList.remove('thinking');
+  await speak(r.lines,r.mood||'idle');
+  if(r.chips) setChips(r.chips);
+}
+$('say').addEventListener('submit',e=>{e.preventDefault();submit(input.value);});
+
+/* ---------- start ---------- */
+const health=fetch('/api/nib/health').then(r=>r.json()).catch(()=>({ok:false}));
+health.then(h=>{
+  aiOk=!!h.ok;
+  $('ai').textContent=h.ok?`${h.model} · ${h.provider}`:'Scripted lines (AI offline)';
+  $('ai').title=h.error||'';
+});
+
+if(mem.completedAt&&mem.playerName){
+  // Returning player: skip the dark room and the introduction.
+  $('dark').hidden=true; goal.classList.add('on'); beat='return';
+  (async()=>{ await health; const ai=await ask('');
+    beat='offer'; await speak(ai?ai.say:SCRIPTED.return(mem.playerName),ai?.mood||'happy'); setChips(["Let's go"]); })();
+}else{
+  stage.classList.add('off');
+  $('wake').addEventListener('click',async()=>{
+    // The button disappears first; a beat of pure black, then the lamp flickers on.
+    $('dark').hidden=true;
+    await wait(600);
+    stage.classList.add('flicker'); setMood('blink');
+    await wait(1800);
+    stage.classList.remove('off'); stage.classList.add('lit');
+    await wait(1000);
+    await speak(["Hi, I'm Nib.","I'm a small AI model running in the cloud. What should I call you?"]);
+    input.placeholder='Type your name';
+  });
+}
+</script>
+</body>
+</html>
