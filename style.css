@@ -38,6 +38,17 @@
 .toast{animation-duration:.34s}
 @keyframes rise{0%{opacity:0;transform:translateY(-4px);animation-timing-function:var(--wind)}30%{opacity:1;transform:translateY(-6px);animation-timing-function:var(--settle)}100%{opacity:1;transform:none}}
 #stats-open .k{font-size:11px;color:var(--muted)}
+/* Wallet motion (#3 rolling counters, #4 pay chips): while a number rolls it dips, bumps and flashes (green up, red down),
+   rep 3 frames after cash; a landing chip squashes the wallet onto its base. game.js drives the numbers and the chip. */
+.wallet .res{transition:color .45s ease-out}
+.wallet .res.gain{color:var(--good);transition:none}.wallet .res.loss{color:var(--danger-ink);transition:none}
+.wallet .res.bump{animation:wallet-roll .7s}.wallet .res+.res.bump{animation-delay:var(--stagger)}
+@keyframes wallet-roll{0%{transform:none;animation-timing-function:var(--wind)}15%{transform:scale(.95);animation-timing-function:var(--settle)}40%{transform:scale(1.09)}100%{transform:none}}
+#stats-open.land{transform-origin:50% 100%;animation:wallet-land .32s ease-out}
+@keyframes wallet-land{25%{transform:scale(1.07,.92)}55%{transform:scale(.97,1.04)}100%{transform:none}}
+.pay-chip{position:fixed;left:0;top:0;z-index:16;padding:3px 10px;border:1px solid var(--good);border-radius:999px;background:#183a2c;color:var(--good);font:600 13px/1.2 var(--sans);white-space:nowrap;pointer-events:none;opacity:0;will-change:transform,filter}
+.pay-chip.crit{border-color:var(--amber);background:var(--amber-soft);color:#ffe7a8}
+@media (prefers-reduced-motion:reduce){.wallet .res,#stats-open.land{animation:none;transition:none}.pay-chip{display:none}}
 
 /* ---- Nib's bubble ---- */
 .nib-bubble{position:fixed;z-index:13;width:min(340px,calc(100vw - 24px));padding:12px 14px 12px;background:var(--paper);border:1px solid var(--nib);border-radius:8px;box-shadow:var(--shadow);animation:rise .34s}

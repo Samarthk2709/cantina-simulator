@@ -374,7 +374,7 @@
   function paid(a, r, station) {
     if (!r.accepted) return;
     a.task.accepted++; a.stats.accepted++; a.stats.earned += r.pay || 0;
-    G.floatAt('+' + money(r.pay), station);
+    if (!G.payChip?.(r, station, a.id)) G.floatAt('+' + money(r.pay), station); // the chip flies from the agent to the wallet
     G.toast(r.crit ? `CRITICAL · ${a.name} · +${money(r.pay)}` : `${a.name}: ${r.grade} report · +${money(r.pay)} · +${r.rep} rep`, r.crit ? 'crit' : 'good');
     if (r.tierUp) G.toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
   }
@@ -534,6 +534,7 @@
       if (!r.ok || !r.chained) return bad(a, r.why || 'The chain didn\'t hold.');
       push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`);
       G.floatAt('CRITICAL', 'hq'); G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
+      G.payChip?.(r, 'hq', a.id); // the chain's pay flies to the wallet too
     }, ready.name);
     if (t.chained) return {done: 'Chain connected.'};
     return {done: 'No chain is ready.'};
