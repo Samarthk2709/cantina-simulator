@@ -7,7 +7,7 @@
   function create(opts) {
     const W = opts.W, world = opts.world, layer = opts.canvas, bubble = opts.bubble, g = layer.getContext('2d');
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const A = { x: 184, y: 104, path: [], walk: 0, mood: 'idle', face: 'idle', facing: 1, windup: 0, onArrive: null, visible: true, lit: false };
+    const A = { x: 184, y: 104, path: [], walk: 0, mood: 'idle', face: 'idle', facing: 1, windup: 0, onArrive: null, visible: true, lit: false, hop: null };
     let t = 0, last = 0, f = 0, blinkAt = 3, sayTimer = 0, bubbleOpen = false, bubbleSide = 'left', finish = null;
 
     // A new walk replaces the old one; the old walk's callback still fires so nothing awaits forever.
@@ -25,6 +25,7 @@
     }
     function place(x, y) { A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
     function step(dt) {
+      if (A.hop !== null) { A.hop += dt; if (A.path.length || A.hop >= 1) A.hop = null; } // squash & stretch hop: a walk cancels it
       if (A.path.length && A.windup > 0) A.windup -= dt;
       else if (A.path.length) {
         let budget = 70 * dt;
@@ -50,11 +51,13 @@
       const fx = rr.left - lr.left + A.x * s, fy = rr.top - lr.top + A.y * s + 2 * s; // between the feet
       const ox = fx - 8 * px, oy = fy - 21 * px;
       g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = false;
-      g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(fx, fy, 7 * px, 2 * px, 0, 0, 7); g.fill();
+      // Squash & stretch hop: the pose for this frame; the shadow stays on the floor, shrinking and fading as Nib rises.
+      const hp = A.hop === null ? null : window.Avatars.hop(A.hop * 1000), rise = hp ? hp.y / 9 : 0;
+      g.fillStyle = `rgba(0,0,0,${.35 * (1 - rise / 2)})`; g.beginPath(); g.ellipse(fx, fy, 7 * px * (hp ? hp.sx : 1) * (1 - rise * .4), 2 * px, 0, 0, 7); g.fill();
       if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
       const crouch = A.path.length > 0 && A.windup > 0, moving = A.path.length > 0 && !crouch;
       const stepN = moving ? ((A.walk / 5) | 0) % 4 : 0, bob = crouch ? -px : moving && !reduced ? (stepN % 2) * px : 0;
-      window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob });
+      window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: hp && A.mood === 'idle' ? 'happy' : A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy });
       if (A.mood === 'sleep' && !reduced) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - (t * 4 % 6)); }
       placeBubble(ox + lr.left, oy + lr.top, px);
     }
@@ -118,6 +121,7 @@
     function hush() { clearTimeout(sayTimer); if (finish) finish(false); bubble.hidden = true; bubbleOpen = false; }
     function setMood(m) { A.mood = m; A.face = m; }
     return {
+      hop: () => { if (!reduced && !A.path.length) A.hop = 0; }, // squash & stretch: one happy hop on the spot (not mid-walk)
       goTo, place, say, hush, setMood,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
       pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; }, show: v => { A.visible = !!v; }

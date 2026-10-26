@@ -15,13 +15,18 @@ body.stage3 #founder-chips{display:none}
 /* Offset: each agent's loop runs 3 frames behind the one above it, so the team never moves as one block. */
 .s3-av.st-working svg{animation:s3-bob .5s steps(2) calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
 .s3-av.st-thinking svg{animation:s3-sway 1.6s ease-in-out calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
-.s3-av.st-waiting svg{animation:s3-hop .9s step-end calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
+.s3-av.st-waiting svg{animation:s3-hop 1.6s step-end calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite;transform-origin:50% 100%}
 .s3-av.st-sad svg{animation:s3-shake .3s steps(2) 6}
 .s3-av.st-idle svg,.s3-av.st-done svg{animation:none}
 @keyframes s3-bob{50%{transform:translateY(-1.5px)}}
 @keyframes s3-sway{50%{transform:rotate(-4deg)}}
-/* Anticipation: crouch a pixel for ~6 frames before each hop. */
-@keyframes s3-hop{0%{transform:none}22%{transform:translateY(1px)}34%{transform:translateY(-3px)}60%{transform:translateY(-1px)}70%{transform:none}}
+/* Squash & stretch hop (the frames of Avatars.hop): squash 200 ms (the anticipation), stretch up, hang, stretch down,
+   squash on landing, overshoot, rest. Held frames; sizes land on whole art pixels (16×21) and lifts are whole art
+   pixels (100%/21 of the sprite). translate/scale, not transform, so a flipped agent stays flipped mid-hop. */
+@keyframes s3-hop{0%{translate:0;scale:1}3.125%{scale:1.0625 .9524}6.25%{scale:1.125 .8571}9.375%{scale:1.1875 .8095}
+  12.5%{translate:0 -14.29%;scale:.875 1.1429}15.625%{translate:0 -23.81%}18.75%{translate:0 -28.57%;scale:.9375 1.0952}21.875%{translate:0 -33.33%;scale:.9375 1.0476}
+  25%{translate:0 -38.1%;scale:1 1.0476}28.125%{translate:0 -42.86%;scale:1}34.375%{translate:0 -38.1%;scale:1 1.0476}37.5%{translate:0 -28.57%;scale:.9375 1.0952}
+  40%{translate:0 -14.29%}41.875%{translate:0 -4.76%}43.75%{translate:0;scale:1.1875 .8095}50%{scale:1.0625 .9524}53.125%{scale:.9375 1.0476}59.375%{translate:0;scale:1}}
 @keyframes s3-shake{50%{transform:translateX(1.5px)}}
 .s3-av.plus{display:grid;place-items:center;height:22px;border:1px dashed var(--line);border-radius:6px;color:var(--muted);font:14px var(--mono)}
 @media (prefers-reduced-motion:reduce){.s3-av svg{animation:none!important}}

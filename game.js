@@ -441,6 +441,7 @@
     if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); world.pulseAt('stats'); nibSay('Our first bounty. There\'s a tool shelf now: tools open new kinds of bugs. The ledger tracks our reputation.', { ms: 5600, mood: 'happy' }); }
     if (r.firsts && r.firsts.hq) { world.pulseAt('hq'); nibSay('About one bug in twenty turns out critical. Or we make one: two bugs in connected rooms. HQ has the board.', { ms: 5600 }); }
     if (r.won) setTimeout(ending, 1600);
+    nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
   }
   function prove(id) {
     const c = s.tray.find(x => x.id === id), r = E.prove(s, id); if (!r.ok) return toast(r.why, 'bad');
@@ -467,6 +468,7 @@
     if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
+    nib.hop(); // squash & stretch: and for a critical chain
     drawWindow(); if (r.won) setTimeout(ending, 1600);
   }
 
