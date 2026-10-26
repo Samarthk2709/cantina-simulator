@@ -27,6 +27,7 @@
     function step(dt) {
       if (A.path.length && A.windup > 0) A.windup -= dt;
       else if (A.path.length) {
+        const x0 = A.x, y0 = A.y; // #6: this frame's step, for the follow-through's direction
         let budget = 70 * dt;
         while (budget > 0 && A.path.length) {
           const wp = A.path[0], dx = wp.x - A.x, dy = wp.y - A.y, n = Math.hypot(dx, dy);
@@ -34,11 +35,30 @@
           const d = Math.min(budget, n); A.x += dx / n * d; A.y += dy / n * d; A.walk += d; budget -= d;
           if (Math.abs(dx) > 0.5) A.facing = dx < 0 ? -1 : 1;
         }
+        if (!A.path.length) followFrom(x0, y0);
         if (!A.path.length && A.onArrive) { const cb = A.onArrive; A.onArrive = null; cb(); }
       }
       if (A.mood === 'idle' && t > blinkAt) { A.face = 'blink'; if (t > blinkAt + 0.14) { A.face = 'idle'; blinkAt = t + 2.5 + Math.random() * 2; } }
       else if (A.mood !== 'idle') A.face = A.mood;
       else A.face = 'idle';
+    }
+    // Follow-through (#6): when Nib stops after walking, his body keeps going a moment: 1px on in the travel direction
+    // (~6 frames), 1px back (~4 frames), then still. His shadow stays put. The agents do the same (harness.js).
+    const FOLLOW = 0.16;
+    function followFrom(x0, y0) { const dx = A.x - x0, dy = A.y - y0; A.followAt = t; A.followDir = Math.abs(dy) > Math.abs(dx) ? [0, Math.sign(dy)] : [Math.sign(dx) || A.facing, 0]; }
+    function followLean(px) {
+      const e = t - A.followAt; // NaN before the first stop
+      if (A.path.length || !(e < FOLLOW)) return [0, 0];
+      const s = Math.round(px) * (e < 0.09 ? 1 : -1); // whole art pixels on screen, so the sprite stays crisp
+      return [A.followDir[0] * s, A.followDir[1] * s];
+    }
+    // ...and his bubble trails him on a spring instead of being glued on. It springs his anchor point, so placeBubble's
+    // margins, avoid rect and side switch still hold. It may close the 6px gap to Nib but never covers him.
+    const trail = springTrail();
+    function trailBubble(x, y, px) {
+      if (reduced || bubble.hidden) { trail.reset(); return [x, y]; } // a fresh bubble starts in place
+      const far = 16 * px;
+      return trail.to(x, y, performance.now(), px, bubble.dataset.side === 'left' ? [-far, 6, -far, far] : [-6, far, -far, far]);
     }
     function draw() {
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
@@ -54,11 +74,14 @@
       if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
       const crouch = A.path.length > 0 && A.windup > 0, moving = A.path.length > 0 && !crouch;
       const stepN = moving ? ((A.walk / 5) | 0) % 4 : 0, bob = crouch ? -px : moving && !reduced ? (stepN % 2) * px : 0;
+      const [lx, ly] = followLean(px); g.translate(lx, ly); // #6: the sprite leans on, its shadow doesn't
       window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob });
+      g.translate(-lx, -ly);
       if (A.mood === 'sleep' && !reduced) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - (t * 4 % 6)); }
       placeBubble(ox + lr.left, oy + lr.top, px);
     }
     function placeBubble(x, y, px) {
+      [x, y] = trailBubble(x, y, px); // #6: lags Nib on a spring
       if (bubble.hidden) return;
       // A window is open: Nib speaks from a strip docked on top of it, never over what you're working on.
       const dock = opts.dock && opts.dock();
@@ -123,5 +146,29 @@
       pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; }, show: v => { A.visible = !!v; }
     };
   }
+  // Follow-through (#6): a speech bubble trails its speaker on a spring (the mockup's: stiffness 72/s², damping 12/s,
+  // so ζ≈0.7 and a ~2px overshoot), stepped in ≤1/120 s slices so it feels the same at any frame rate. `box` caps the
+  // lag in screen px around the anchor [minX, maxX, minY, maxY]; at a cap the bubble moves with its speaker, so it
+  // carries on a little when they stop. A reset, a teleport or a long gap puts it straight in place.
+  function springTrail() {
+    let on = false, x = 0, y = 0, vx = 0, vy = 0, ax = 0, ay = 0, at = 0;
+    return {
+      reset() { on = false; },
+      to(tx, ty, now, unit, box) {
+        const dt = Math.min(0.05, (now - at) / 1000);
+        if (!on || now - at > 200 || Math.hypot(tx - ax, ty - ay) > 40 * unit) { x = tx; y = ty; vx = vy = 0; on = true; }
+        else for (let r = dt; r > 1e-6; r -= 1 / 120) {
+          const h = Math.min(r, 1 / 120), damp = Math.exp(-12 * h);
+          vx = (vx + (tx - x) * 72 * h) * damp; vy = (vy + (ty - y) * 72 * h) * damp; x += vx * h; y += vy * h;
+        }
+        const ox = Math.max(box[0], Math.min(box[1], x - tx)), oy = Math.max(box[2], Math.min(box[3], y - ty));
+        if (ox !== x - tx) { x = tx + ox; vx = dt ? (tx - ax) / dt : 0; }
+        if (oy !== y - ty) { y = ty + oy; vy = dt ? (ty - ay) / dt : 0; }
+        ax = tx; ay = ty; at = now;
+        return [x, y];
+      }
+    };
+  }
   window.NibActor = { create };
+  window.BubbleTrail = springTrail; // #6: crew.js trails the agents' bubbles with the same spring
 })();

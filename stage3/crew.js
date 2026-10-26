@@ -63,12 +63,29 @@
         // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
         setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(A.phrase(a)))}</span>` : ''}`);
         el.setAttribute('aria-label', `${a.name}: ${A.phrase(a)}. Open chat.`);
+        followThrough(a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k);
       }
       for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
     }
     requestAnimationFrame(drawLayer);
   }
   const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
+  // Follow-through (#6): an agent that stops leans on a pixel and rocks back (a.drift, from harness.js), and its bubble
+  // trails it on Nib's bubble spring instead of riding the walk bob: it lags while walking and overshoots a touch on
+  // stop. (x, y) is the agent's anchor without bob or lean, (dx, dy) how far the sprite sits from it. A bubble never
+  // sinks onto its agent or leaves the screen, and a new one starts in place. Reduced motion: neither.
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches, trails = {};
+  function followThrough(a, el, x, y, dx, dy, h, k) {
+    if (calm) return;
+    if (a.drift && !a.crouch) { const ex = Math.round(a.drift[0] * k), ey = Math.round(a.drift[1] * k); el.style.translate = `${ex}px ${ey}px`; dx += ex; dy += ey; }
+    const b = el.querySelector('.s3-bubble');
+    if (!b) { trails[a.id]?.reset(); return; }
+    const tr = trails[a.id] || (trails[a.id] = window.BubbleTrail());
+    const [bw, bh] = b.__size || (b.__size = [b.offsetWidth, b.offsetHeight]), far = 16 * k, m = 4;
+    const top = y - h + 2 * k - 15 - bh; // the bubble's top when it sits on the anchor (.s3-bubble: 15px above the sprite)
+    const [sx, sy] = tr.to(x, y, performance.now(), k, [Math.max(-far, Math.min(0, m - x + bw / 2)), Math.min(far, Math.max(0, innerWidth - m - x - bw / 2)), Math.max(-far, Math.min(0, m - top)), 0]);
+    b.style.translate = `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`;
+  }
   requestAnimationFrame(drawLayer);
   // Penalties also show as a small toast in the office, in the game's own toast style.
   C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
