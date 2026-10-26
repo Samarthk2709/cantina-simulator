@@ -96,8 +96,12 @@
     if (c.acc === 'human') return human(c, o);
     // Walking away: the founder shows the back of their head; bots show a plain back panel.
     if (o.back) return [].concat(accessory(c, false), body(c), limbs(c, o.step || 0), c.acc === 'human' ? [[3, 5, 10, 9, c.hair], [2, 14, 12, 2, c.trim]] : [[5, 8, 6, 4, c.shade]]);
-    return [].concat(accessory(c, o.lit || mood === 'think'), body(c), limbs(c, o.step || 0), visor(c, mood), eyes(c, mood, o.f || 0));
+    return breathe([].concat(accessory(c, o.lit || mood === 'think'), body(c), limbs(c, o.step || 0), visor(c, mood), glance(eyes(c, mood, o.f || 0), o.look)), o.breath);
   }
+  // Idle life (motion #8): look (±1) moves the eyes a pixel that way, only if they still fit inside the visor;
+  // breath drops everything above the feet one art pixel and leaves the feet planted. Whole art pixels only.
+  const glance = (r, d) => d && r.every(([x, , w]) => x + d >= 5 && x + w + d <= 11) ? r.map(([x, y, w, h, col]) => [x + d, y, w, h, col]) : r;
+  const breathe = (r, on) => on ? r.map(([x, y, w, h, col]) => [x, y < 18 ? y + 1 : y, w, h, col]) : r;
   function svg(id, o) {
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" shape-rendering="crispEdges" aria-hidden="true">${rects(id, o).map(([x, y, w, h, col]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${col}"/>`).join('')}</svg>`;
   }

@@ -90,6 +90,45 @@
   // Penalties also show as a small toast in the office, in the game's own toast style.
   C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
 
+  // ---------- idle life (motion #8): idle and done agents breathe a pixel, blink and glance, each on its own rhythm ----------
+  // Frames are swapped inside the avatar's own <svg>, so setHTML's string diff never sees them and the state animations
+  // (working, thinking, waiting, sad) are untouched. A redraw starts from the plain frame; the observer restores ours before paint.
+  const LIFE = {}, lifeReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function lifeOf(id, now, floor) {
+    const a = A.get(id), rest = a && a.status === 'resting';
+    let L = LIFE[id];
+    // Seeded from the roster index, golden-ratio spaced, so no two agents breathe or blink as one block.
+    if (!L) { const s = (A.list().indexOf(a) + 1) * 0.618 % 1; L = LIFE[id] = {s, blink: now + 300 + s * 2400, until: 0, glance: 0}; }
+    // A blink every 2–4 s (slower and longer when out of focus). Glances turn on a blink, like a head turn, and the next blink turns back.
+    if (now >= L.blink) {
+      L.until = now + (rest ? 260 : 140); L.blink = now + (2000 + Math.random() * 2000) * (rest ? 1.5 : 1);
+      L.glance = L.glance || rest || lifeReduced || Math.random() > 0.35 ? 0 : Math.random() < 0.5 ? 1 : -1;
+    }
+    const still = !(floor && a && (a.path?.length || a.crouch));
+    if (!still) L.glance = 0; // never while walking on the floor: facing belongs to the walk
+    // Breath: held frames, a 2.6–3.5 s period per agent (1.6× when resting), the body down for the last 45% of it.
+    const P = (2600 + L.s * 900) * (rest ? 1.6 : 1);
+    return {blink: now < L.until, breath: !lifeReduced && still && (now / P + L.s) % 1 > 0.55, glance: still ? L.glance : 0};
+  }
+  function idleLife() {
+    const now = performance.now();
+    for (const el of document.querySelectorAll(open ? '#s3-side .s3-av, #s3-main .s3-av' : '#s3-layer .s3-av')) {
+      const done = el.classList.contains('st-done'), svg = el.firstElementChild;
+      if (!(done || el.classList.contains('st-idle')) || !svg) continue;
+      const host = el.closest('[data-chat],[data-pane],[data-go]'), id = host && (host.dataset.chat || host.dataset.pane || (host.dataset.go || '').split(':')[1]);
+      if (!id || !A.get(id)) continue;
+      const mood = done ? 'happy' : 'idle', L = lifeOf(id, now, !open), key = `${mood}${+L.breath}${+L.blink}${L.glance}`;
+      if ((el.__life || mood + '000') === key) continue;
+      el.__life = key;
+      // A glance looks ahead (eyes a pixel forward) or turns and looks back (mirrored); the floor's .flip still applies on top.
+      svg.innerHTML = window.Avatars.rects(id, {mood: L.blink ? 'blink' : mood, breath: L.breath, look: L.glance ? 1 : 0})
+        .map(([x, y, w, h, c]) => `<rect x="${L.glance < 0 ? 16 - x - w : x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
+    }
+  }
+  (function lifeLoop() { idleLife(); requestAnimationFrame(lifeLoop); })();
+  const lifeWatch = new MutationObserver(idleLife);
+  ['s3-side', 's3-main', 's3-layer'].forEach(id => lifeWatch.observe($(id), {childList: true, subtree: true}));
+
   // ---------- roster ----------
   function renderSide() {
     const s = G.live(), sel = (k, id) => view.kind === k && (id === undefined || view.id === id) ? 'sel' : '';

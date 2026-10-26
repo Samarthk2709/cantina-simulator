@@ -12,6 +12,8 @@ body.stage3 #founder-chips{display:none}
 /* Avatars: state is motion, not lights */
 .s3-av{display:inline-block;flex:none;width:24px;height:32px}
 .s3-av svg{width:100%;height:100%;image-rendering:pixelated;overflow:visible}
+/* Idle life (motion #8) swaps frames inside the svg, so a click must land on the button, never on a rect being replaced. */
+.s3-av svg{pointer-events:none}
 /* Offset: each agent's loop runs 3 frames behind the one above it, so the team never moves as one block. */
 .s3-av.st-working svg{animation:s3-bob .5s steps(2) calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
 .s3-av.st-thinking svg{animation:s3-sway 1.6s ease-in-out calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
