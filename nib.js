@@ -9,6 +9,25 @@
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const A = { x: 184, y: 104, path: [], walk: 0, mood: 'idle', face: 'idle', facing: 1, windup: 0, onArrive: null, visible: true, lit: false };
     let t = 0, last = 0, f = 0, blinkAt = 3, sayTimer = 0, bubbleOpen = false, bubbleSide = 'left', finish = null;
+    // Idle life (motion #8): standing still, Nib breathes a pixel; when nothing's going on, a blink may turn into a glance.
+    // Draw-only: A.facing is never touched, and the glance ends the moment he walks, talks, changes mood or a scene starts.
+    let stillAt = 0, busyAt = 0, wasBlink = false, glance = 0;
+    const scene = () => { const u = window.Stage2 && window.Stage2.ui(); return !u || u.busy || u.morning || u.night; };
+    function idleLife() {
+      if (A.path.length) stillAt = t;
+      if (A.path.length || bubbleOpen || A.mood !== 'idle' || A.lit || !A.visible || scene()) { busyAt = t; glance = 0; }
+      const blink = A.face === 'blink';
+      // A turn happens on a blink, like a head turn; the next blink turns him back. Quiet for 3 s first.
+      if (blink && !wasBlink && !reduced) glance = glance || t - busyAt < 3 || Math.random() > 0.35 ? 0 : Math.random() < 0.5 ? 1 : -1;
+      wasBlink = blink;
+    }
+    // Pose for Avatars.draw: breath once he's been still half a second (slower asleep); a glance looks ahead, or turns and looks back.
+    function lifePose() {
+      if (reduced || A.path.length || t - stillAt < 0.5) return {};
+      const P = A.mood === 'sleep' ? 4.6 : 3, pose = { breath: (t / P + 0.37) % 1 > 0.55, look: glance ? 1 : 0 };
+      if (glance < 0) pose.flip = A.facing > 0;
+      return pose;
+    }
 
     // A new walk replaces the old one; the old walk's callback still fires so nothing awaits forever.
     function settle() { const cb = A.onArrive; A.onArrive = null; if (cb) cb(); }
@@ -39,6 +58,7 @@
       if (A.mood === 'idle' && t > blinkAt) { A.face = 'blink'; if (t > blinkAt + 0.14) { A.face = 'idle'; blinkAt = t + 2.5 + Math.random() * 2; } }
       else if (A.mood !== 'idle') A.face = A.mood;
       else A.face = 'idle';
+      idleLife();
     }
     function draw() {
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
@@ -54,7 +74,7 @@
       if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
       const crouch = A.path.length > 0 && A.windup > 0, moving = A.path.length > 0 && !crouch;
       const stepN = moving ? ((A.walk / 5) | 0) % 4 : 0, bob = crouch ? -px : moving && !reduced ? (stepN % 2) * px : 0;
-      window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob });
+      window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob, ...lifePose() });
       if (A.mood === 'sleep' && !reduced) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - (t * 4 % 6)); }
       placeBubble(ox + lr.left, oy + lr.top, px);
     }
