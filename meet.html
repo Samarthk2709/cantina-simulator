@@ -157,6 +157,10 @@ const setMood=m=>{mood=m;draw();};
 draw();
 setInterval(()=>{frame++; if(mood==='talk'||mood==='think') draw();},140);
 setInterval(()=>{ if(mood==='idle'){setMood('blink');setTimeout(()=>{if(mood==='blink')setMood('idle');},130);} },3200);
+// Squash & stretch: one happy hop on the frames of Avatars.hop, pivoting at the feet; lifts are whole art pixels (1/21 of the sprite).
+// translate/scale ride on top of the idle bob's transform. Avatars.hop returns null under reduced motion, so Nib just stays put.
+function hop(){const t0=performance.now();nib.style.transformOrigin='50% 100%';
+  (function f(t){const p=Avatars.hop(t-t0);nib.style.translate=p?`0 ${-p.y*100/21}%`:'';nib.style.scale=p?`${p.sx} ${p.sy}`:'';if(p)requestAnimationFrame(f);})(t0);}
 
 let typing=null, finishTyping=null, advance=null;
 function typeLine(text,after){
@@ -248,7 +252,7 @@ function pitch(lead=[]){ beat='offer'; return {lines:[...lead,...PITCH],mood:'id
 function accept(){
   beat='done'; mem.completedAt=new Date().toISOString(); mem.acceptedFirstTry??=true; save();
   // Stage 2 is the office at /. Same server, so it reads this memory (name, facts) directly.
-  return {lines:["Good. Let's find somewhere to work.",()=>setTimeout(()=>{$('next').classList.add('on');setTimeout(()=>location.href='/',reduced?300:2600);},reduced?0:1400)],mood:'happy',chips:[]};
+  return {lines:["Good. Let's find somewhere to work.",hop,()=>setTimeout(()=>{$('next').classList.add('on');setTimeout(()=>location.href='/',reduced?300:2600);},reduced?0:1400)],mood:'happy',chips:[]};
 }
 
 async function decide(text){

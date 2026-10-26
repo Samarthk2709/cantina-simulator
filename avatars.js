@@ -102,16 +102,28 @@
     return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" shape-rendering="crispEdges" aria-hidden="true">${rects(id, o).map(([x, y, w, h, col]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${col}"/>`).join('')}</svg>`;
   }
   // Draw at (x, y) = the point between the feet, px = size of one art pixel. flip mirrors left/right.
+  // sx/sy squash and stretch from the feet: each rect is still snapped to whole screen pixels, so it stays crisp.
   function draw(g, id, x, y, px, o) {
     o = o || {};
-    const ox = x - W / 2 * px, oy = y - H * px - (o.bob || 0);
+    const qx = px * (o.sx || 1), qy = px * (o.sy || 1);
+    const ox = x - W / 2 * qx, oy = y - H * qy - (o.bob || 0);
     for (const [rx, ry, w, h, col] of rects(id, o)) {
       g.fillStyle = col;
       const X = o.flip ? W - rx - w : rx;
-      g.fillRect(Math.round(ox + X * px), Math.round(oy + ry * px), Math.ceil(w * px), Math.ceil(h * px));
+      g.fillRect(Math.round(ox + X * qx), Math.round(oy + ry * qy), Math.ceil(w * qx), Math.ceil(h * qy));
     }
   }
-  const api = {CAST, W, H, rects, svg, draw};
+  // Squash & stretch hop, as held frames [ms, lift, width, height] in art pixels, so every pose is a whole-pixel sprite:
+  // squash (the wind-up), stretch up, hang, stretch down, squash on landing, overshoot, rest. nib.js and meet.html read them here; crew.css s3-hop repeats them for the waiting loop.
+  const HOP = [[0, 0, 16, 21], [50, 0, 17, 20], [100, 0, 18, 18], [150, 0, 19, 17], [200, 3, 14, 24], [250, 5, 14, 24], [300, 6, 15, 23], [350, 7, 15, 22], [400, 8, 16, 22],
+    [450, 9, 16, 21], [550, 8, 16, 22], [600, 6, 15, 23], [640, 3, 15, 23], [670, 1, 15, 23], [700, 0, 19, 17], [800, 0, 17, 20], [850, 0, 15, 22], [950, 0, 16, 21]];
+  // The pose ms into a hop, or null once it's over (or right away under reduced motion: the final pose is standing still).
+  function hop(ms) {
+    if (!(ms >= 0 && ms < 950) || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return null;
+    let f = HOP[0]; for (const k of HOP) if (ms >= k[0]) f = k;
+    return {y: f[1], sx: f[2] / W, sy: f[3] / H};
+  }
+  const api = {CAST, W, H, rects, svg, draw, hop};
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Avatars = api;
 })(typeof window !== 'undefined' ? window : null);
