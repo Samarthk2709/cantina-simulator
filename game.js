@@ -183,10 +183,49 @@
     const body = $('panel-body'), y = body.scrollTop;
     const html = { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
     body.innerHTML = html;
+    stampFx(body);
     $('panel-title').textContent = crumbs();
     $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'report' || ui.view === 'map'));
     body.scrollTop = top ? 0 : y;
     render();
+  }
+
+  // Hit-stop & shake (motion #2): a new stamp slams (its CSS animation), freezes on the impact frame, then the paper shakes
+  // and ink specks fly. CRITICAL and a traced chain get it all; ACCEPTED a lighter one (shorter hold and shake, no flash).
+  // drawWindow redraws often, so each stamp keeps its start time: a redraw mid-effect carries on, a later one shows it at rest.
+  const IMPACT = 267; // ms into the 460 ms slam (its 58% key) where the stamp hits the paper
+  const landed = new Map(); // stamp key → animation-clock time (document.timeline) when it first showed
+  function stampFx(body) {
+    const st = body.querySelector('.paper .stamp');
+    if (st) hitstop(st.parentNode, st, 'report:' + ui.fid, st.classList.contains('crit'));
+    body.querySelectorAll('.chain.done[data-tid]').forEach(li => { const k = 'chain:' + li.dataset.tid; if (landed.has(k)) hitstop(li, li.querySelector('.tag'), k, true); });
+  }
+  function hitstop(box, stamp, key, big) {
+    const now = document.timeline.currentTime; if (!landed.has(key)) landed.set(key, now);
+    const t0 = landed.get(key), hold = big ? 67 : 33, rel = IMPACT + hold;
+    if (reduced || now - t0 > rel + 400) { box.classList.add('stamped'); return; }
+    box.classList.add('hitstop'); box.classList.toggle('lite', !big);
+    box.style.setProperty('--imp', IMPACT + 'ms'); box.style.setProperty('--rel', rel + 'ms');
+    // Specks start on the stamp's edge. Fixed angles, so a redraw mid-burst draws the same ones.
+    const w = stamp.offsetWidth / 2, h = stamp.offsetHeight / 2, cx = stamp.offsetLeft + w, cy = stamp.offsetTop + h, n = big ? 8 : 5, r = big ? 30 : 18;
+    box.insertAdjacentHTML('beforeend', `<span class="specks" aria-hidden="true" style="color:${getComputedStyle(stamp).color}">${Array.from({ length: n }, (_, i) => {
+      const a = (i + .3) / n * 2 * Math.PI, c = Math.cos(a), s = Math.sin(a), d = r * (i % 2 ? .6 : 1);
+      return `<i style="--x0:${Math.round(cx + c * w)}px;--y0:${Math.round(cy + s * h)}px;--dx:${Math.round(c * d)}px;--dy:${Math.round(s * d)}px"></i>`;
+    }).join('')}</span>`);
+    box.lastChild.addEventListener('animationend', e => e.currentTarget.remove(), { once: true }); // spent specks would still stretch the scroll area
+    // Shake, flash and specks all count from the landing, so they line up with the slam and resume after a redraw.
+    box.getAnimations({ subtree: true }).forEach(a => { if (/^(hit-|speck)/.test(a.animationName)) a.startTime = t0; });
+    // The hit-stop itself: the stamp's own slam, re-timed with its impact keyframe held. A native animation, not a JS
+    // loop, so it stays smooth through the main-thread stalls that follow a submit.
+    stamp.getAnimations().forEach(a => {
+      const d = a.effect.getComputedTiming().duration, f = a.effect.getKeyframes().map(({ computedOffset, ...k }) => k), i = f.findIndex(k => Math.abs(k.offset * d - IMPACT) < 5);
+      if (i < 0) return;
+      const k = f.map((x, j) => ({ ...x, offset: (x.offset * d + (j > i ? hold : 0)) / (d + hold) }));
+      k.splice(i + 1, 0, { ...k[i], offset: rel / (d + hold) }); // same pose again after the hold
+      a.cancel(); stamp.animate(k, d + hold).startTime = t0;
+    });
+    // Settle: a small overshoot on release, on `scale` so it rides on top of the slam's transform and ends at rest.
+    stamp.animate([{ scale: 1 }, { scale: big ? 1.04 : 1.02, offset: .4 }, { scale: 1 }], { duration: 200, delay: rel, easing: 'ease-out' }).startTime = t0;
   }
 
   // The window's one title line: where you are, e.g. "Desk › ChatterBox › Groups › Hunt".
@@ -355,7 +394,7 @@
       if (c.done) act = '<span class="tag good">CRITICAL · chained</span>';
       else if (c.ready) act = `<p class="fine">Why is this critical?</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
       else act = `<p class="fine">${!E.has(s, 'trace') ? 'Needs the Tracer' : 'Needs both bugs'}</p>`;
-      return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
+      return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
     }).join('');
     const rolls = Object.values(s.found).filter(f => f.status === 'accepted').length;
     return `<p class="hq-goal">${s.bugs}/20 bugs · ${Math.min(1, s.crits)}/1 critical</p>
@@ -465,6 +504,7 @@
   function traceChain(tid, option) {
     const r = E.trace(s, tid, option); if (!r.ok) return toast(r.why, 'bad');
     if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
+    landed.set('chain:' + tid, document.timeline.currentTime); // the chain's tag lands with the full hit-stop (motion #2)
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     drawWindow(); if (r.won) setTimeout(ending, 1600);
