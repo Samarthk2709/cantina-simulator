@@ -85,6 +85,19 @@ body.s3-agents-open .nib-bubble{display:none}
 .m-card .opts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .m-card .opts button{background:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px}
 .m-card .opts button.primary{background:var(--amber);border-color:var(--amber);color:#08131a!important;font-weight:600}
+/* #7 Staging: while a decision card (.s3-decide, set in crew.js) waits, the pane around it dims and desaturates
+   (250 ms in, 200 ms out). The layer only shows while such a card exists, so it can't outlive it; it never takes
+   clicks or focus, and the card and composer sit above it. The roster stays lit, so "needs you" rows still read. */
+.s3-pane{position:relative}
+.s3-dim{position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(8,19,26,.5);-webkit-backdrop-filter:saturate(.45);backdrop-filter:saturate(.45);opacity:0;transition:opacity .2s ease-out}
+.s3-pane:has(.s3-decide) .s3-dim{opacity:1;transition-duration:.25s}
+.s3-decide,.s3-composer{position:relative;z-index:2}
+/* The card rises with anticipation (dips 3px, then settles) and its buttons follow 3 frames apart. It travels
+   6px, not the mockup's 16, so it never overlaps the next line of the timeline (10px gap). decide-btn: style.css. */
+.s3-enter{animation:s3-decide-in .42s backwards}
+.s3-enter :is(.opts button,[data-fix]){animation:decide-btn .24s var(--settle) backwards;animation-delay:calc(220ms + var(--j,0) * var(--stagger))}
+@keyframes s3-decide-in{0%{opacity:0;transform:translateY(6px) scale(.97);animation-timing-function:var(--wind)}25%{opacity:1;transform:translateY(9px) scale(.97);animation-timing-function:var(--settle)}100%{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.s3-dim{transition:none!important}.s3-enter,.s3-enter :is(.opts button,[data-fix]){animation:none!important}}
 .s3-composer{padding:12px max(20px,calc((100% - 720px)/2)) 18px}
 .s3-composer input{width:100%;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px 16px;color:var(--ink);font:inherit}
 .s3-composer input:focus{outline:none;border-color:var(--muted)}
