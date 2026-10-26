@@ -69,7 +69,7 @@
     world.setTouch(matchMedia('(pointer: coarse)').matches || innerWidth < 650);
   }
 
-  const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => $('panel-dialog').open ? $('panel-dialog').getBoundingClientRect() : null });
+  const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => ui.win && $('panel-dialog').open ? winRect() : null });
   // Lines that wait for the player (Next or a choice) queue up; timed lines are interrupted by anything newer.
   let queue = Promise.resolve(), waiting = 0;
   function nibSay(text, o) {
@@ -264,15 +264,16 @@
     if (!ST[id] || !shown(id) || ui.night) return;
     if (id === 'hunt' && !s.target) ui.view = 'board';
     ui.win = id; ui.result = null; ui.traceMsg = null;
-    const d = $('panel-dialog');
+    const d = $('panel-dialog'), fresh = !d.open || !!winFx?.shut;
     if (!d.open) d.show();
     drawWindow(true);
+    if (fresh) winOpen(id);
     // Keyboard focus goes to Nib's waiting line if there is one, else the window: never the × button,
     // or Enter would close the window instead of answering Nib.
     const b = $('nib-bubble'), wait = !b.hidden && b.classList.contains('asks') && (b.querySelector('.nib-next') || b);
     (wait || $('panel-body')).focus({ preventScroll: true });
   }
-  function closeWindow() { ui.win = null; ui.miss = null; if ($('panel-dialog').open) $('panel-dialog').close(); render(); $('world').focus({ preventScroll: true }); }
+  function closeWindow() { const id = ui.win; ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
   function drawWindow(top) {
     if (!ui.win) return;
     const body = $('panel-body'), y = body.scrollTop;
@@ -322,6 +323,94 @@
     // Settle: a small overshoot on release, on `scale` so it rides on top of the slam's transform and ends at rest.
     stamp.animate([{ scale: 1 }, { scale: big ? 1.04 : 1.02, offset: .4 }, { scale: 1 }], { duration: 200, delay: rel, easing: 'ease-out' }).startTime = t0;
   }
+  // ---------- #5 windows open from where you clicked ----------
+  // Only the open and close transitions move: redraws and breadcrumbs inside an open window never replay them.
+  // The dialog opens and takes focus at once, so keys work from the first frame; only what you see catches up.
+  // It moves with the separate `translate`/`scale` properties because its centring `transform` is !important.
+  const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const STAGGER = parseFloat(tok('--stagger')) || 50, WIND = tok('--wind') || 'ease-in', SETTLE = tok('--settle') || 'ease-out';
+  let winFx = null, winSrc = null, winTap = null, winRide = false; // the running open/close; what it grew from; a press made mid-grow; strip riding
+  // What a window grows from and shrinks into: the button you clicked, else the station's dock button; none if hidden.
+  function winButton(id, clicked) {
+    const ev = clicked && window.event, hit = ev && ev.type === 'click' && ev.target.closest && ev.target.closest('button');
+    const el = hit && hit.isConnected && !hit.closest('#panel-dialog,#nib-bubble') ? hit : document.querySelector(`#dock [data-station="${id}"]`);
+    const r = el && el.getBoundingClientRect();
+    return r && r.width > 8 && r.height > 8 ? el : null;
+  }
+  const winFrom = (R, B) => ({ translate: `${B.left + B.width / 2 - R.left - R.width / 2}px ${B.top + B.height / 2 - R.top - R.height / 2}px`, scale: `${B.width / R.width} ${B.height / R.height}` });
+  // Scale about the window's resting centre, wherever its centring transform (desktop or phone) puts it.
+  function winOrigin(d, R) { const m = new DOMMatrixReadOnly(getComputedStyle(d).transform); return `${50 + m.e / R.width * 100}% ${50 + m.f / R.height * 100}%`; }
+  // The window's resting rect, whatever the grow is doing: Nib's strip docks here, and presses mid-grow aim here.
+  function winRect() {
+    const d = $('panel-dialog'), r = d.getBoundingClientRect(); if (!winFx) return r;
+    const cs = getComputedStyle(d), s = cs.scale === 'none' ? [1] : cs.scale.split(' ').map(Number), t = cs.translate === 'none' ? [0] : cs.translate.split(' ').map(parseFloat);
+    const w = r.width / s[0], h = r.height / (s[1] ?? s[0]), cx = r.left + r.width / 2 - t[0], cy = r.top + r.height / 2 - (t[1] || 0);
+    return new DOMRect(cx - w / 2, cy - h / 2, w, h);
+  }
+  // Only undoes what the ride set, so other motion on Nib's bubble is left alone.
+  const winLoose = () => { if (winRide) Object.assign($('nib-bubble').style, { transformOrigin: '', translate: '', scale: '', opacity: '', filter: '' }); winRide = false; };
+  function winStop() { // jump to the end: the window at rest, Nib's strip back on it
+    const fx = winFx; if (!fx) return; winFx = null;
+    fx.anims.forEach(a => a.cancel()); winLoose();
+    const d = $('panel-dialog'); d.style.transformOrigin = ''; d.inert = false;
+  }
+  function winOpen(id) {
+    winStop(); // reopened while it shrinks: grow again
+    if (reduced) return;
+    const d = $('panel-dialog'), src = winButton(id, true), R = d.getBoundingClientRect(), fx = winFx = { anims: [] }, pre = src ? 60 : 0;
+    winSrc = { id, el: src };
+    d.style.transformOrigin = winOrigin(d, R);
+    // Anticipation: the button presses in, and the window leaves it as it springs back; blurred only while it flies.
+    const grow = src ? [{ ...winFrom(R, src.getBoundingClientRect()), opacity: 0, filter: 'blur(1.5px)' }, { opacity: 1, offset: .3 }, { translate: '0 0', scale: '1.03', filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', filter: 'blur(0)' }]
+      : [{ scale: '.9', opacity: 0, easing: WIND }, { scale: '.87', opacity: .8, offset: .3, easing: SETTLE }, { scale: '1.02', offset: .7 }, { scale: '1', opacity: 1 }];
+    if (src) fx.anims.push(src.animate([{ translate: '0 0', scale: '1' }, { translate: '0 3px', scale: '.94', filter: 'brightness(.75)', offset: .55 }, { translate: '0 0', scale: '1' }], { duration: 110, easing: 'ease-out' }));
+    const a = d.animate(grow, { duration: src ? 260 : 300, delay: pre, easing: src ? 'cubic-bezier(.3,.7,.3,1)' : 'linear', fill: 'backwards' });
+    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [0, 1] }, { duration: 240, delay: pre, easing: 'ease-out', fill: 'backwards', pseudoElement: '::after' }));
+    a.onfinish = () => { if (winFx === fx) winStop(); };
+    // Rows follow 3 frames apart, capped so the last is in by ~350 ms. Picked next frame, after any redraw in this task.
+    requestAnimationFrame(() => {
+      if (winFx !== fx) return;
+      const rows = [d.querySelector('.bar'), ...[...$('panel-body').children].flatMap(el => el.matches('ul,ol,.programs') ? [...el.children] : [el])];
+      rows.forEach((el, i) => el.animate([{ opacity: 0, translate: '0 6px' }, { opacity: 1, translate: '0 0' }], { duration: 140, delay: pre + Math.min(i, 3) * STAGGER, easing: SETTLE, fill: 'backwards' }));
+    });
+    // Nib's strip docks to the resting rect and rides the grow with the window: same scale and offset, same centre.
+    const ride = () => {
+      if (winFx !== fx) return;
+      const b = $('nib-bubble');
+      if (b.hidden || !b.classList.contains('docked')) winLoose();
+      else { const cs = getComputedStyle(d), r = winRect(); Object.assign(b.style, { transformOrigin: `${r.left + r.width / 2 - b.offsetLeft}px ${r.top + r.height / 2 - b.offsetTop}px`, translate: cs.translate, scale: cs.scale, opacity: cs.opacity, filter: cs.filter }); winRide = true; }
+      requestAnimationFrame(ride);
+    };
+    requestAnimationFrame(ride);
+  }
+  // Close: the window is shut to input at once (clicks fall through, focus leaves) and shrinks back into its button.
+  function winShut(id) {
+    const d = $('panel-dialog');
+    if (winFx?.shut) return;
+    winStop();
+    if (reduced) { d.close(); return; }
+    const src = winSrc?.id === id && winSrc.el?.isConnected ? winSrc.el : winButton(id), R = d.getBoundingClientRect(), fx = winFx = { anims: [], shut: true };
+    d.inert = true; d.style.transformOrigin = winOrigin(d, R);
+    // Anticipation: a small swell before it goes.
+    const a = d.animate([{ translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)' }, { scale: '1.02', offset: .25 }, { ...(src ? winFrom(R, src.getBoundingClientRect()) : { translate: '0 0', scale: '.9' }), opacity: 0, filter: 'blur(1.5px)' }], { duration: 220, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' });
+    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [1, 0] }, { duration: 220, fill: 'forwards', pseudoElement: '::after' }));
+    a.onfinish = () => { if (winFx === fx) { winStop(); d.close(); } };
+  }
+  // A press made during the grow is meant for where the window is landing: snap it there and click what's under it.
+  addEventListener('pointerdown', e => {
+    winTap = null;
+    if (!winFx || winFx.shut || e.button) return;
+    const b = $('nib-bubble'), x = e.clientX, y = e.clientY, inside = r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    const aim = inside(winRect()) || (!b.hidden && b.classList.contains('docked') && inside({ left: b.offsetLeft, top: b.offsetTop, right: b.offsetLeft + b.offsetWidth, bottom: b.offsetTop + b.offsetHeight }));
+    winStop();
+    if (aim) { e.stopPropagation(); e.preventDefault(); winTap = { x, y, t: e.timeStamp }; }
+  }, true);
+  addEventListener('click', e => {
+    const tap = winTap; if (!tap) return; winTap = null;
+    if (e.timeStamp - tap.t > 1000) return;
+    e.stopPropagation(); e.preventDefault();
+    const el = document.elementFromPoint(tap.x, tap.y); if (el && el.closest('#panel-dialog,#nib-bubble')) el.click();
+  }, true);
 
   // The window's one title line: where you are, e.g. "Desk › ChatterBox › Groups › Hunt".
   function crumbs() {
