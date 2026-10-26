@@ -172,7 +172,49 @@
       const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
       box.innerHTML = timeline(a); if (atBottom || !box.__key) box.scrollTop = box.scrollHeight; box.__key = key;
     }
+    stage(a, box);
   }
+
+  // ---------- #7 Staging: dim the timeline around a decision ----------
+  // A decision is the agent's open question, or its newest penalty whose AGENTS.md fix is still off, until you add
+  // the rule, click elsewhere, or the timeline moves on (you speak, a win, the task ends). Only the card gets
+  // .s3-decide; the dim is CSS (:has(.s3-decide)), so it lifts whatever removes the card: an answer, a re-render,
+  // another agent, the rules page, closing Team. The entrance plays once per decision, never on re-renders.
+  const entered = new Map(), passed = new Set(), ENTER_MS = 700, MOVED_ON = new Set(['user', 'win', 'done', 'brief', 'refuse']);
+  function decision(a) {
+    if (a.q) return {key: a.id + ':q' + (a.log.findLast(m => m.kind === 'ask')?.id ?? '')};
+    const pens = a.log.filter(m => m.kind === 'pen'), n = pens.findLastIndex(m => A.RULES.some(r => r.k === m.fix) && !A.rule(a, m.fix));
+    const p = pens[n], key = p && a.id + ':p' + p.id;
+    if (!p || passed.has(key) || a.log.slice(a.log.indexOf(p) + 1).some(m => MOVED_ON.has(m.kind))) return null;
+    return {key, n}; // n: penalty cards render one per 'pen' entry, in log order
+  }
+  function stage(a, box) {
+    const d = decision(a);
+    let card = d && (d.n == null ? box.querySelector('.m-card.ask') : box.querySelectorAll('.m-card.pen')[d.n]);
+    if (card && d.n != null && !card.querySelector('[data-fix]')) card = null;
+    box.querySelectorAll('.s3-decide').forEach(c => { if (c !== card) c.classList.remove('s3-decide'); });
+    if (!card) return;
+    const pane = box.parentNode;
+    if (!pane.querySelector('.s3-dim')) { const dim = document.createElement('div'); dim.className = 's3-dim'; dim.setAttribute('aria-hidden', 'true'); pane.prepend(dim); getComputedStyle(dim).opacity; } // settle at 0 first, so it fades in
+    card.classList.add('s3-decide'); card.dataset.decide = d.key;
+    const now = document.timeline.currentTime, first = !entered.has(d.key);
+    if (first) entered.set(d.key, now);
+    if (now - entered.get(d.key) < ENTER_MS && !card.classList.contains('s3-enter')) {
+      card.querySelectorAll('.opts button,[data-fix]').forEach((b, j) => b.style.setProperty('--j', j)); // buttons 3 frames apart
+      card.classList.add('s3-enter');
+      // The first entrance starts on its first painted frame. A card re-rendered mid-entrance is pinned to that
+      // start, so it carries on from the same point instead of replaying.
+      const mine = () => card.getAnimations({subtree: true}).filter(an => /^(s3-decide-in|decide-btn)$/.test(an.animationName));
+      if (first) requestAnimationFrame(() => requestAnimationFrame(() => { const t = mine()[0]?.startTime; if (t != null) entered.set(d.key, t); }));
+      else mine().forEach(an => { an.startTime = entered.get(d.key); });
+    }
+  }
+  // A penalty's fix is an offer: clicking anywhere else in Team passes on it. A question keeps waiting for its answer.
+  document.addEventListener('pointerdown', e => {
+    const c = document.querySelector('#s3-main .s3-decide');
+    if (!c || !e.target.closest('#s3-view') || c.contains(e.target) || !/:p\d+$/.test(c.dataset.decide)) return;
+    passed.add(c.dataset.decide); c.classList.remove('s3-decide');
+  }, true);
   // Under the message bar: how the game read it, plus the one warning that matters most.
   function hint(id) {
     const a = A.get(id), input = document.querySelector(`[data-input="${id}"]`), out = document.querySelector('[data-hint]');

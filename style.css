@@ -66,6 +66,19 @@
 .night.on{opacity:1}
 .night p{margin:0;padding:8px 14px;font:600 13px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cream);background:rgba(8,19,26,.7);border:1px solid var(--line-2);border-radius:6px}
 
+/* ---- #7 Staging: dim the world for decisions ---- */
+/* While Nib's bubble waits for a choice over the office, the floor dims and desaturates a little (250 ms in,
+   200 ms out). It follows the bubble's own state, so it lifts with the bubble. Only the floor dims: Nib, the
+   agents and their "needs you" bubbles, the HUD and the dock stay lit. Docked to a window, the window's scrim
+   already does this, so no second dim. Team's decision cards do the same in stage3/crew.css. */
+#world-wrap{transition:filter .2s ease-out}
+body:has(#nib-bubble:not([hidden]):not(.docked) .nib-choice) #world-wrap{filter:brightness(.6) saturate(.55);transition-duration:.25s}
+/* Choices arrive 3 frames apart, each settling up a few pixels. */
+.nib-choice{animation:decide-btn .24s var(--settle) backwards;animation-delay:calc(120ms + var(--j,0) * var(--stagger))}
+.nib-choice:nth-child(2){--j:1}.nib-choice:nth-child(3){--j:2}.nib-choice:nth-child(4){--j:3}
+@keyframes decide-btn{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#world-wrap{transition:none}.nib-choice{animation:none}}
+
 /* ---- toasts ---- */
 .toast.good{border-color:var(--good)}
 .toast.bad{border-color:var(--danger-ink)}
