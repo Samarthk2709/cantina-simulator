@@ -595,6 +595,16 @@
     if (still) { a.windup = WINDUP; const w = a.path[0]; if (Math.abs(w.x - a.pos.x) > 0.5) a.facing = w.x < a.pos.x ? -1 : 1; }
   }
   const WINDUP = 0.1;
+  // Follow-through (#6): an agent that stops after walking keeps going a moment: 1px on in its travel direction
+  // (~6 frames), 1px back (~4 frames), then still, as Nib does (nib.js). crew.js draws a.drift (art px).
+  const FOLLOW = 0.16;
+  function followThrough(a, dt, from) {
+    if (a.path.length) { a.follow = 0; a.drift = null; return; }
+    if (from) { const dx = a.pos.x - from.x, dy = a.pos.y - from.y; a.follow = FOLLOW; a.followDir = Math.abs(dy) > Math.abs(dx) ? [0, Math.sign(dy)] : [Math.sign(dx) || a.facing || 1, 0]; }
+    else if (a.follow > 0) a.follow -= dt;
+    const s = a.follow > 0 ? (a.follow > FOLLOW - 0.09 ? 1 : -1) : 0;
+    a.drift = s ? [a.followDir[0] * s, a.followDir[1] * s] : null;
+  }
   const walking = a => a.id === 'nib' ? a.nibWalking : a.path.length > 0;
 
   // ---------- main loop ----------
@@ -619,6 +629,7 @@
     for (const a of Object.values(agents)) {
       if (a.id === 'nib' && scene) continue;
       if (a.energyDay !== S().day) { a.energyDay = S().day; a.energy = D.COST.focus; if (a.status === 'resting') { a.status = busy() < slots() ? 'thinking' : 'queued'; tool(a, 'New day, full focus.'); } }
+      const from = a.id !== 'nib' && a.path.length && !(a.windup > 0) ? {x: a.pos.x, y: a.pos.y} : null; // #6: a step that may end the walk
       if (a.id === 'nib') a.pos = G.nib.pos();
       else if (a.path.length && a.windup > 0) { a.windup -= dt; a.crouch = true; a.moving = false; }
       else if (a.path.length) {
@@ -631,6 +642,7 @@
         }
         a.moving = true;
       } else { a.moving = false; a.crouch = false; }
+      if (a.id !== 'nib') followThrough(a, dt, from);
       if (a.status === 'thinking') think(a);
       else if (a.status === 'walking' && !walking(a)) { a.status = 'working'; a.timer = a.next.dur; a.bubble = a.next.toolName; }
       else if (a.status === 'working' && (a.timer -= dt) <= 0) run(a);
