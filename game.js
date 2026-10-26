@@ -143,7 +143,7 @@
     if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); }
     $('objective').textContent = flash && Date.now() < flash.until ? flash.text : objective();
     $('stats-open').hidden = !s.seen.stats;
-    $('cash').textContent = money(s.cash); $('rep').textContent = s.rep;
+    wallet();
     const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown)));
     let freshN = 0; // new dock buttons arrive 3 frames apart (style.css --stagger)
     const btns = ORDER.filter(shown).map(id => {
@@ -163,6 +163,101 @@
     while ($('toasts').children.length > 3) $('toasts').firstChild.remove();
   }
   function floatAt(text, station) { world.float(text, station); }
+
+  // ---------- wallet motion: rolling counters (#3) and pay chips flying to the wallet (#4) ----------
+  // Cash and rep roll to new values instead of jumping: the number dips, bumps and flashes green on a gain, red on a
+  // loss. Pay still in flight in a chip is held back, so the wallet changes when the chip lands, not before.
+  const ROLL = 650, held = { cash: 0, rep: 0 }, rolls = {};
+  let rolling = false;
+  function wallet() {
+    $('cash').dataset.value = s.cash; $('rep').dataset.value = s.rep; // the true values, readable before a roll ends
+    rollTo('cash', s.cash - held.cash, money, 0); rollTo('rep', s.rep - held.rep, String, 50); // rep starts 3 frames after cash
+  }
+  function rollTo(id, v, fmt, lag) {
+    const el = $(id); let r = rolls[id];
+    if (!r || reduced || document.hidden) { rolls[id] = { el, fmt, lag, to: v, shown: v }; el.textContent = fmt(v); el.parentNode.classList.remove('gain', 'loss'); return; }
+    if (v === r.to) return; // render() runs often: only a new target starts (or retargets) a roll
+    r.to = v; r.t0 = null; // starts next frame, so a change undone in the same tick (pay held for its chip) never shows
+    if (!rolling) { rolling = true; requestAnimationFrame(rollFrame); }
+  }
+  function rollFrame(now) {
+    rolling = false;
+    for (const r of Object.values(rolls)) {
+      const res = r.el.parentNode;
+      if (r.t0 === null) { // new target: ease out from whatever is shown now, so a retarget mid-roll never jumps
+        if (r.to === r.shown) { r.t0 = undefined; r.on = false; res.classList.remove('gain', 'loss'); continue; }
+        r.from = r.shown; r.t0 = now + (r.on ? 0 : r.lag);
+        res.classList.toggle('gain', r.to > r.from); res.classList.toggle('loss', r.to < r.from);
+        if (!r.on) { r.on = true; res.classList.remove('bump'); void res.offsetWidth; res.classList.add('bump'); }
+      }
+      if (r.t0 == null) continue;
+      const k = Math.max(0, Math.min(1, (now - r.t0) / ROLL));
+      r.shown = k < 1 ? r.from + (r.to - r.from) * (1 - Math.pow(1 - k, 3)) : r.to;
+      r.el.textContent = r.fmt(Math.round(r.shown));
+      if (k < 1) rolling = true; else { r.t0 = undefined; r.on = false; res.classList.remove('gain', 'loss'); }
+    }
+    if (rolling) requestAnimationFrame(rollFrame);
+  }
+  // A paid report sends a "+$131" chip from its source (the stamp, else the agent or station, else screen centre)
+  // along an arc into the cash display. Several payouts leave 3 frames apart, lined up, never piled on each other.
+  const chips = [];
+  let nextPop = 0, lastPop = 0, burst = 0, lastLand = 0;
+  function payChip(r, station, who) {
+    if (reduced || document.hidden || !r.pay || chips.length >= 4 || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
+    const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who };
+    chips.push(c); held.cash += c.pay; held.rep += c.rep; wallet(); // agents' pay was already rendered: take it back until the chip lands
+    setTimeout(() => land(c), 3000); // never hold pay longer than this, even if frames stop (hidden tab)
+    flyChip(c);
+    return true;
+  }
+  function chipFrom(c) {
+    const win = !c.who && $('panel-dialog').open ? $('panel-body').querySelector('.stamp, .feedback.hit') || $('panel-body') : null;
+    const ag = c.who && document.querySelector(`#s3-layer:not([hidden]) [data-chat="${c.who}"]`);
+    const b = (win || ag)?.getBoundingClientRect() || world.anchor(c.station);
+    if (!b || !b.width || b.left + b.width / 2 < 0 || b.left + b.width / 2 > innerWidth || b.top < 0 || b.top > innerHeight) return { x: innerWidth / 2, y: innerHeight / 2 };
+    return { x: b.left + b.width / 2, y: win && win.id === 'panel-body' ? b.top + b.height / 2 : b.top - 8 }; // just above the stamp or head, never over it
+  }
+  async function flyChip(c) {
+    const frame = () => new Promise(r => requestAnimationFrame(r)), sleep = ms => new Promise(r => setTimeout(r, ms));
+    await frame(); // the window has redrawn: the stamp exists now
+    const stamp = !c.who && $('panel-dialog').open && $('panel-body').querySelector('.stamp');
+    if (stamp) await Promise.race([Promise.allSettled(stamp.getAnimations().map(a => a.finished)), sleep(900)]); // pop once the stamp has landed
+    const at = Math.max(performance.now(), nextPop); nextPop = at + 50; await sleep(at - performance.now()); // offset: 3 frames apart
+    const w = $('cash').getBoundingClientRect();
+    if (!chips.includes(c) || !w.width || document.hidden || document.body.classList.contains('s3-agents-open')) return land(c);
+    const t0 = performance.now(); burst = t0 - lastPop < 400 ? Math.min(burst + 1, 3) : 0; lastPop = t0;
+    const p0 = chipFrom(c), p2 = { x: w.left + w.width / 2, y: w.top + w.height / 2 };
+    const lift = Math.min(160, Math.max(60, Math.hypot(p2.x - p0.x, p2.y - p0.y) * 0.35));
+    const p1 = { x: p0.x + (p2.x - p0.x) * 0.2, y: Math.max(12, Math.min(p0.y, p2.y) - lift) };
+    const d = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / d, uy = (p1.y - p0.y) / d, back = { x: -ux * 3, y: -uy * 3 };
+    p0.x -= ux * burst * 24; p0.y -= uy * burst * 24; // a burst lines up behind the first chip, so they leave in a row, never through each other
+    const el = document.createElement('div'); el.className = 'pay-chip' + (c.crit ? ' crit' : ''); el.textContent = '+' + money(c.pay);
+    document.body.appendChild(el);
+    const hw = el.offsetWidth / 2, hh = el.offsetHeight / 2, io = (t, n) => t < 0.5 ? Math.pow(2 * t, n) / 2 : 1 - Math.pow(2 - 2 * t, n) / 2;
+    let last = p0, lt = t0;
+    for (;;) {
+      const now = await frame(), t = now - t0;
+      if (!chips.includes(c)) break;
+      let x = p0.x, y = p0.y, sc = 1, op = 1, blur = 0;
+      if (t < 180) { const k = t / 180; sc = k < 0.5 ? 0.6 + 1.1 * k : 1.3 - 0.3 * k; op = Math.min(1, k * 2); } // pop
+      else if (t < 280) { const e = io((t - 180) / 100, 3); x += back.x * e; y += back.y * e; } // anticipation: pull back 6 frames
+      else if (t < 900) { // the arc: a quadratic curve, shrinking into the wallet
+        const e = io((t - 280) / 620, 2), u = 1 - e, ax = p0.x + back.x, ay = p0.y + back.y;
+        x = u * u * ax + 2 * u * e * p1.x + e * e * p2.x; y = u * u * ay + 2 * u * e * p1.y + e * e * p2.y; sc = 1 - 0.35 * e;
+        const v = Math.hypot(x - last.x, y - last.y) / Math.max(1, (now - lt) / 16.7); // px per frame
+        blur = Math.round(Math.min(2.5, Math.max(0, (v - 4) / 6)) * 10) / 10; // motion blur only while fast
+      } else { land(c); break; }
+      last = { x, y }; lt = now;
+      el.style.cssText = `opacity:${op};filter:${blur ? `blur(${blur}px)` : 'none'};transform:translate(${Math.round(x - hw)}px,${Math.round(y - hh)}px) scale(${sc.toFixed(3)})`;
+    }
+    el.remove();
+  }
+  function land(c) {
+    const i = chips.indexOf(c); if (i < 0) return;
+    chips.splice(i, 1); held.cash -= c.pay; held.rep -= c.rep; wallet();
+    const w = $('stats-open'), now = performance.now();
+    if (!reduced && !w.hidden && now - lastLand > 160) { w.classList.remove('land'); void w.offsetWidth; w.classList.add('land'); lastLand = now; } // a small squash, not one per chip
+  }
 
   // ---------- windows ----------
   function openStation(id) {
@@ -434,7 +529,7 @@
     drawWindow();
   }
   function paid(r, station) {
-    floatAt('+' + money(r.pay), station);
+    if (!payChip(r, station)) floatAt('+' + money(r.pay), station);
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' report · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
@@ -466,6 +561,7 @@
     const r = E.trace(s, tid, option); if (!r.ok) return toast(r.why, 'bad');
     if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
+    payChip(r, 'hq'); // the chain's pay flies to the wallet too (#4)
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     drawWindow(); if (r.won) setTimeout(ending, 1600);
   }
@@ -652,5 +748,6 @@
     refresh: () => { render(); if (ui.win && !ui.busy) drawWindow(); },
     hud: () => render(), // HUD and dock only: never redraws an open window under your cursor
     restart3: () => { wipe(true); startStage3(window.Stage3Scope.seed({ playerName: s.player, nibName: s.nib, facts: s.memories })); } };
+  window.Stage2.payChip = payChip; // agents' pay flies to the wallet too (#4)
   if (stage3()) (window.Stage3Boot || []).forEach(fn => fn());
 })();
