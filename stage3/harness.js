@@ -689,7 +689,8 @@
     const r = ROSTER[id], s = S(); if (!r?.price || hired().includes(id) || s.cash < r.price) return false;
     s.cash -= r.price; E.log(s, 'Hired ' + r.name + ' · −' + money(r.price), ''); G.refresh(); crew().hired.push(id); makeAgent(id); persist(); changed(); return true;
   }
-  function setRule(tab, k, on) { (crew().rules[tab] ??= {})[k] = on; C.save(); changed(); }
+  // A rule changes every timeline's "Add to AGENTS.md" links, so each agent's version moves on and Team redraws it.
+  function setRule(tab, k, on) { (crew().rules[tab] ??= {})[k] = on; Object.values(agents).forEach(a => a.ver++); C.save(); changed(); }
   function addRule(tab, text) {
     const t = text.toLowerCase();
     const k = /scope|off.?limit|boundar/.test(t) ? 'scope' : /pattern|lesson|nib'?s book/.test(t) ? 'lessons' : /overclaim|exaggerat|honest|impact/.test(t) ? 'honest'
