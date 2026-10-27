@@ -6,7 +6,7 @@
 
   function create(opts) {
     const W = opts.W, world = opts.world, layer = opts.canvas, bubble = opts.bubble, g = layer.getContext('2d');
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, dust = window.FloorDust;
     const A = { x: 184, y: 104, path: [], walk: 0, mood: 'idle', face: 'idle', facing: 1, windup: 0, onArrive: null, visible: true, lit: false, hop: null };
     let t = 0, last = 0, f = 0, blinkAt = 3, sayTimer = 0, bubbleOpen = false, bubbleSide = 'left', finish = null;
     // Idle life (motion #8): standing still, Nib breathes a pixel; when nothing's going on, a blink may turn into a glance.
@@ -44,10 +44,11 @@
     }
     function place(x, y) { A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
     function step(dt) {
+      if (A.hop !== null && A.hop < 0.7 && A.hop + dt >= 0.7 && !A.path.length && A.visible) dust.land(A.x, A.y + 2); // #10: lands at 700 ms (Avatars.hop)
       if (A.hop !== null) { A.hop += dt; if (A.path.length || A.hop >= 1) A.hop = null; } // squash & stretch hop: a walk cancels it
       if (A.path.length && A.windup > 0) A.windup -= dt;
       else if (A.path.length) {
-        const x0 = A.x, y0 = A.y; // #6: this frame's step, for the follow-through's direction
+        const x0 = A.x, y0 = A.y, w0 = A.walk; // #6: this frame's step, for the follow-through's direction
         let budget = 70 * dt;
         while (budget > 0 && A.path.length) {
           const wp = A.path[0], dx = wp.x - A.x, dy = wp.y - A.y, n = Math.hypot(dx, dy);
@@ -55,6 +56,7 @@
           const d = Math.min(budget, n); A.x += dx / n * d; A.y += dy / n * d; A.walk += d; budget -= d;
           if (Math.abs(dx) > 0.5) A.facing = dx < 0 ? -1 : 1;
         }
+        if (A.visible && (A.walk / 10 | 0) !== (w0 / 10 | 0)) dust.step(A.x, A.y + 2, A.facing); // #10: a footfall on step frames 0 and 2
         if (!A.path.length) followFrom(x0, y0);
         if (!A.path.length && A.onArrive) { const cb = A.onArrive; A.onArrive = null; cb(); }
       }
@@ -88,6 +90,7 @@
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
       if (layer.width !== Math.round(w * dpr) || layer.height !== Math.round(h * dpr)) { layer.width = Math.round(w * dpr); layer.height = Math.round(h * dpr); }
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, layer.width, layer.height);
+      if (world.getState().room === 'office') dust.draw(g, world.roomRect(), layer.getBoundingClientRect(), dpr); else dust.clear(); // #10: under every sprite
       if (!A.visible || world.getState().room !== 'office') { bubble.hidden = true; strip(0); return; }
       const rr = world.roomRect(), lr = layer.getBoundingClientRect(), s = rr.width / 320;
       const px = s; // one art pixel = one world pixel: the avatar is 16×21, like the founder
@@ -218,6 +221,39 @@
       }
     };
   }
+  // Footstep dust & landing puffs (#10): 1-art-px specks in floor-dust grey kick up behind a footfall (2) or burst
+  // sideways from a hop's landing (6), rise 1–4 px on the mockup's ease-out and fade in 420–580 ms. They live in office
+  // world pixels (they stay where they were kicked up) in one ring of 48, so 5 walkers can't grow it, and are drawn on
+  // Nib's canvas under everyone (crew.js feeds the agents' steps). None under reduced motion or in a hidden tab.
+  function floorDust() {
+    const N = 48, P = [], calm = matchMedia('(prefers-reduced-motion: reduce)');
+    let at = 0;
+    function add(x, y, dx, rise, size) {
+      const p = P[at] || (P[at] = {}); at = (at + 1) % N;
+      Object.assign(p, { x, y, dx, rise, size, t0: performance.now(), life: 420 + Math.random() * 160 });
+    }
+    const off = () => calm.matches || document.hidden, j = () => Math.random() - 0.5;
+    return {
+      step(x, y, facing) { if (off()) return; x -= (facing || 1) * 3; for (let i = 0; i < 2; i++) add(x, y, (i - 0.5) - (facing || 1) * 0.5 + j() * 1.3, 2.3 + Math.random() * 1.7, 1); },
+      // Three a side, from the feet's edges outward and low, so they clear the body they're drawn under.
+      land(x, y) { if (off()) return; for (let i = 0; i < 6; i++) { const side = i < 3 ? -1 : 1, r = i % 3; add(x + side * (4 + r), y, side * (2 + r * 1.5 + Math.random()), 0.5 + r * 0.8 + Math.random(), r ? 1 : 2); } },
+      clear() { P.length = 0; at = 0; },
+      // rr: the office's screen rect, lr: the canvas's. Positions round to whole art pixels, so specks step like sprites.
+      draw(g, rr, lr, dpr) {
+        if (!P.length) return;
+        const s = rr.width / 320, now = performance.now(), ox = rr.left - lr.left, oy = rr.top - lr.top;
+        g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#9fb3ba';
+        for (const p of P) {
+          const k = (now - p.t0) / p.life; if (!(k >= 0 && k < 1)) continue;
+          const e = 1 - (1 - k) ** 3; // ≈ the mockup's cubic-bezier(.1,.8,.3,1)
+          g.globalAlpha = 0.9 * (1 - k);
+          g.fillRect(Math.round(ox + Math.round(p.x + p.dx * e) * s), Math.round(oy + Math.round(p.y - p.size - p.rise * e) * s), Math.ceil(p.size * s), Math.ceil(p.size * s));
+        }
+        g.globalAlpha = 1;
+      }
+    };
+  }
+  window.FloorDust = floorDust();
   window.NibActor = { create };
   window.BubbleTrail = springTrail; // #6: crew.js trails the agents' bubbles with the same spring
 })();
