@@ -26,6 +26,8 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
   const shot = (p, n) => p.screenshot({ path: path.join(OUT, n + '.png') });
   const badLine = (p, fid) => p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.CLASSES[f.cls].variants[f.variant].findIndex(l => l.bad); }, fid);
   const okLine = (p, fid) => p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.CLASSES[f.cls].variants[f.variant].findIndex(l => !l.bad && l.t.includes('const')); }, fid);
+  // Nib's lines type out (#11) and Next shows once a line is said: wait for it, then answer with Enter like a player.
+  const next = async p => { await p.waitForSelector('.nib-next', { timeout: 8000 }); await p.keyboard.press('Enter'); };
   async function teachSharp(p, fid) {
     await p.waitForSelector('.nib-choice', { timeout: 8000 }); await p.waitForTimeout(250);
     const sharp = await p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.fill(Stage2Data.CLASSES[f.cls].teach.sharp, f.nouns); }, fid);
@@ -40,7 +42,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     let s = await st(p);
     assert.equal(s.seen.training, undefined, 'only the desk exists at first');
     assert.equal(await p.$$eval('[data-station]', b => b.length), 1);
-    await p.keyboard.press('Enter'); await p.waitForTimeout(300); await p.keyboard.press('Enter'); await p.waitForTimeout(300);
+    await next(p); await p.waitForTimeout(300); await next(p); await p.waitForTimeout(300);
     await p.evaluate(() => Stage2.world.goTo('hunt')); await p.waitForTimeout(1500);
     await p.keyboard.press('e'); await p.waitForSelector('[data-act=take]');
     await shot(p, '02-bounty-board');
@@ -75,7 +77,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     await p.waitForSelector('.nib-next', { timeout: 15000 }); await p.waitForTimeout(300);
     await shot(p, '10-morning');
     s = await st(p); assert.equal(s.day, 2); assert.equal(s.focus, 100); assert.ok(s.seen.rig);
-    for (let i = 0; i < 3 && await p.$('.nib-next'); i++) { await p.keyboard.press('Enter'); await p.waitForTimeout(350); }
+    for (let i = 0; i < 3 && await p.$('.nib-next'); i++) { await next(p); await p.waitForTimeout(350); }
     if (s.tray.length) {
       await p.evaluate(() => Stage2.open('contract')); await p.waitForSelector('[data-act=prove]');
       await shot(p, '11-ops');
@@ -132,7 +134,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
   // ---- 4. Phone layout ----
   {
     const { p, ctx } = await page(390, 844, true);
-    await p.keyboard.press('Enter'); await p.waitForTimeout(250); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
+    await next(p); await p.waitForTimeout(250); await next(p); await p.waitForTimeout(250);
     await shot(p, '20-phone-office');
     await p.evaluate(() => Stage2.open('hunt')); await p.click('[data-act=take][data-id=chat]'); await p.waitForSelector('.target-map');
     await shot(p, '21-phone-map');

@@ -100,6 +100,9 @@ button,input{font:inherit;color:inherit}
 
 @media (max-width:860px){.status{position:relative;z-index:5;margin:8px 0 0;text-align:left}}
 @media (max-width:520px){#line{font-size:19px}.goal{top:12px;left:12px}}
+/* Talking text (#11): untyped characters keep their place invisibly; key words are amber, also under reduced motion. */
+.talk-u{opacity:0}
+.talk-kw{display:inline-block;font-style:normal;color:var(--lamp)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.dark.out{display:none}}
 </style>
 </head>
@@ -140,6 +143,7 @@ button,input{font:inherit;color:inherit}
 </main>
 
 <script src="avatars.js"></script>
+<script src="talk.js"></script>
 <script>
 /* ---------- pixel art: avatars.js, shared with the office and the team ---------- */
 const nibArt=(mood,f)=>Avatars.rects('nib',{mood,f}).map(([x,y,w,h,c])=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
@@ -164,13 +168,13 @@ function hop(){const t0=performance.now();nib.style.transformOrigin='50% 100%';
   (function f(t){const p=Avatars.hop(Math.max(0,t-t0));nib.style.translate=p?`0 ${-p.y*100/21}%`:'';nib.style.scale=p?`${p.sx} ${p.sy}`:'';if(p)requestAnimationFrame(f);})(t0);}
 
 let typing=null, finishTyping=null, advance=null;
+// Talking text (#11, talk.js): the line types with speech rhythm (pauses on commas and stops, key words pop in amber).
 function typeLine(text,after){
   return new Promise(res=>{
-    setMood('talk'); line.textContent=''; let i=0;
-    const done=()=>{clearInterval(typing);typing=null;finishTyping=null;line.textContent=text;setMood(after);res();};
-    if(reduced){done();return;}
-    typing=setInterval(()=>{line.textContent=text.slice(0,++i); if(i>=text.length) done();},33);
-    finishTyping=done; // timer ids are numbers in browsers, so the skip handler can't hang off `typing`
+    setMood('talk'); const t=Talk.type(line,text);
+    const done=()=>{typing=null;finishTyping=null;t.finish();setMood(after);res();};
+    if(!t.typing){done();return;} // reduced motion: the whole line at once
+    typing=t; finishTyping=done; t.done.then(()=>{ if(finishTyping===done) done(); });
   });
 }
 function waitNext(){ box.classList.add('waiting'); return new Promise(r=>advance=()=>{advance=null;box.classList.remove('waiting');r();}); }

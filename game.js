@@ -86,7 +86,7 @@
     const show = () => {
       if (timed && ui.night) return [Promise.resolve(false)]; // a tip still waiting its turn when you went to sleep is dropped
       if (!timed && window.Stage3UI?.isOpen()) window.Stage3UI.close();
-      tipEnd = timed ? Date.now() + Math.min(TIP, o.ms || 2600) : 0; return [nib.say(text, o)];
+      tipEnd = timed ? Date.now() + window.Talk.ms(text) + Math.min(TIP, o.ms || 2600) : 0; return [nib.say(text, o)]; // #11: the TIP minimum starts once it's typed
     };
     const run = () => { const t = tips.then(() => after(tipEnd - Date.now())).then(show); tips = t.then(() => {}); return t.then(([r]) => r); }, p = queue.then(run, run);
     if (!timed) { waiting++; p.finally(() => { waiting--; }); queue = p.catch(() => {}); }
@@ -98,7 +98,7 @@
   // Nib's line in the dock shows a timed line for a while (phones with a window open). Same TIP minimum, in order.
   let flash = null, flashes = Promise.resolve();
   function flashLine(text, ms) {
-    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { if (ui.night) return; flash = { text, at: Date.now(), until: Date.now() + ms }; render(); setTimeout(render, ms + 50); }); // a line still queued at nightfall is stale by morning
+    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { if (ui.night) return; const ty = window.Talk.ms(text); flash = { text, at: Date.now() + ty, until: Date.now() + ty + ms }; render(); setTimeout(render, ty + ms + 50); }); // a line still queued at nightfall is stale by morning; #11: its time counts from when it's typed
   }
 
   // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
@@ -161,7 +161,7 @@
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
     if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); }
-    $('objective').textContent = flash && Date.now() < flash.until ? flash.text : objective();
+    window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: a new line types out
     $('stats-open').hidden = !s.seen.stats;
     wallet();
     const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
@@ -330,7 +330,7 @@
     if (fresh) winOpen(id);
     // Keyboard focus goes to Nib's waiting line if there is one, else the window: never the × button,
     // or Enter would close the window instead of answering Nib.
-    const b = $('nib-bubble'), wait = !b.hidden && b.classList.contains('asks') && (b.querySelector('.nib-next') || b);
+    const b = $('nib-bubble'), wait = !b.hidden && b.classList.contains('asks') && (!nib.typing && b.querySelector('.nib-next') || b); // #11: Next is hidden while typing
     (wait || $('panel-body')).focus({ preventScroll: true });
   }
   function closeWindow() { const id = ui.win; ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
@@ -896,6 +896,8 @@
   window.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input,textarea,select')) return;
     const bubble = $('nib-bubble');
+    // #11: Enter or 1-3 while Nib's line is still typing finishes it; the answers appear, nothing is picked yet.
+    if (nib.typing && (e.key === 'Enter' ? !e.target.closest('button') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
     if (!bubble.hidden && e.key === 'Enter' && !e.target.closest('button')) { const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
     if (!bubble.hidden && /^[1-3]$/.test(e.key)) { const b = bubble.querySelectorAll('.nib-choice')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
     if (e.key === 'Escape' && ui.win && !$('modal').open) { e.preventDefault(); closeWindow(); return; }
