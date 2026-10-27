@@ -67,6 +67,7 @@
     world.setInsets(punchIns({ top: Math.max(64, hud.bottom + 8), bottom: innerHeight - dock.top + 12, hud: { left: hud.left, bottom: hud.bottom + 8 } })); // #13: scaled while the office punches in
     document.documentElement.style.setProperty('--dock-top', Math.round(innerHeight - dock.top) + 'px');
     world.setTouch(matchMedia('(pointer: coarse)').matches || innerWidth < 650);
+    requestAnimationFrame(placeLamps); // #12: the room moved; its lamps follow once world.js has refit it
   }
 
   // Nib docks to an open window, and stays docked while it shrinks away. Out of sight (a window over the office, or Team),
@@ -164,6 +165,7 @@
   // second render in the same task (or any rebuild mid-entrance) keeps it, and the entrance carries on from its start.
   let dockSeen = null; const dockNew = new Map();
   function render() {
+    if (frozen) return; // leaving: the save may already be the next chapter's; the office stays as it was behind the iris
     const mf = E.maxFocus(s);
     $('focus').hidden = !s.seen.job;
     focusMeter(s.focus, mf);
@@ -178,7 +180,7 @@
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
-    if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); setTimeout(punchWon3, 0); }
+    if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
     wallet();
@@ -459,17 +461,24 @@
   function punchIns(v) { punchBase = v; const k = punchK; return k === 1 ? v : { top: v.top * k, bottom: v.bottom * k, hud: v.hud && { left: v.hud.left * k, bottom: v.hud.bottom * k } }; }
   function punchFor(r, station, who, key) {
     lastPay = { station, who, t: performance.now() };
-    if (r.crit || r.won || station === 'hq') punch(station, who, key, r.crit || station === 'hq'); // HQ only pays chains: always critical
+    if (!r.won && (r.crit || station === 'hq')) punch(station, who, key, true); // HQ only pays chains: always critical. The goal punches in goal().
   }
-  function punchWon3() { const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; punch(p.station, p.who, null, true); } // the pay that reached Elite
+  // The goal's punch would start behind the window's scrim and be cut by its card, so it plays in the clear office: the
+  // window shuts, the office pushes in, and the card comes once the push is holding (~300-500 ms in).
+  async function goal(card, station, who) {
+    closeWindow();
+    if (await punch(station, who, null, true)) await wait(420);
+    card();
+  }
+  // Resolves true once the punch has started.
   async function punch(station, who, key, big) {
-    if (reduced || punchFx || document.hidden || ui.night || $('modal').open || document.body.classList.contains('s3-agents-open')) return;
+    if (reduced || punchFx || document.hidden || ui.night || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
     const fx = punchFx = {}, frame = () => new Promise(r => requestAnimationFrame(r));
     // Its tag shows on the window's next draw; the impact is its release less the hold. No tag (window shut): now.
     await frame();
     const st = key && stamps.get(key);
     for (const t = performance.now(); st && st.out == null && performance.now() - t < 1500 && punchFx === fx;) await frame();
-    if (punchFx !== fx || $('modal').open || document.body.classList.contains('s3-agents-open')) { if (punchFx === fx) punchFx = null; return; }
+    if (punchFx !== fx || $('modal').open || document.body.classList.contains('s3-agents-open')) { if (punchFx === fx) punchFx = null; return false; }
     const now = document.timeline.currentTime, t0 = st && st.out != null ? Math.max(now - 50, st.out - (big ? 67 : 33)) : now;
     // Toward where it happened: the paying agent, else the station (or you); the room's middle if neither is in view.
     const wrap = $('world-wrap'), W = wrap.getBoundingClientRect(), ag = who && document.querySelector(`#s3-layer:not([hidden]) [data-chat="${who}"]`);
@@ -482,8 +491,8 @@
     let prev = 0;
     const tick = at => { if (punchFx !== fx) return; const next = at + (prev ? Math.min(50, at - prev) : 16.7); prev = at; punchK = punchScale(next - t0); if (punchBase) world.setInsets(punchIns(punchBase)); if (next < t0 + PUNCH_MS) requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
-    fx.end = () => { if (punchFx !== fx) return; punchFx = null; punchK = 1; a.cancel(); wrap.style.transformOrigin = ''; if (punchBase) world.setInsets(punchBase); };
-    a.onfinish = fx.end;
+    fx.end = () => { if (punchFx !== fx) return; punchFx = null; punchK = 1; a.cancel(); wrap.style.transformOrigin = ''; if (punchBase) world.setInsets(punchBase); requestAnimationFrame(placeLamps); };
+    a.onfinish = fx.end; return true;
   }
   window.addEventListener('resize', () => punchFx?.end?.()); // a resize mid-punch: world.js would measure the zoomed canvas
   // ---------- #5 windows open from where you clicked ----------
@@ -823,7 +832,7 @@
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
     if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); world.pulseAt('stats'); nibSay('Our first bounty. There\'s a tool shelf now: tools open new kinds of bugs. The ledger tracks our reputation.', { ms: 5600, mood: 'happy' }); }
     if (r.firsts && r.firsts.hq) { world.pulseAt('hq'); nibSay('About one bug in twenty turns out critical. Or we make one: two bugs in connected rooms. HQ has the board.', { ms: 5600 }); }
-    if (r.won) setTimeout(ending, 1600);
+    if (r.won) setTimeout(() => goal(ending, station), 1600);
     nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
   }
   function prove(id) {
@@ -853,7 +862,7 @@
     payChip({ ...r, crit: true, rep: s.rep - rep }, 'hq', null, 'chain:' + tid); // its pay flies from the tag once that lands (#4)
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     nib.hop(); // squash & stretch: and for a critical chain
-    drawWindow(); if (r.won) setTimeout(ending, 1600);
+    drawWindow(); if (r.won) setTimeout(() => goal(ending, 'hq'), 1600);
   }
 
   // ---------- coffee, sleep, night ----------
@@ -867,8 +876,9 @@
     const wrap = $('world-wrap'); let L = $('lamps');
     if (!L) { L = wrap.appendChild(document.createElement('div')); L.id = 'lamps'; L.setAttribute('aria-hidden', 'true'); }
     L.hidden = world.getState().room !== 'office'; if (L.hidden) return L;
-    const wr = wrap.getBoundingClientRect(), rr = world.roomRect(), room = W.rooms.find(r => r.id === 'office');
-    Object.assign(L.style, { left: rr.left - wr.left + 'px', top: rr.top - wr.top + 'px', width: rr.width + 'px', height: rr.height + 'px' });
+    // In the wrap's own px: mid-punch (#13) its on-screen rect is zoomed by k, and L sits inside that zoom.
+    const wr = wrap.getBoundingClientRect(), k = wr.width / wrap.offsetWidth || 1, rr = world.roomRect(), room = W.rooms.find(r => r.id === 'office');
+    Object.assign(L.style, { left: (rr.left - wr.left) / k + 'px', top: (rr.top - wr.top) / k + 'px', width: rr.width / k + 'px', height: rr.height / k + 'px' });
     const ids = ORDER.filter(shown).join();
     if (L.dataset.ids !== ids) {
       L.dataset.ids = ids;
@@ -876,7 +886,6 @@
     }
     return L;
   }
-  window.addEventListener('resize', () => requestAnimationFrame(placeLamps)); // after world.js has resized its canvas
   function switchLamps(on) {
     const L = placeLamps(); L.classList.toggle('off', !on);
     if (reduced) return;
@@ -886,7 +895,8 @@
     lamps.forEach((b, i) => {
       const o = { duration: on ? 300 : 260, delay: (on ? 300 : 0) + i * 120, easing: 'steps(4, end)', fill: 'backwards' };
       b.children[0].animate(lit.map((v, j) => ({ opacity: v, offset: at3[j] })), o);
-      b.children[1].animate(lit.map((v, j) => ({ opacity: 1 - v, offset: at3[j] })), o);
+      // The dark pool is the night's: it falls lamp by lamp, but lifts with the night (.night.rise), never on a lit floor.
+      b.children[1].animate(on ? [{ opacity: 1 }, { opacity: 0 }] : lit.map((v, j) => ({ opacity: 1 - v, offset: at3[j] })), on ? { duration: 500, easing: 'ease-in', fill: 'backwards' } : o);
     });
   }
   // The night falls after the first lamps go (style.css .fall) and lifts in the 500 ms sleep() gives it (.rise).
@@ -1008,6 +1018,8 @@
   }
 
   // ---------- input ----------
+  // Leaving (the iris is closing): no key or click reaches the office, world.js included (window capture runs first).
+  ['keydown', 'click', 'pointerdown'].forEach(t => window.addEventListener(t, e => { if (frozen) { e.stopImmediatePropagation(); e.preventDefault(); } }, true));
   document.addEventListener('click', e => {
     const close = e.target.closest('[data-close]'); if (close) { const d = close.closest('dialog'); if (d.id === 'panel-dialog') closeWindow(); else { d.close(); render(); } return; }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
@@ -1037,7 +1049,7 @@
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
   });
   window.addEventListener('resize', layout);
-  new ResizeObserver(layout).observe(document.querySelector('.dock-shell'));
+  const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
   window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); render(); if (ui.win) drawWindow(); } catch {} } });
   setInterval(() => { if (frozen) return; try { localStorage.setItem(POS, JSON.stringify(world.getState())); } catch {} }, 1000);
 
@@ -1059,7 +1071,7 @@
   layout(); render();
   const home = s.seen.intro ? nibHome() : SPOT.side;
   nib.place(home[0], home[1]);
-  if (window.Iris && window.Iris.arrived()) window.Iris.open(...nibScreen()); // #17: a chapter change opens on Nib
+  if (window.Iris && window.Iris.arrived()) requestAnimationFrame(() => requestAnimationFrame(() => window.Iris.open(...nibScreen()))); // #17: a chapter change opens on Nib, once the dock's first resize has placed the room
   if (!s.seen.intro) {
     (async () => {
       await wait(700);
