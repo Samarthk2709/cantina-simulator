@@ -7,6 +7,30 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
   const setHTML = (el, html) => { if (el && el.__html !== html) { el.innerHTML = html; el.__html = html; } };
+  // setHTML that patches in place: unchanged nodes stay, attributes and text are updated, so a roster row or pane header
+  // whose text changes never restarts its avatar's loop (hop, bob…) or drops its idle-life frame. An <svg> is art: kept
+  // while its markup is the same (idle life draws inside it), swapped whole when it changes (a new state).
+  function morph(el, html) {
+    if (!el || el.__html === html) return; el.__html = html;
+    const t = document.createElement('template'); t.innerHTML = html; sync(el, t.content);
+  }
+  const art = n => { for (const s of n.nodeName === 'svg' ? [n] : n.querySelectorAll?.('svg') || []) s.__src = s.outerHTML; return n; };
+  function sync(el, to) {
+    const old = [...el.childNodes], now = [...to.childNodes];
+    now.forEach((n, i) => {
+      const o = old[i];
+      if (!o) el.appendChild(art(n));
+      else if (o.nodeName !== n.nodeName || n.nodeType !== 1 && n.nodeType !== 3) o.replaceWith(art(n));
+      else if (n.nodeType === 3) { if (o.data !== n.data) o.data = n.data; }
+      else if (n.nodeName === 'svg') { if (o.__src !== n.outerHTML) o.replaceWith(art(n)); }
+      else {
+        for (const {name} of [...o.attributes]) if (!n.hasAttribute(name)) o.removeAttribute(name);
+        for (const {name, value} of n.attributes) if (o.getAttribute(name) !== value) o.setAttribute(name, value);
+        sync(o, n);
+      }
+    });
+    old.slice(now.length).forEach(o => o.remove());
+  }
   const money = v => '$' + Math.round(v).toLocaleString('en-US');
 
   // ---------- avatar: avatars.js draws the whole cast. State is carried by motion and the eyes. ----------
@@ -49,22 +73,26 @@
     const show = w && !open && w.getState().room === 'office';
     layer.hidden = !show;
     if (show) {
-      const rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width;
+      const rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width, jobs = [], placed = [];
       for (const a of A.list()) {
         if (!a.pos) continue;
         let el = sprites[a.id];
         if (!el) { el = sprites[a.id] = document.createElement('button'); el.className = 's3-agent' + (a.id === 'nib' ? ' nib' : ''); el.dataset.chat = a.id; layer.appendChild(el); }
         // Walk bob is offset 3 frames (50 ms) per agent; during the wind-up the agent crouches a pixel and leans back.
-        const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k;
-        const bob = a.crouch ? -k : a.moving ? Math.round(Math.sin((performance.now() + i * 50) / 90) * k) : 0, lean = a.crouch ? -(a.facing || 1) * k : 0;
+        // Reduced motion: neither, the agent just walks.
+        const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k, crouch = a.crouch && !calm;
+        const bob = crouch ? -k : a.moving && !calm ? Math.round(Math.sin((performance.now() + i * 50) / 90) * k) : 0, lean = crouch ? -(a.facing || 1) * k : 0;
+        const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking', lift = st === 'waiting' && a.id !== 'nib' && !calm ? 9 * k : 0;
         el.classList.toggle('flip', a.facing < 0);
-        el.style.cssText = `left:${rect.left + a.pos.x * k + lean - wd / 2}px;top:${rect.top + a.pos.y * k - h + 2 * k - bob}px;width:${wd}px;height:${h}px`;
-        const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking';
+        el.style.cssText = `left:${rect.left + a.pos.x * k + lean - wd / 2}px;top:${rect.top + a.pos.y * k - h + 2 * k - bob}px;width:${wd}px;height:${h}px;--lift:${lift}px`;
         // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
         setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(A.phrase(a)))}</span>` : ''}`);
         el.setAttribute('aria-label', `${a.name}: ${A.phrase(a)}. Open chat.`);
-        followThrough(a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k);
+        jobs.push([a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k, lift, placed]);
       }
+      // Standing bubbles oldest first, then walkers: a newcomer stacks above its neighbours instead of pushing them up.
+      const rank = a => a.path.length || a.nibWalking ? 2e9 : since[a.id] ?? 1e9;
+      jobs.sort((p, q) => rank(p[0]) - rank(q[0])).forEach(j => followThrough(...j));
       for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
     }
     requestAnimationFrame(drawLayer);
@@ -73,17 +101,24 @@
   // Follow-through (#6): an agent that stops leans on a pixel and rocks back (a.drift, from harness.js), and its bubble
   // trails it on Nib's bubble spring instead of riding the walk bob: it lags while walking and overshoots a touch on
   // stop. (x, y) is the agent's anchor without bob or lean, (dx, dy) how far the sprite sits from it. A bubble never
-  // sinks onto its agent or leaves the screen, and a new one starts in place. Reduced motion: neither.
-  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches, trails = {};
-  function followThrough(a, el, x, y, dx, dy, h, k) {
-    if (calm) return;
-    if (a.drift && !a.crouch) { const ex = Math.round(a.drift[0] * k), ey = Math.round(a.drift[1] * k); el.style.translate = `${ex}px ${ey}px`; dx += ex; dy += ey; }
+  // sinks onto its agent or leaves the screen (near an edge it slides in, so it reads on a phone), stacks above a
+  // neighbour's bubble instead of covering it (same desk; a walker's rises as it nears), and a new one starts in place.
+  // Reduced motion: no lean or spring; bubbles still keep on-screen and apart.
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches, trails = {}, since = {}; // since: when each standing bubble settled, in order
+  let born = 0;
+  function followThrough(a, el, x, y, dx, dy, h, k, lift, placed) {
+    if (a.drift && !a.crouch && !calm) { const ex = Math.round(a.drift[0] * k), ey = Math.round(a.drift[1] * k); el.style.translate = `${ex}px ${ey}px`; dx += ex; dy += ey; }
     const b = el.querySelector('.s3-bubble');
-    if (!b) { trails[a.id]?.reset(); return; }
+    if (!b) { trails[a.id]?.reset(); delete since[a.id]; return; }
+    const [bw, bh] = b.__size || (b.__size = [b.offsetWidth, b.offsetHeight]), far = 16 * k, m = 4, lo = m + bw / 2, hi = innerWidth - m - bw / 2;
+    const top = y - h + 2 * k - 15 - lift - bh, tx = Math.max(lo, Math.min(hi, x)); // its top on the anchor (.s3-bubble: 15px above the sprite)
+    if (a.path.length || a.nibWalking) delete since[a.id]; else since[a.id] ??= ++born;
+    let up = 0; // how far it rises to clear the bubbles of neighbours (a desk's width) placed before it this frame
+    for (let j = 0; j < placed.length; j++) { const [px, pt, pw, ph, ax, ay] = placed[j]; if (Math.abs(ax - x) <= 64 * k && Math.abs(ay - y) <= 24 * k && Math.abs(px - tx) < (pw + bw) / 2 + 2 && top - up < pt + ph + 2 && top - up + bh + 2 > pt) { up = top + bh + 2 - pt; j = -1; } }
+    up = Math.min(up, Math.max(0, top - m)); placed.push([tx, top - up, bw, bh, x, y]);
+    if (calm) { b.style.translate = `${Math.round(tx - x - dx)}px ${Math.round(-up - dy)}px`; return; }
     const tr = trails[a.id] || (trails[a.id] = window.BubbleTrail());
-    const [bw, bh] = b.__size || (b.__size = [b.offsetWidth, b.offsetHeight]), far = 16 * k, m = 4;
-    const top = y - h + 2 * k - 15 - bh; // the bubble's top when it sits on the anchor (.s3-bubble: 15px above the sprite)
-    const [sx, sy] = tr.to(x, y, performance.now(), k, [Math.max(-far, Math.min(0, m - x + bw / 2)), Math.min(far, Math.max(0, innerWidth - m - x - bw / 2)), Math.max(-far, Math.min(0, m - top)), 0]);
+    const [sx, sy] = tr.to(tx, y - up, performance.now(), k, [Math.max(-far, lo - tx), Math.min(far, hi - tx), Math.max(-far, Math.min(0, m - top + up)), up]);
     b.style.translate = `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`;
   }
   requestAnimationFrame(drawLayer);
@@ -91,7 +126,7 @@
   C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
 
   // ---------- idle life (motion #8): idle and done agents breathe a pixel, blink and glance, each on its own rhythm ----------
-  // Frames are swapped inside the avatar's own <svg>, so setHTML's string diff never sees them and the state animations
+  // Frames are swapped inside the avatar's own <svg>, so the redraws' string diffs (setHTML, morph) never see them and the state animations
   // (working, thinking, waiting, sad) are untouched. A redraw starts from the plain frame; the observer restores ours before paint.
   const LIFE = {}, lifeReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   function lifeOf(id, now, floor) {
@@ -118,8 +153,8 @@
       const host = el.closest('[data-chat],[data-pane],[data-go]'), id = host && (host.dataset.chat || host.dataset.pane || (host.dataset.go || '').split(':')[1]);
       if (!id || !A.get(id)) continue;
       const mood = done ? 'happy' : 'idle', L = lifeOf(id, now, !open), key = `${mood}${+L.breath}${+L.blink}${L.glance}`;
-      if ((el.__life || mood + '000') === key) continue;
-      el.__life = key;
+      if ((svg.__life || mood + '000') === key) continue; // kept on the svg: a new state swaps in a plain one
+      svg.__life = key;
       // A glance looks ahead (eyes a pixel forward) or turns and looks back (mirrored); the floor's .flip still applies on top.
       svg.innerHTML = window.Avatars.rects(id, {mood: L.blink ? 'blink' : mood, breath: L.breath, look: L.glance ? 1 : 0})
         .map(([x, y, w, h, c]) => `<rect x="${L.glance < 0 ? 16 - x - w : x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
@@ -135,7 +170,7 @@
     const rows = A.list().map(a => `<button class="s3-row ${sel('agent', a.id)} ${a.q ? 'need' : ''}" data-go="agent:${a.id}">${avatar(a)}<span class="txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(A.phrase(a))}</span></span></button>`).join('');
     const next = A.hireable()[0], r = next && A.roster[next];
     const rules = A.RULES.filter(x => A.crew().rules.all?.[x.k]).length;
-    setHTML($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
+    morph($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
       ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
       <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
       <div class="s3-foot">${w.rep}/60 rep to Elite · ${money(w.cash)}</div>`);
@@ -205,7 +240,7 @@
     renderSide(); renderToggle();
     if (!open || view.kind === 'rules') return;
     const el = document.querySelector('#s3-main [data-pane]'), a = el && A.get(el.dataset.pane); if (!a) return;
-    setHTML(el.querySelector('[data-ph]'), head(a));
+    morph(el.querySelector('[data-ph]'), head(a));
     const box = el.querySelector('[data-msgs]'), key = a.ver + ':' + (a.q ? 1 : 0) + ':' + A.phrase(a) + ':' + openSteps.size;
     if (box.__key !== key) {
       const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -215,16 +250,17 @@
   }
 
   // ---------- #7 Staging: dim the timeline around a decision ----------
-  // A decision is the agent's open question, or its newest penalty whose AGENTS.md fix is still off, until you add
-  // the rule, click elsewhere, or the timeline moves on (you speak, a win, the task ends). Only the card gets
+  // A decision is the agent's open question, or its newest penalty if that one's AGENTS.md fix is still off, until you
+  // add the rule, click elsewhere, or the timeline moves on (you speak, a win, the task ends). An older penalty is
+  // never staged instead: it may be scrolled out of sight. A ban notice belongs to the penalty before it. Only the card gets
   // .s3-decide; the dim is CSS (:has(.s3-decide)), so it lifts whatever removes the card: an answer, a re-render,
   // another agent, the rules page, closing Team. The entrance plays once per decision, never on re-renders.
   const entered = new Map(), passed = new Set(), ENTER_MS = 700, MOVED_ON = new Set(['user', 'win', 'done', 'brief', 'refuse']);
   function decision(a) {
     if (a.q) return {key: a.id + ':q' + (a.log.findLast(m => m.kind === 'ask')?.id ?? '')};
-    const pens = a.log.filter(m => m.kind === 'pen'), n = pens.findLastIndex(m => A.RULES.some(r => r.k === m.fix) && !A.rule(a, m.fix));
+    const pens = a.log.filter(m => m.kind === 'pen'), n = pens.findLastIndex(m => m.title !== 'Banned');
     const p = pens[n], key = p && a.id + ':p' + p.id;
-    if (!p || passed.has(key) || a.log.slice(a.log.indexOf(p) + 1).some(m => MOVED_ON.has(m.kind))) return null;
+    if (!p || !A.RULES.some(r => r.k === p.fix) || A.rule(a, p.fix) || passed.has(key) || a.log.slice(a.log.indexOf(p) + 1).some(m => MOVED_ON.has(m.kind))) return null;
     return {key, n}; // n: penalty cards render one per 'pen' entry, in log order
   }
   function stage(a, box) {
@@ -248,10 +284,12 @@
       else mine().forEach(an => { an.startTime = entered.get(d.key); });
     }
   }
-  // A penalty's fix is an offer: clicking anywhere else in Team passes on it. A question keeps waiting for its answer.
-  document.addEventListener('pointerdown', e => {
-    const c = document.querySelector('#s3-main .s3-decide');
-    if (!c || !e.target.closest('#s3-view') || c.contains(e.target) || !/:p\d+$/.test(c.dataset.decide)) return;
+  // A penalty's fix is an offer: a click or tap anywhere else in Team passes on it. Scrolling doesn't: a touch scroll
+  // never clicks, and a press on a scrollbar is skipped. A question keeps waiting for its answer.
+  document.addEventListener('click', e => {
+    const c = document.querySelector('#s3-main .s3-decide'), t = e.target;
+    if (!c || !t.closest('#s3-view') || c.contains(t) || !/:p\d+$/.test(c.dataset.decide)) return;
+    if (t.scrollHeight > t.clientHeight && e.offsetX >= t.clientWidth || t.scrollWidth > t.clientWidth && e.offsetY >= t.clientHeight) return;
     passed.add(c.dataset.decide); c.classList.remove('s3-decide');
   }, true);
   // Under the message bar: how the game read it, plus the one warning that matters most.

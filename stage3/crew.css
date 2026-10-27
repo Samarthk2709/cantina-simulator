@@ -24,7 +24,7 @@ body.stage3 #founder-chips{display:none}
 @keyframes s3-sway{50%{transform:rotate(-4deg)}}
 /* Squash & stretch hop (the frames of Avatars.hop): squash 200 ms (the anticipation), stretch up, hang, stretch down,
    squash on landing, overshoot, rest. Held frames; sizes land on whole art pixels (16×21) and lifts are whole art
-   pixels (100%/21 of the sprite). translate/scale, not transform, so a flipped agent stays flipped mid-hop. */
+   pixels (100%/21 of the sprite). Facing lives on the .s3-av around the svg (.flip), so no state loop can undo it. */
 @keyframes s3-hop{0%{translate:0;scale:1}3.125%{scale:1.0625 .9524}6.25%{scale:1.125 .8571}9.375%{scale:1.1875 .8095}
   12.5%{translate:0 -14.29%;scale:.875 1.1429}15.625%{translate:0 -23.81%}18.75%{translate:0 -28.57%;scale:.9375 1.0952}21.875%{translate:0 -33.33%;scale:.9375 1.0476}
   25%{translate:0 -38.1%;scale:1 1.0476}28.125%{translate:0 -42.86%;scale:1}34.375%{translate:0 -38.1%;scale:1 1.0476}37.5%{translate:0 -28.57%;scale:.9375 1.0952}
@@ -37,10 +37,12 @@ body.stage3 #founder-chips{display:none}
 #s3-layer{position:fixed;inset:0;z-index:2;pointer-events:none}
 .s3-agent{position:absolute;pointer-events:auto;border:0;background:none;padding:0;cursor:pointer}
 .s3-agent .s3-av{width:100%;height:100%}
-.s3-agent.flip svg{transform:scaleX(-1)}
+/* The flip sits on the wrapper, the state loops (bob, sway, shake, hop) on the svg, so a left-facing agent stays left. */
+.s3-agent.flip .s3-av{transform:scaleX(-1)}
 .s3-agent.nib{min-width:24px;min-height:30px} /* invisible hit box over the game's own Nib */
-.s3-tag{position:absolute;left:50%;top:-14px;transform:translateX(-50%);font:600 10px var(--mono);color:var(--ink);background:#18303acc;padding:0 5px;border-radius:3px;white-space:nowrap}
-.s3-bubble{position:absolute;left:50%;bottom:calc(100% + 15px);transform:translateX(-50%);font:11px var(--sans);color:#08131a;background:#f5fbff;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+/* --lift (crew.js): a waiting agent's hop rises 9 art px, so its tag and bubble sit that much higher and the head never goes behind them. */
+.s3-tag{position:absolute;left:50%;top:calc(-14px - var(--lift,0px));transform:translateX(-50%);font:600 10px var(--mono);color:var(--ink);background:#18303acc;padding:0 5px;border-radius:3px;white-space:nowrap}
+.s3-bubble{position:absolute;left:50%;bottom:calc(100% + 15px + var(--lift,0px));transform:translateX(-50%);font:11px var(--sans);color:#08131a;background:#f5fbff;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .s3-bubble.need{background:var(--amber)}
 .s3-oos{border-color:var(--danger-ink)!important;opacity:.85}
 .s3-oos-tag{display:block;font:600 9px var(--mono);letter-spacing:.08em;color:var(--danger-ink);margin-top:2px}
