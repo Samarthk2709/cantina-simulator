@@ -64,7 +64,7 @@
   function syncWorld() { world.update({ started: true, paused: false, won: s.won, speed: 1, movementSpeed: 1, compute: s.gpu }, null, false, blocked(), worldView()); }
   function layout() {
     const dock = document.querySelector('.dock-shell').getBoundingClientRect(), hud = document.querySelector('.hud').getBoundingClientRect();
-    world.setInsets({ top: Math.max(64, hud.bottom + 8), bottom: innerHeight - dock.top + 12, hud: { left: hud.left, bottom: hud.bottom + 8 } });
+    world.setInsets(punchIns({ top: Math.max(64, hud.bottom + 8), bottom: innerHeight - dock.top + 12, hud: { left: hud.left, bottom: hud.bottom + 8 } })); // #13: scaled while the office punches in
     document.documentElement.style.setProperty('--dock-top', Math.round(innerHeight - dock.top) + 'px');
     world.setTouch(matchMedia('(pointer: coarse)').matches || innerWidth < 650);
   }
@@ -160,7 +160,7 @@
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
-    if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); }
+    if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); setTimeout(punchWon3, 0); }
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: a new line types out
     $('stats-open').hidden = !s.seen.stats;
     wallet();
@@ -266,6 +266,7 @@
   // at most 4 fly at once and the rest wait their turn, their pay still held, so money always lands with a chip.
   let nextPop = 0, lastPop = 0, burst = 0, lastLand = 0, inAir = 0;
   function payChip(r, station, who, key) {
+    punchFor(r, station, who, key); // #13: a critical or the goal also punches the office in
     if (reduced || document.hidden || !r.pay || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
     const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who, key };
     chips.push(c); held.cash += c.pay; held.rep += c.rep; wallet(); // agents' pay was already rendered: take it back until the chip lands
@@ -420,6 +421,53 @@
     // Settle: a small overshoot on release, on `scale` so it rides on top of the slam's transform and ends at rest.
     stamp.animate([{ scale: 1 }, { scale: big ? 1.04 : 1.02, offset: .4 }, { scale: 1 }], { duration: 200, delay: rel, easing: 'ease-out' }).startTime = t0;
   }
+  // ---------- #13 camera punch-in on big moments ----------
+  // The rarest moments only: a CRITICAL paid (yours, an agent's, a chain at HQ) or the chapter's goal reached. The office
+  // pushes in 7% toward where it happened, holds, and eases back: 1.5 s, a .985 dip first (anticipation). It starts on the
+  // tag's impact, so it and the hit-stop (#2) land as one beat. Only #world-wrap scales: Nib, agents and their bubbles are
+  // placed from world.roomRect(), which reads the canvas's on-screen rect, so they follow it frame by frame; windows, HUD,
+  // dock, toasts and chips don't move. One at a time: a moment during a punch doesn't start another.
+  const PUNCH = [[0, 1], [.2, .985], [.45, 1.07], [.75, 1.07], [1, 1]], PUNCH_MS = 1500, PUNCH_EASE = [.3, .7, .3, 1];
+  const bez = (u, a, b) => 3 * (1 - u) * (1 - u) * u * a + 3 * (1 - u) * u * u * b + u * u * u;
+  function punchScale(t) { // the animation's scale at t ms: same keys and easing as the WAAPI one
+    if (!(t > 0 && t < PUNCH_MS)) return 1;
+    let lo = 0, hi = 1, u = .5; for (let i = 0; i < 24; i++) { u = (lo + hi) / 2; if (bez(u, PUNCH_EASE[0], PUNCH_EASE[2]) < t / PUNCH_MS) lo = u; else hi = u; }
+    const p = bez(u, PUNCH_EASE[1], PUNCH_EASE[3]), j = Math.max(1, PUNCH.findIndex(k => k[0] >= p)), [a, b] = [PUNCH[j - 1], PUNCH[j]];
+    return a[1] + (b[1] - a[1]) * (p - a[0]) / (b[0] - a[0]);
+  }
+  // world.js turns its insets (CSS px) into canvas px by the canvas's on-screen width, so a zoomed canvas would refit the
+  // room inside it. The insets scale with the zoom instead: punchK is the scale world.js sees on its next draw.
+  let punchFx = null, punchK = 1, punchBase = null, lastPay = null;
+  function punchIns(v) { punchBase = v; const k = punchK; return k === 1 ? v : { top: v.top * k, bottom: v.bottom * k, hud: v.hud && { left: v.hud.left * k, bottom: v.hud.bottom * k } }; }
+  function punchFor(r, station, who, key) {
+    lastPay = { station, who, t: performance.now() };
+    if (r.crit || r.won || station === 'hq') punch(station, who, key, r.crit || station === 'hq'); // HQ only pays chains: always critical
+  }
+  function punchWon3() { const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; punch(p.station, p.who, null, true); } // the pay that reached Elite
+  async function punch(station, who, key, big) {
+    if (reduced || punchFx || document.hidden || ui.night || $('modal').open || document.body.classList.contains('s3-agents-open')) return;
+    const fx = punchFx = {}, frame = () => new Promise(r => requestAnimationFrame(r));
+    // Its tag shows on the window's next draw; the impact is its release less the hold. No tag (window shut): now.
+    await frame();
+    const st = key && stamps.get(key);
+    for (const t = performance.now(); st && st.out == null && performance.now() - t < 1500 && punchFx === fx;) await frame();
+    if (punchFx !== fx || $('modal').open || document.body.classList.contains('s3-agents-open')) { if (punchFx === fx) punchFx = null; return; }
+    const now = document.timeline.currentTime, t0 = st && st.out != null ? Math.max(now - 50, st.out - (big ? 67 : 33)) : now;
+    // Toward where it happened: the paying agent, else the station (or you); the room's middle if neither is in view.
+    const wrap = $('world-wrap'), W = wrap.getBoundingClientRect(), ag = who && document.querySelector(`#s3-layer:not([hidden]) [data-chat="${who}"]`);
+    const b = ag?.getBoundingClientRect() || world.anchor(station) || world.roomRect();
+    const ox = Math.max(0, Math.min(W.width, b.left + b.width / 2 - W.left)), oy = Math.max(0, Math.min(W.height, b.top + b.height / 2 - W.top));
+    wrap.style.transformOrigin = `${Math.round(ox)}px ${Math.round(oy)}px`;
+    const a = wrap.animate(PUNCH.map(([offset, k]) => ({ offset, transform: `scale(${k})` })), { duration: PUNCH_MS, easing: `cubic-bezier(${PUNCH_EASE})` });
+    a.startTime = t0;
+    // Each frame, after world.js has drawn, the insets are set for the next frame's scale (rAF runs in registration order).
+    let prev = 0;
+    const tick = at => { if (punchFx !== fx) return; const next = at + (prev ? Math.min(50, at - prev) : 16.7); prev = at; punchK = punchScale(next - t0); if (punchBase) world.setInsets(punchIns(punchBase)); if (next < t0 + PUNCH_MS) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    fx.end = () => { if (punchFx !== fx) return; punchFx = null; punchK = 1; a.cancel(); wrap.style.transformOrigin = ''; if (punchBase) world.setInsets(punchBase); };
+    a.onfinish = fx.end;
+  }
+  window.addEventListener('resize', () => punchFx?.end?.()); // a resize mid-punch: world.js would measure the zoomed canvas
   // ---------- #5 windows open from where you clicked ----------
   // Only the open and close transitions move: redraws and breadcrumbs inside an open window never replay them.
   // The dialog opens and takes focus at once, so keys work from the first frame; only what you see catches up.
