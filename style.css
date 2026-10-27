@@ -330,6 +330,11 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .nib-bubble.docked:not(.asks) .nib-foot{display:none}
 .nib-bubble.docked .nib-next{margin-left:auto}
 @media (max-width:700px){#panel-dialog,#panel-dialog.roomy{top:auto!important;bottom:calc(var(--dock-top,170px) + 8px)!important;transform:translateX(-50%)!important;max-height:calc(100dvh - var(--dock-top,170px) - 120px)!important}}
+/* A tall strip (Nib asking, with choices) gets room above the window: the window shortens so the strip never covers its
+   title bar or ×. nib.js sets --strip to the docked strip's height; a short strip already fits, so it changes nothing. */
+#panel-dialog,#panel-dialog.roomy{max-height:min(calc(100dvh - 230px),max(160px,calc(100dvh - 56px - 2 * var(--strip,0px))))!important}
+@media (max-width:700px){#panel-dialog,#panel-dialog.roomy{max-height:min(calc(100dvh - var(--dock-top,170px) - 120px),max(160px,calc(100dvh - var(--dock-top,170px) - 22px - var(--strip,0px))))!important}
+  .nib-bubble.docked{max-height:calc(100dvh - var(--dock-top,170px) - 182px);overflow-y:auto}}
 /* Bounty board: one compact row per program */
 #panel-dialog .programs{gap:8px}
 #panel-dialog .program{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head act" "mini act";column-gap:14px;row-gap:4px;align-items:center;padding:10px 12px}
@@ -343,6 +348,10 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .nib-bubble.docked .nib-foot:has(.nib-next){flex-basis:auto}
 /* Toasts sit just above the dock, out of the way of windows and Nib */
 .stage-toasts{top:auto!important;bottom:calc(var(--dock-top,120px) + 10px)!important}
+/* One line when they fit (a centred fixed box would otherwise wrap at half the screen) */
+.stage-toasts{width:max-content}
+/* Phones with a window open: the stack sits at the top, over the HUD, clear of the window's buttons (game.js toast) */
+.stage-toasts.top{top:10px!important;bottom:auto!important}
 /* Report: each section is one row of three choices */
 #panel-dialog .sec{margin:0 0 10px}
 #panel-dialog .sec .opts{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
