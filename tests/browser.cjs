@@ -32,10 +32,6 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     const labels = await p.$$eval('.nib-choice', bs => bs.map(b => b.textContent));
     await p.keyboard.press(String(labels.findIndex(t => t.includes(sharp.slice(0, 30))) + 1));
   }
-  async function goodReport(p) {
-    await p.waitForSelector('[data-act=pick]');
-    for (const sec of ['title', 'impact', 'steps', 'proof', 'fix']) await p.click(`[data-act=pick][data-sec=${sec}][data-id="0"]`);
-  }
 
   // ---- 1. A new player's first day, through real controls ----
   {
@@ -64,10 +60,11 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     await p.reload(); await p.waitForSelector('.nib-choice', { timeout: 6000 });
     assert.equal((await st(p)).pendingTeach, fid, 'reloading mid-lesson brings the question back');
     await teachSharp(p, fid);
-    await goodReport(p); await shot(p, '06-report');
-    await p.click('[data-act=submit]'); await p.waitForSelector('.stamp'); await p.waitForTimeout(400);
-    await shot(p, '07-report-paid');
+    // No report to write: the explanation files the bug, and you're back on the map.
+    await p.waitForSelector('.target-map'); await p.waitForTimeout(400);
+    await shot(p, '06-filed');
     s = await st(p);
+    assert.equal(await p.$('[data-act=pick]'), null, 'no report-writing step');
     assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.equal(Math.round(s.lessons[Stage2Engine_cls(fid)].clean), 1);
     assert.ok(s.seen.training && s.seen.forge && s.seen.stats, 'Nib\'s desk, tools and ledger appear');
     await p.keyboard.press('Escape'); await p.waitForTimeout(5000);
@@ -121,7 +118,6 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     await p.click(`[data-act=hunt][data-id="${fid}"]`); await p.waitForSelector('.code-line');
     await p.click(`[data-act=line][data-id="${await badLine(p, fid)}"]`);
     if (await p.waitForSelector('.nib-choice', { timeout: 6000 }).catch(() => null)) await teachSharp(p, fid);
-    await goodReport(p); await p.click('[data-act=submit]');
     await p.waitForSelector('#modal[open] .ending', { timeout: 6000 }); await p.waitForTimeout(400);
     await shot(p, '19-ending');
     const s = await st(p); assert.ok(s.won && s.bugs >= 20 && s.crits >= 1);

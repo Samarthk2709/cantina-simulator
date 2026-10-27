@@ -1,4 +1,4 @@
-// Run: node --test work/stage2/tests/engine.cjs
+// Run: node --test outputs/first-office/tests/engine.cjs
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const D = require('../data.js');
@@ -6,12 +6,12 @@ const E = require('../engine.js');
 
 const badLine = fid => { const f = E.FINDINGS[fid]; return D.CLASSES[f.cls].variants[f.variant].findIndex(l => l.bad); };
 const okLine = fid => { const f = E.FINDINGS[fid]; return D.CLASSES[f.cls].variants[f.variant].findIndex(l => !l.bad); };
-const goodReport = (s, fid) => D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0));
-function huntAndBank(s, fid, pick = 0) {
+// The player never writes reports: teaching Nib files the find.
+function huntAndBank(s, fid, lesson = 'sharp') {
   const r = E.guess(s, fid, badLine(fid)); assert.ok(r.ok && r.hit, 'hit ' + fid + ' ' + r.why);
-  assert.ok(E.teach(s, 'sharp').learned);
-  D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, x.id === 'title' || x.id === 'impact' ? pick : 0));
-  return E.submit(s, fid);
+  if (r.paid) return r.paid;
+  const t = E.teach(s, lesson); assert.ok(t.learned);
+  return t.paid;
 }
 const forceNoLuck = s => { s.rng = 1; };
 
@@ -64,11 +64,13 @@ test('wrong lines cost focus and explain themselves; the right line opens teachi
   assert.ok(hit.hit && hit.first);
   assert.equal(s.pendingTeach, fid);
   assert.equal(E.guess(s, 'chat:login:1', badLine('chat:login:1')).ok, false, 'must teach before hunting on');
-  assert.equal(E.submit(s, fid).ok, false, 'must teach before reporting');
+  assert.equal(E.submit(s, fid).ok, false, 'must teach before it is filed');
   assert.equal(E.teach(s, 'wrong').learned, false);
   assert.equal(s.pendingTeach, fid);
   const t = E.teach(s, 'sharp');
   assert.ok(t.learned && t.firstOfClass);
+  assert.ok(t.paid.accepted && t.paid.grade === 'S', 'a sharp explanation files an S report');
+  assert.equal(s.bugs, 1);
   assert.equal(Math.round(E.precision(s, 'info') * 100), 43);
 });
 
@@ -79,17 +81,18 @@ test('teaching: clean lessons sharpen Nib, noisy ones blunt it; nothing else doe
   s.gpu = 3; assert.equal(E.precision(s, 'auth'), 0.07, 'GPUs never change precision');
 });
 
-test('report grades: overclaim rejects and costs rep; vague rejects for free; drafts stay editable', () => {
-  const s = E.create({}, 3); E.takeJob(s, 'chat');
-  const fid = 'chat:login:0'; E.guess(s, fid, badLine(fid)); E.teach(s, 'sharp');
-  s.rep = 5;
-  D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0)); E.setSection(s, fid, 'impact', 2);
-  let r = E.submit(s, fid); assert.ok(!r.accepted && r.over); assert.equal(s.rep, 3);
-  D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 1)); E.setSection(s, fid, 'title', 0);
-  r = E.submit(s, fid); assert.ok(!r.accepted && !r.over); assert.equal(s.rep, 3);
-  forceNoLuck(s); goodReport(s, fid);
-  r = E.submit(s, fid); assert.ok(r.accepted); assert.equal(r.grade, 'S');
+test('filing: a sharp lesson files S, a shallow one B; agents still write reports and overclaims cost rep', () => {
+  const s = E.create({}, 3); E.takeJob(s, 'chat'); forceNoLuck(s);
+  let r = huntAndBank(s, 'chat:login:0', 'sharp'); assert.ok(r.accepted); assert.equal(r.grade, 'S');
   assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.ok(s.seen.forge && s.seen.stats);
+  forceNoLuck(s); r = huntAndBank(s, 'chat:login:1', 'shallow'); assert.equal(r.grade, 'B');
+  // An agent's report, section by section, as before.
+  s.lit.chat.push('msgs'); s.target = 'chat'; s.rep = 5;
+  const fid = 'chat:msgs:0'; assert.ok(E.guess(s, fid, badLine(fid), 'Pip').hit);
+  D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0)); E.setSection(s, fid, 'impact', 2);
+  r = E.submit(s, fid); assert.ok(!r.accepted && r.over); assert.equal(s.rep, 3);
+  D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0)); forceNoLuck(s);
+  r = E.submit(s, fid); assert.ok(r.accepted); assert.equal(s.stats.agent, 1);
   assert.equal(E.submit(s, fid).ok, false, 'pays once');
 });
 
@@ -113,14 +116,14 @@ test('validation: proof is safe, raw false alarms cost rep, raw real finds pay w
   s.lessons.auth = { clean: 5, noisy: 0 };
   let r = E.prove(s, 1); assert.ok(r.ok && !r.real); assert.equal(s.rep, 10); assert.equal(s.focus, 85);
   assert.equal(E.slotState(s, 'chat:msgs:0'), 'open', 'false alarm frees the slot');
-  r = E.prove(s, 2); assert.ok(r.real); assert.ok(s.found['chat:groups:0'].proven);
-  assert.equal(E.setSection(s, 'chat:groups:0', 'proof', 0).ok, true);
-  s.tray.push({ id: 4, fid: 'chat:msgs:0', real: false, conf: 50, night: 2 });
-  r = E.submitRaw(s, 4); assert.equal(r.real, false); assert.equal(s.rep, 7);
   forceNoLuck(s);
-  r = E.submitRaw(s, 3); assert.ok(r.real);
-  if (r.accepted) assert.ok(['A', 'B', 'C'].includes(r.grade), 'unproven caps below S');
-  else assert.equal(E.setSection(s, 'chat:bots:0', 'proof', 0).ok, false, 'cannot fake proof');
+  r = E.prove(s, 2); assert.ok(r.real); assert.ok(s.found['chat:groups:0'].proven);
+  assert.ok(r.paid.accepted && r.paid.grade === 'A', 'a proven find files itself at A');
+  s.tray.push({ id: 4, fid: 'chat:msgs:0', real: false, conf: 50, night: 2 });
+  const repBefore = s.rep; r = E.submitRaw(s, 4); assert.equal(r.real, false); assert.equal(s.rep, repBefore - 3);
+  forceNoLuck(s);
+  r = E.submitRaw(s, 3); assert.ok(r.real && r.accepted);
+  assert.ok(['B', 'C'].includes(r.grade), 'unproven files at B or C');
 });
 
 test('tools unlock bug types, not numbers; rig and desk are fully refundable without farming', () => {
@@ -137,7 +140,7 @@ test('tools unlock bug types, not numbers; rig and desk are fully refundable wit
   assert.ok(s.cups <= E.maxCups(s));
 });
 
-test('zero-luck worst case: C reports at max crowding still afford the Tracer chain', () => {
+test('zero-luck worst case: shallow lessons at max crowding still afford the Tracer chain', () => {
   const s = E.create({}, 9);
   Object.keys(s.picked).forEach(k => { if (k !== 'bank') s.picked[k] = 0.9; });
   s.cash = 0; s.tools.push('fuzz'); // a wasted, non-refundable purchase
@@ -148,9 +151,7 @@ test('zero-luck worst case: C reports at max crowding still afford the Tracer ch
     if (!E.isLit(s, f.target, f.room)) s.lit[f.target].push(f.room);
     s.focus = 100; s.rng = 1; // no lucky criticals
     const r = E.guess(s, fid, badLine(fid)); assert.ok(r.hit, fid);
-    E.teach(s, 'shallow');
-    D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, ['title', 'impact'].includes(x.id) ? 0 : 1));
-    const res = E.submit(s, fid); assert.equal(res.grade, 'C', fid);
+    const res = r.paid || E.teach(s, 'shallow').paid; assert.ok(['B', 'S'].includes(res.grade), fid);
     s.crits = 0; Object.values(s.found).forEach(x => { x.crit = false; });
     s.rep = 0; // keep the payout bonus off as well
   }

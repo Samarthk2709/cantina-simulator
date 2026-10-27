@@ -87,19 +87,23 @@
   let flash = null;
   function flashLine(text, ms) { flash = { text, until: Date.now() + ms }; render(); setTimeout(render, ms + 50); }
 
+  // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
+  function leftoverDrafts() {
+    const busy = new Set((window.Stage3Agents ? window.Stage3Agents.list() : []).filter(a => window.Stage3Agents.live(a)).flatMap(a => a.task?.drafts || []));
+    return Object.keys(s.found).filter(fid => s.found[fid].status === 'draft' && s.pendingTeach !== fid && !busy.has(fid));
+  }
+
   // ---------- objective: always one clear next step ----------
   function objective() {
     if (stage3()) return objective3();
     if (s.won) return 'Job done, ' + s.player + '. Chapter 3 is ready when you are: click the goal.';
     if (!s.target) return 'Walk to your desk and press E. Our first job is on the computer.';
     if (s.pendingTeach) return 'Tell me why that was a bug.';
-    const drafts = Object.keys(s.found).filter(fid => s.found[fid].status === 'draft');
-    const draft = drafts.find(fid => F[fid].target === s.target) || drafts[0];
-    if (draft && s.found[draft].source === 'manual') return F[draft].target === s.target ? 'Finish the report at your desk.' : 'A report on ' + T[F[draft].target].name + ' is unfinished. It\'s on the Ops desk.';
+    const drafts = leftoverDrafts(), draft = drafts[0];
     if (Object.keys(T).some(tid => E.chainState(s, tid).ready)) return 'Both halves of a chain are in. Trace it at HQ.';
     if (s.tray.length >= D.COST.tray) return 'The Ops desk is full, so I can\'t work tonight. Clear some finds.';
     if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' on the Ops desk.';
-    if (draft) return 'One of my finds needs its report checked.';
+    if (draft) return 'A find is waiting to be filed on the Ops desk.';
     if (s.focus < E.maxFocus(s) * 0.1) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
     const tid = s.target, t = T[tid];
     const open = s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).filter(fid => E.slotState(s, fid) === 'open');
@@ -281,7 +285,7 @@
     body.innerHTML = html;
     stampFx(body);
     $('panel-title').textContent = crumbs();
-    $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'report' || ui.view === 'map'));
+    $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'map'));
     body.scrollTop = top ? 0 : y;
     render();
   }
@@ -420,8 +424,7 @@
       else {
         const f = ui.fid && F[ui.fid], t = f ? T[f.target] : T[s.target];
         c.push(t.name);
-        if (ui.view === 'report' && f) c.push('Report');
-        else if (ui.view === 'hunt' && f) c.push(t.rooms.find(r => r[0] === f.room)[1], 'Hunt');
+        if (ui.view === 'hunt' && f) c.push(t.rooms.find(r => r[0] === f.room)[1], 'Hunt');
         else if (ui.room) { const r = t.rooms.find(x => x[0] === ui.room); if (r) c.push(r[1]); }
       }
     } else c.push({ training: 'Pattern book', contract: 'Nib\'s finds', forge: 'Shop', rig: 'GPU rig', stats: s.rep + ' rep · ' + E.tier(s).name, hq: 'Criticals' }[ui.win]);
@@ -431,7 +434,6 @@
   // Desk: board → map → hunt → report.
   function deskView() {
     if (ui.view === 'hunt' && ui.fid && (E.slotState(s, ui.fid) === 'open' || ui.hit != null)) return huntView();
-    if (ui.view === 'report' && ui.fid && s.found[ui.fid]) return reportView();
     if (ui.view === 'board' || !s.target) return boardView();
     return mapView();
   }
@@ -470,7 +472,7 @@
       const right = st === 'open' ? `<button data-act="hunt" data-id="${fid}" class="accent">Hunt</button>`
         : st === 'locked' ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === cls.tool).name)}</span>`
         : st === 'tray' ? `<button data-act="go" data-id="contract">On Ops desk</button>`
-        : st === 'draft' ? `<button data-act="report" data-id="${fid}">Finish report</button>`
+        : st === 'draft' ? (leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
         : `<span class="tag good">${found.crit ? 'CRITICAL · ' : ''}${found.grade} · ${money(found.pay)}</span>`;
       return `<li class="slot ${st}"><span class="dot ${st}"></span><div><b>${st === 'open' || st === 'locked' ? 'Something off' : esc(cls.name)}</b><small>${st === 'open' ? 'about ' + money(t.base * cls.mult * E.crowd(s, tid)) : st === 'locked' ? esc(cls.name) : st === 'tray' ? 'Nib thinks it\'s ' + esc(cls.name.toLowerCase()) : found && found.source === 'nib' ? 'found by Nib' : found && found.source === 'agent' ? 'found by ' + esc(found.by) : 'found by you'}</small></div>${right}</li>`;
     }).join('');
@@ -500,27 +502,7 @@
     const order = [0, 1, 2]; for (let i = 2; i > 0; i--) { h = (h * 1103515245 + 12345) >>> 0; const j = h % (i + 1); [order[i], order[j]] = [order[j], order[i]]; }
     return order;
   }
-  function reportView() {
-    const fid = ui.fid, f = F[fid], r = s.found[fid], cls = C[f.cls], t = T[f.target];
-    const text = (sec, i) => sec === 'proof' ? D.PROOF[i] : D.fill(cls.report[sec][i], f.nouns);
-    const secs = D.SECTIONS.map(x => {
-      const pick = r.report[x.id], locked = x.id === 'proof' && r.source === 'nib' && !r.proven;
-      const opts = shuffledOptions(fid, x.id).map(i => `<button class="opt ${pick === i ? 'on' : ''}" data-act="pick" data-sec="${x.id}" data-id="${i}" ${locked && i === 0 ? 'disabled title="Never proven"' : ''}>${esc(text(x.id, i))}</button>`).join('');
-      const weak = r.drafted && pick !== undefined && pick !== 0 && r.status !== 'accepted';
-      const react = pick !== undefined ? `<p class="triage t${pick}"><b>Triager:</b> ${esc(D.TRIAGE[x.id][pick])}</p>` : '';
-      return `<section class="sec ${weak ? 'weak' : ''}"><h4>${x.name}${weak ? ' <span class="tag">Nib wasn\'t sure</span>' : ''}</h4><div class="opts">${opts}</div>${react}</section>`;
-    }).join('');
-    const done = r.status === 'accepted';
-    const paper = D.SECTIONS.map(x => r.report[x.id] !== undefined ? `<p><b>${x.name}:</b> ${esc(text(x.id, r.report[x.id]))}</p>` : `<p class="blank"><b>${x.name}:</b> …</p>`).join('');
-    const res = ui.result && ui.result.fid === fid ? ui.result : null;
-    const stamp = done ? `<div class="stamp ${r.crit ? 'crit' : ''}"><b>${r.crit ? 'CRITICAL' : 'ACCEPTED'}</b><span>${r.grade} · ${money(r.pay)}</span></div>` : '';
-    const verdict = !done && r.verdict ? `<div class="feedback miss"><b>Sent back.</b> ${esc(r.verdict.replace(/^Rejected: /, '').replace(/^./, c => c.toUpperCase()))} Change a section and resubmit.</div>` : '';
-    const by = r.source === 'agent' ? 'Found by ' + esc(r.by) : r.source === 'nib' ? (r.proven ? 'Nib\'s draft · proven' : 'Nib\'s draft · unproven') : r.drafted ? 'Nib drafted it · check weak sections' : '';
-    return `<div class="win-head"><h2>${esc(cls.name)}</h2>${by ? `<span class="fine">${by}</span>` : ''}${done ? '<button data-act="to-map" class="quiet small">← Map</button>' : ''}</div>
-      ${done ? `<div class="paper">${stamp}${paper}</div>` : secs}
-      ${verdict}
-      ${done ? (res && res.won ? '' : `<button data-act="to-map" class="accent wide">Back to the map</button>`) : `<button data-act="submit" class="accent wide" ${D.SECTIONS.every(x => r.report[x.id] !== undefined) ? '' : 'disabled'}>Submit to ${esc(t.name)}</button>`}`;
-  }
+
 
   function nibView() {
     const rows = Object.keys(C).map(k => {
@@ -539,10 +521,10 @@
       return `<li class="cand"><div><b>${esc(C[f.cls].name)}</b><small>${esc(t.name)} · ${esc(room)}</small><span class="conf"><span class="meter"><i style="width:${c.conf}%"></i></span>${c.conf}% sure</span></div>
         <div class="cand-acts"><button data-act="prove" data-id="${c.id}" class="accent" ${s.focus < D.COST.prove ? 'disabled' : ''}>Prove <small>−${D.COST.prove}</small></button><button data-act="raw" data-id="${c.id}">As-is</button><button data-act="toss" data-id="${c.id}" class="quiet">Toss</button></div></li>`;
     }).join('');
-    const drafts = Object.keys(s.found).filter(fid => s.found[fid].status === 'draft' && (s.found[fid].source === 'nib' || F[fid].target !== s.target) && s.pendingTeach !== fid).map(fid => `<li class="cand"><div><b>${esc(C[F[fid].cls].name)}</b><small>${esc(T[F[fid].target].name)} · ${s.found[fid].source === 'manual' ? 'your unfinished report' : s.found[fid].proven ? 'proven' : 'sent back'}</small></div><button data-act="report" data-id="${fid}" class="accent">Review report</button></li>`).join('');
+    const drafts = leftoverDrafts().map(fid => `<li class="cand"><div><b>${esc(C[F[fid].cls].name)}</b><small>${esc(T[F[fid].target].name)}</small></div><button data-act="file" data-id="${fid}" class="accent">File</button></li>`).join('');
     const res = ui.result && ui.result.ops ? `<div class="feedback ${ui.result.good ? 'hit' : 'miss'}">${ui.result.html}</div>` : '';
     return `${res}${cands ? `<p class="fine">Prove: safe, +25% pay. As-is: free, −3 rep if it's wrong.</p><ul class="cands">${cands}</ul>` : '<p class="empty">Nothing yet. Nib works while you sleep.</p>'}
-      ${drafts ? `<h3>Reports</h3><ul class="cands">${drafts}</ul>` : ''}`;
+      ${drafts ? `<h3>To file</h3><ul class="cands">${drafts}</ul>` : ''}`;
   }
   function toolsView() {
     const tools = D.TOOLS.filter(t => t.cost).map(t => {
@@ -598,9 +580,7 @@
       room: () => { ui.room = id; drawWindow(); },
       hunt: () => { ui.view = 'hunt'; ui.fid = id; ui.hit = null; ui.miss = null; drawWindow(true); },
       line: () => guessLine(+id),
-      report: () => { ui.win = 'hunt'; $('panel-title').textContent = ST.hunt.title; ui.view = 'report'; ui.fid = id; drawWindow(true); },
-      pick: () => { const r = E.setSection(s, ui.fid, b.dataset.sec, +id); if (!r.ok && r.why) toast(r.why, 'bad'); drawWindow(); },
-      submit: () => submitReport(ui.fid),
+      file: () => fileReport(id),
       go: () => openStation(id),
       prove: () => prove(+id), raw: () => raw(+id), toss: () => { E.toss(s, +id); ui.result = null; drawWindow(); },
       tool: () => buyTool(id),
@@ -624,7 +604,7 @@
     if (!r.ok) { toast(r.why, 'bad'); return; }
     if (!r.hit) { const m = ui.miss || { lines: [] }; m.lines.push(i); m.last = i; m.why = r.why; ui.miss = m; noteFocus(); drawWindow(); if (m.lines.length === 2) nibSay(C[F[ui.fid].cls].hint, { ms: 4200 }); return; }
     ui.hit = i; ui.miss = null; noteFocus(); s.seen.rest = s.seen.rest || s.stats.manual >= 1; drawWindow();
-    if (r.mastered) { nibSay('I know this one cold. I drafted the report.', { mood: 'happy', ms: 2600 }); await wait(900); ui.view = 'report'; ui.hit = null; drawWindow(true); return; }
+    if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt'); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
     await teachMoment(ui.fid, r.first);
   }
   async function teachMoment(fid, first) {
@@ -639,27 +619,25 @@
       const r = E.teach(s, v);
       if (!r.learned) { ask = 'Hm. I don\'t think that\'s it. Look again?'; nib.setMood('sad'); continue; }
       ui.busy = false;
-      if (r.drafted) nibSay((r.clean ? 'Sharper: ' : 'Hm: ') + pct(r.before) + ' → ' + pct(r.after) + '. I know enough to draft the report now. Fix anything weak.', { mood: r.clean ? 'happy' : 'think', ms: 4200 });
-      else if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
+      if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
       else nibSay('OK, I\'ll remember that. ' + (r.after < r.before ? 'Though I feel less sure: ' + pct(r.before) + ' → ' + pct(r.after) + '.' : 'Feels thin, but it\'s a start: ' + pct(r.after) + '.'), { mood: 'think', ms: 4200 });
       if (first) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
+      paid(r.paid, 'hunt'); // your explanation is the report: it's filed and paid now
       break;
     }
     nibWalk(nibHome());
-    ui.view = 'report'; ui.hit = null; if (ui.win !== 'hunt') openStation('hunt'); drawWindow(true);
+    ui.view = 'map'; ui.hit = null; ui.fid = null; if (ui.win !== 'hunt') openStation('hunt'); drawWindow(true);
   }
-  function submitReport(fid) {
-    const r = E.submit(s, fid);
+  function fileReport(fid) {
+    const r = E.fileDraft(s, fid);
     if (!r.ok) return toast(r.why, 'bad');
-    ui.result = Object.assign({ fid }, r);
-    if (!r.accepted) { if (r.over && r.repDelta) { toast('−2 reputation for overclaiming.', 'bad'); } drawWindow(); return; }
-    paid(r, 'hunt');
+    paid(r, ui.win === 'contract' ? 'contract' : 'hunt');
     drawWindow();
   }
   function paid(r, station) {
     if (!payChip(r, station)) floatAt('+' + money(r.pay), station);
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
-    else toast(r.grade + ' report · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
+    else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
     if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); world.pulseAt('stats'); nibSay('Our first bounty. There\'s a tool shelf now: tools open new kinds of bugs. The ledger tracks our reputation.', { ms: 5600, mood: 'happy' }); }
     if (r.firsts && r.firsts.hq) { world.pulseAt('hq'); nibSay('About one bug in twenty turns out critical. Or we make one: two bugs in connected rooms. HQ has the board.', { ms: 5600 }); }
@@ -668,7 +646,7 @@
   }
   function prove(id) {
     const c = s.tray.find(x => x.id === id), r = E.prove(s, id); if (!r.ok) return toast(r.why, 'bad');
-    if (r.real) { ui.result = { ops: true, good: true, html: `<b>Real.</b> ${esc(C[F[c.fid].cls].name)} confirmed. Nib drafted the report. <button data-act="report" data-id="${r.fid}" class="accent small">Review report</button>` }; nibSay('Told you. Mostly.', { mood: 'happy', ms: 2000 }); }
+    if (r.real) { ui.result = { ops: true, good: true, html: `<b>Real.</b> ${esc(C[F[c.fid].cls].name)} · ${r.paid.grade} · ${money(r.paid.pay)}` }; nibSay('Told you. Mostly.', { mood: 'happy', ms: 2000 }); paid(r.paid, 'contract'); }
     else { ui.result = { ops: true, good: false, html: '<b>False alarm.</b> The proof didn\'t hold up. No harm done.' }; nibSay('Sorry. I saw a pattern that wasn\'t there.', { mood: 'sad', ms: 2600 }); }
     drawWindow();
   }
@@ -676,8 +654,7 @@
     const c = s.tray.find(x => x.id === id), r = E.submitRaw(s, id); if (!r.ok) return toast(r.why, 'bad');
     const name = esc(C[F[c.fid].cls].name);
     if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm. −3 reputation.` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
-    else if (r.accepted) { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} paid ${money(r.pay)} on Nib's draft (${r.grade}).` }; paid(r, 'contract'); }
-    else ui.result = { ops: true, good: false, html: `<b>Sent back.</b> It's real, but Nib's draft was too vague. <button data-act="report" data-id="${r.fid}" class="small">Fix the report</button>` };
+    else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} · ${r.grade} · ${money(r.pay)}` }; paid(r, 'contract'); }
     drawWindow();
   }
   function buyTool(id) {
@@ -854,7 +831,7 @@
   } else if (s.pendingTeach) {
     // Reloaded mid-lesson: pick the question back up at the desk.
     const fid = s.pendingTeach;
-    ui.fid = fid; ui.view = 'report';
+    ui.fid = fid; ui.view = 'map';
     setTimeout(() => teachMoment(fid, false), 600);
   } else if (stage3() && !s.seen.team) {
     (async () => {

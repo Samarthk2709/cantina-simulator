@@ -81,6 +81,16 @@ NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs 
 
 Verified 2026-10-25: all five pass. Gemma was also checked live in Stage 3: it parsed briefs, sanitize and auto-pick worked, and spend approval asked first. Live Gemma replies sometimes get numbers slightly wrong in chat. Game numbers come from code, never from the model.
 
+## No report writing (2026-10-26)
+
+You no longer write reports. A bug you find is filed and paid the moment you tell Nib why it's a bug:
+- **Sharp explanation, or a class Nib has mastered:** S grade.
+- **Shallow explanation:** B.
+- **Nib's finds you prove:** A, plus the 25% proof bonus.
+- **Nib's finds submitted as-is:** B, or C if Nib's precision is under 70%.
+
+A leftover draft, for example one an agent gave up on, is one **File** click on the Ops desk. Agents still write their reports section by section, so AGENTS.md's honesty rule and overclaim penalties still apply to them. Balance is unchanged: `pacing.cjs` gives a median of day 6, and 40 of 40 runs win.
+
 ## Windows and popups (2026-10-25)
 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
@@ -92,7 +102,7 @@ Verified 2026-10-25: all five pass. Gemma was also checked live in Stage 3: it p
   - Report sections are one row of three choices, with no duplicate paper preview.
   - The Menu drops Import Stage 1.
 
-Screenshots: `evidence/popup-map.png`, `evidence/popup-report.png`.
+Screenshots: `evidence/popup-map.png`.
 
 ## Avatars (2026-10-25)
 

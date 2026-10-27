@@ -124,8 +124,10 @@
     s.found[fid] = { status: 'draft', source: 'manual', proven: false, report: {}, verdict: null };
     // Once Nib has mastered a class there is nothing left to teach: it drafts the report instead.
     const mastered = precision(s, f.cls) >= 0.95;
-    if (mastered) draftFor(s, fid); else s.pendingTeach = fid;
-    return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first: reveal(s, 'training') };
+    const first = reveal(s, 'training');
+    if (mastered) return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first, paid: fileFound(s, fid, 'S') };
+    s.pendingTeach = fid;
+    return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first };
   }
   function teach(s, choice) {
     const fid = s.pendingTeach; if (!fid) return { ok: false, why: 'Nothing to teach right now.' };
@@ -133,8 +135,9 @@
     if (choice === 'wrong') return { ok: true, learned: false };
     if (choice === 'sharp') s.lessons[cls].clean++; else if (choice === 'shallow') s.lessons[cls].noisy++; else return { ok: false, why: 'Pick an answer.' };
     s.pendingTeach = null; s.found[fid].lesson = choice;
-    const drafted = precision(s, cls) >= 0.6 && draftFor(s, fid);
-    return { ok: true, learned: true, clean: choice === 'sharp', before, after: precision(s, cls), firstOfClass: before === 0, drafted };
+    // No report to write: how well you explained the bug is how well it's reported.
+    const paid = fileFound(s, fid, choice === 'sharp' ? 'S' : 'B');
+    return { ok: true, learned: true, clean: choice === 'sharp', before, after: precision(s, cls), firstOfClass: before === 0, paid };
   }
   function setSection(s, fid, sec, idx) {
     const r = s.found[fid];
@@ -176,6 +179,11 @@
     const firsts = { stats: reveal(s, 'stats'), forge: reveal(s, 'forge'), hq: s.bugs >= 3 ? reveal(s, 'hq') : false };
     return { ok: true, accepted: true, grade, pay, crit, rep, tierUp, firsts, won: checkWin(s) };
   }
+  // Files a found bug at a grade, without the player writing anything. Agents still write reports section by section.
+  function fullReport(grade) { const good = { S: 5, A: 4, B: 3, C: 2 }[grade], rep = {}; SECTIONS.forEach((x, i) => { rep[x.id] = i < good ? 0 : 1; }); return rep; }
+  function fileFound(s, fid, grade) { const r = s.found[fid]; r.report = fullReport(grade); return accept(s, fid, grade); }
+  // A leftover draft (an agent gave up on it, or an old save): filing it is one click, at a plain grade.
+  function fileDraft(s, fid) { const r = s.found[fid]; if (!r || r.status !== 'draft' || s.pendingTeach === fid) return { ok: false, why: 'Nothing to file.' }; return fileFound(s, fid, r.proven ? 'A' : 'B'); }
   function checkWin(s) { if (!s.won && s.bugs >= GOAL.bugs && s.crits >= GOAL.crits) { s.won = true; s.wonDay = s.day; return true; } return false; }
 
   function coffee(s) {
@@ -226,8 +234,6 @@
     SECTIONS.forEach(x => { rep[x.id] = x.id === 'proof' ? (proven ? 0 : 1) : rand(s) < p ? 0 : 1; });
     return rep;
   }
-  // Nib pre-fills a hand-found report once it knows the class well; you found it, so the proof is yours.
-  function draftFor(s, fid) { const r = s.found[fid]; r.report = nibDraft(s, fid, true); r.drafted = true; return true; }
   const cand = (s, id) => s.tray.find(c => c.id === id);
   function drop(s, id) { s.tray = s.tray.filter(c => c.id !== id); }
   function prove(s, id) {
@@ -235,15 +241,16 @@
     if (s.focus < COST.prove) return { ok: false, why: 'Proving takes 15 focus. Coffee or sleep.' };
     s.focus -= COST.prove; drop(s, id); s.stats.proven++;
     if (!c.real) { log(s, 'Proof showed a false alarm. No harm done.', ''); return { ok: true, real: false }; }
-    s.found[c.fid] = { status: 'draft', source: 'nib', proven: true, report: nibDraft(s, c.fid, true), verdict: null, drafted: true };
-    return { ok: true, real: true, fid: c.fid };
+    s.found[c.fid] = { status: 'draft', source: 'nib', proven: true, report: {}, verdict: null };
+    return { ok: true, real: true, fid: c.fid, paid: fileFound(s, c.fid, 'A') };
   }
   function submitRaw(s, id) {
     const c = cand(s, id); if (!c) return { ok: false, why: 'Gone.' };
     drop(s, id); s.stats.raw++;
     if (!c.real) { s.stats.falseSubmits++; const tierUp = addRep(s, -3, 'false alarm submitted'); return { ok: true, real: false, repDelta: -3, tierUp }; }
-    s.found[c.fid] = { status: 'draft', source: 'nib', proven: false, report: nibDraft(s, c.fid, false), verdict: null, drafted: true };
-    const res = submit(s, c.fid);
+    s.found[c.fid] = { status: 'draft', source: 'nib', proven: false, report: {}, verdict: null };
+    // Unproven: filed as Nib wrote it, so it's only as good as what you've taught.
+    const res = fileFound(s, c.fid, precision(s, FINDINGS[c.fid].cls) >= 0.7 ? 'B' : 'C');
     return Object.assign({ real: true, fid: c.fid }, res);
   }
   function toss(s, id) { if (!cand(s, id)) return { ok: false }; drop(s, id); return { ok: true }; }
@@ -287,7 +294,7 @@
   const penalize = (s, n, why) => addRep(s, -n, why);
 
   const api = { roomFilter: null, VERSION, GOAL, penalize, log, FINDINGS, targetById, create, restore, maxFocus, maxCups, tier, nextTier, precision, knows, unlocked, has, crowd, canTake, isLit, canMap, slotState, roomFindings, payout, gradeOf,
-    takeJob, mapRoom, guess, teach, setSection, submit, coffee, sleep, prove, submitRaw, toss, buyTool, setRig, toggleDesk, chainState, trace, nibDraft };
+    takeJob, mapRoom, guess, teach, setSection, submit, fileDraft, coffee, sleep, prove, submitRaw, toss, buyTool, setRig, toggleDesk, chainState, trace, nibDraft };
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Stage2Engine = api;
 })(typeof window !== 'undefined' ? window : null);

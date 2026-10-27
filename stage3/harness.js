@@ -485,7 +485,10 @@
     const f = E.FINDINGS[c.fid], name = D.CLASSES[f.cls].name, proof = rule(a, 'proof') && c.conf < 60;
     return act(proof ? 'prove' : 'submit_as_is', STATION.ops, proof ? DUR.validate + 1.5 : DUR.validate, s => proof ? E.prove(s, c.id) : E.submitRaw(s, c.id), r => {
       if (!r.ok) return bad(a, r.why || 'Gone.');
-      if (proof) { if (r.real) { t.drafts.push(r.fid); tool(a, `Proved it: the ${name} is real.`); } else tool(a, 'Proof showed a false alarm. Closed safely, no penalty.'); return; }
+      if (proof) {
+        if (!r.real) return tool(a, 'Proof showed a false alarm. Closed safely, no penalty.');
+        push(a, 'win', `${name} · proven · ${r.paid.grade} · ${money(r.paid.pay)}`); return paid(a, r.paid, STATION.ops); // proven finds file themselves
+      }
       if (!r.real) return penaltyLine(a, C.penalize(S(), a.name, 'False alarm', `Submitted a ${c.conf}% candidate as-is. It wasn't real. −3 rep.`, 3, null, true));
       if (r.accepted) { push(a, 'win', `${name} · as-is · ${r.grade} · ${money(r.pay)}`); return paid(a, r, STATION.ops); }
       t.drafts.push(r.fid); tool(a, 'Real, but Nib\'s draft was too vague. Rewriting it.');
