@@ -69,23 +69,37 @@
     world.setTouch(matchMedia('(pointer: coarse)').matches || innerWidth < 650);
   }
 
-  const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => ui.win && $('panel-dialog').open ? winRect() : null });
-  // Lines that wait for the player (Next or a choice) queue up; timed lines are interrupted by anything newer.
-  let queue = Promise.resolve(), waiting = 0;
+  // Nib docks to an open window, and stays docked while it shrinks away. Out of sight (a window over the office, or Team),
+  // his happy hop plays on his dock portrait instead (faceHop).
+  const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => (ui.win || winFx?.shut) && $('panel-dialog').open ? winRect() : null,
+    covered: () => !!ui.win || document.body.classList.contains('s3-agents-open'), faceHop });
+  // Lines that wait for the player (Next or a choice) queue up; timed lines are interrupted by anything newer,
+  // but only once they've been up TIP ms: a newer line waits its turn instead of replacing a tip unread.
+  const TIP = 2000, after = ms => new Promise(r => setTimeout(r, ms));
+  let queue = Promise.resolve(), waiting = 0, tips = Promise.resolve(), tipEnd = 0;
   function nibSay(text, o) {
     o = o || {};
-    if (!o.next && !o.choices && waiting) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
-    if (!o.next && !o.choices && innerWidth < 700 && $('panel-dialog').open) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
+    const timed = !o.next && !o.choices;
+    if (timed && waiting) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
+    if (timed && innerWidth < 700 && $('panel-dialog').open) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
     // A line that waits for you (Next or a choice) must be seen: bring you back from the Team view.
-    const run = () => { if ((o.next || o.choices) && window.Stage3UI?.isOpen()) window.Stage3UI.close(); return nib.say(text, o); }, p = queue.then(run, run);
-    if (o.next || o.choices) { waiting++; p.finally(() => { waiting--; }); queue = p.catch(() => {}); }
+    const show = () => {
+      if (timed && ui.night) return [Promise.resolve(false)]; // a tip still waiting its turn when you went to sleep is dropped
+      if (!timed && window.Stage3UI?.isOpen()) window.Stage3UI.close();
+      tipEnd = timed ? Date.now() + Math.min(TIP, o.ms || 2600) : 0; return [nib.say(text, o)];
+    };
+    const run = () => { const t = tips.then(() => after(tipEnd - Date.now())).then(show); tips = t.then(() => {}); return t.then(([r]) => r); }, p = queue.then(run, run);
+    if (!timed) { waiting++; p.finally(() => { waiting--; }); queue = p.catch(() => {}); }
     return p;
   }
   const nibWalk = (spot, then) => new Promise(r => nib.goTo(spot[0], spot[1], () => { if (then) then(); r(); }));
   function nibToPlayer() { const p = world.getState(); return nibWalk([Math.min(304, p.x + 22), p.y]); }
 
-  let flash = null;
-  function flashLine(text, ms) { flash = { text, until: Date.now() + ms }; render(); setTimeout(render, ms + 50); }
+  // Nib's line in the dock shows a timed line for a while (phones with a window open). Same TIP minimum, in order.
+  let flash = null, flashes = Promise.resolve();
+  function flashLine(text, ms) {
+    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { flash = { text, at: Date.now(), until: Date.now() + ms }; render(); setTimeout(render, ms + 50); });
+  }
 
   // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
   function leftoverDrafts() {
@@ -128,7 +142,9 @@
   }
 
   // ---------- HUD + dock ----------
-  let dockSeen = null;
+  // dockNew: a new button's [order, animation-clock time it arrived]. It stays `fresh` until its entrance has played, so a
+  // second render in the same task (or any rebuild mid-entrance) keeps it, and the entrance carries on from its start.
+  let dockSeen = null; const dockNew = new Map();
   function render() {
     const mf = E.maxFocus(s);
     $('focus').hidden = !s.seen.job;
@@ -148,22 +164,38 @@
     $('objective').textContent = flash && Date.now() < flash.until ? flash.text : objective();
     $('stats-open').hidden = !s.seen.stats;
     wallet();
-    const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown)));
+    const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
     let freshN = 0; // new dock buttons arrive 3 frames apart (style.css --stagger)
     const btns = ORDER.filter(shown).map(id => {
-      const fresh = !known.has(id); known.add(id);
+      if (!known.has(id)) { known.add(id); dockNew.set(id, [freshN++, now]); }
+      const nw = dockNew.get(id), fresh = !!nw && now - nw[1] < 470 + nw[0] * STAGGER; // dock-in is .42s
+      if (nw && !fresh) dockNew.delete(id);
       const badge = id === 'contract' && s.tray.length ? `<span class="badge">${s.tray.length}</span>` : id === 'hq' && Object.keys(T).some(t => E.chainState(s, t).ready) ? '<span class="badge">!</span>' : '';
-      return `<button data-station="${id}" data-icon="${ST[id].icon}" class="${fresh ? 'fresh' : ''}"${fresh ? ` style="--i:${freshN++}"` : ''} aria-pressed="${ui.win === id}" title="${ST[id].name} (${ST[id].key.toUpperCase()})">${ST[id].name}${badge}</button>`;
+      return `<button data-station="${id}" data-icon="${ST[id].icon}" class="${fresh ? 'fresh' : ''}"${fresh ? ` style="--i:${nw[0]}"` : ''} aria-pressed="${ui.win === id}" title="${ST[id].name} (${ST[id].key.toUpperCase()})">${ST[id].name}${badge}</button>`;
     }).join('');
     const dock = $('dock');
-    if (dock.dataset.html !== btns) { dock.querySelectorAll('[data-station]').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns; }
+    if (dock.dataset.html !== btns) {
+      dock.querySelectorAll('[data-station]').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns;
+      dock.querySelectorAll('.fresh').forEach(b => b.getAnimations().forEach(a => { a.startTime = dockNew.get(b.dataset.station)[1]; }));
+    }
     syncWorld();
     save();
   }
   function toast(text, kind) {
-    const el = document.createElement('div'); el.className = 'toast ' + (kind || ''); el.textContent = text;
-    $('toasts').appendChild(el); setTimeout(() => el.remove(), 3600);
-    while ($('toasts').children.length > 3) $('toasts').firstChild.remove();
+    const box = $('toasts'), el = document.createElement('div'), b = $('nib-bubble'); el.className = 'toast ' + (kind || ''); el.textContent = text;
+    // Phones: an open window fills the space above the dock, so the stack starts at the top instead, over the HUD, clear of
+    // the window's buttons (unless Nib's strip is docked up there). It only moves when it's empty, so toasts never jump.
+    if (!box.children.length) box.classList.toggle('top', matchMedia('(max-width:700px)').matches && $('panel-dialog').open && (b.hidden || !b.classList.contains('docked')));
+    toastShift(() => { box.appendChild(el); while (box.children.length > 3) box.firstChild.remove(); });
+    requestAnimationFrame(() => { el.shown = true; }); // toasts that arrive together just rise; only ones already up slide
+    setTimeout(() => toastShift(() => el.remove()), 3600);
+  }
+  // The stack makes room by sliding (FLIP), never jumping, when a toast comes or goes. `translate`, so a toast's own rise
+  // (a transform) is untouched.
+  function toastShift(change) {
+    const was = reduced ? [] : [...$('toasts').children].filter(t => t.shown).map(t => [t, t.getBoundingClientRect().top]);
+    change();
+    was.forEach(([t, y]) => { const dy = Math.round(y - t.getBoundingClientRect().top); if (t.isConnected && dy) t.animate([{ translate: `0 ${dy}px` }, { translate: '0 0' }], { duration: 220, easing: SETTLE }); });
   }
   function floatAt(text, station) { world.float(text, station); }
 
@@ -308,6 +340,7 @@
     $('panel-title').textContent = crumbs();
     $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'map'));
     body.scrollTop = top ? 0 : y;
+    winRows(); // a redraw during the open keeps the rows' stagger (#5)
     render();
   }
 
@@ -398,26 +431,42 @@
     const d = $('panel-dialog'); d.style.transformOrigin = ''; d.inert = false;
   }
   function winOpen(id) {
-    winStop(); // reopened while it shrinks: grow again
+    // Reopened while it shrinks: grow again from where the window and the scrim are now, not from nothing.
+    const d = $('panel-dialog'), pf = document.querySelector('.playfield'), back = !!winFx?.shut, cs = getComputedStyle(d);
+    const from = back && { translate: cs.translate, scale: cs.scale, opacity: cs.opacity, filter: cs.filter }, dim = back ? +getComputedStyle(pf, '::after').opacity || 0 : 0;
+    winStop();
     if (reduced) return;
-    const d = $('panel-dialog'), src = winButton(id, true), R = d.getBoundingClientRect(), fx = winFx = { anims: [] }, pre = src ? 60 : 0;
+    const src = winButton(id, true), R = d.getBoundingClientRect(), fx = winFx = { anims: [] }, pre = src && !back ? 60 : 0;
     winSrc = { id, el: src };
     d.style.transformOrigin = winOrigin(d, R);
     // Anticipation: the button presses in, and the window leaves it as it springs back; blurred only while it flies.
-    const grow = src ? [{ ...winFrom(R, src.getBoundingClientRect()), opacity: 0, filter: 'blur(1.5px)' }, { opacity: 1, offset: .3 }, { translate: '0 0', scale: '1.03', filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', filter: 'blur(0)' }]
+    const grow = from ? [from, { translate: '0 0', scale: '1.03', opacity: 1, filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)' }]
+      : src ? [{ ...winFrom(R, src.getBoundingClientRect()), opacity: 0, filter: 'blur(1.5px)' }, { opacity: 1, offset: .3 }, { translate: '0 0', scale: '1.03', filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', filter: 'blur(0)' }]
       : [{ scale: '.9', opacity: 0, easing: WIND }, { scale: '.87', opacity: .8, offset: .3, easing: SETTLE }, { scale: '1.02', offset: .7 }, { scale: '1', opacity: 1 }];
     if (src) fx.anims.push(src.animate([{ translate: '0 0', scale: '1' }, { translate: '0 3px', scale: '.94', filter: 'brightness(.75)', offset: .55 }, { translate: '0 0', scale: '1' }], { duration: 110, easing: 'ease-out' }));
-    const a = d.animate(grow, { duration: src ? 260 : 300, delay: pre, easing: src ? 'cubic-bezier(.3,.7,.3,1)' : 'linear', fill: 'backwards' });
-    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [0, 1] }, { duration: 240, delay: pre, easing: 'ease-out', fill: 'backwards', pseudoElement: '::after' }));
+    const a = d.animate(grow, { duration: src || from ? 260 : 300, delay: pre, easing: src || from ? 'cubic-bezier(.3,.7,.3,1)' : 'linear', fill: 'backwards' });
+    fx.anims.push(a, pf.animate({ opacity: [dim, 1] }, { duration: 240 * (1 - dim), delay: pre, easing: 'ease-out', fill: 'backwards', pseudoElement: '::after' }));
     a.onfinish = () => { if (winFx === fx) winStop(); };
-    // Rows follow 3 frames apart, capped so the last is in by ~350 ms. Picked next frame, after any redraw in this task.
-    requestAnimationFrame(() => {
-      if (winFx !== fx) return;
-      const rows = [d.querySelector('.bar'), ...[...$('panel-body').children].flatMap(el => el.matches('ul,ol,.programs') ? [...el.children] : [el])];
-      rows.forEach((el, i) => el.animate([{ opacity: 0, translate: '0 6px' }, { opacity: 1, translate: '0 0' }], { duration: 140, delay: pre + Math.min(i, 3) * STAGGER, easing: SETTLE, fill: 'backwards' }));
+    winRowsAt = [document.timeline.currentTime, pre]; winRows();
+    winRideOn(fx);
+  }
+  // Rows follow 3 frames apart, capped so the last is in by ~350 ms. Each redraw during the open (drawWindow) gives its
+  // new rows the same stagger, pinned to the open's start, so rows from an agent's redraw carry on instead of jumping in.
+  // Each row fades up to its own opacity (dimmed rows stay dimmed).
+  let winRowsAt = null;
+  function winRows() {
+    if (!winRowsAt) return;
+    const [t0, pre] = winRowsAt, d = $('panel-dialog');
+    if (document.timeline.currentTime - t0 > pre + 3 * STAGGER + 160) { winRowsAt = null; return; }
+    const rows = [d.querySelector('.bar'), ...[...$('panel-body').children].flatMap(el => el.matches('ul,ol,.programs') ? [...el.children] : [el])];
+    rows.forEach((el, i) => {
+      el.getAnimations().forEach(a => { if (a.id === 'win-row') a.cancel(); }); // the bar survives redraws: one stagger at a time
+      el.animate([{ opacity: 0, translate: '0 6px' }, { translate: '0 0' }], { id: 'win-row', duration: 140, delay: pre + Math.min(i, 3) * STAGGER, easing: SETTLE, fill: 'backwards' }).startTime = t0;
     });
-    // Nib's strip docks to the resting rect and rides the grow with the window: same scale and offset, same centre.
-    const ride = () => {
+  }
+  // Nib's strip docks to the resting rect and rides the grow and the shrink with the window: same scale and offset, same centre.
+  function winRideOn(fx) {
+    const d = $('panel-dialog'), ride = () => {
       if (winFx !== fx) return;
       const b = $('nib-bubble');
       if (b.hidden || !b.classList.contains('docked')) winLoose();
@@ -427,17 +476,20 @@
     requestAnimationFrame(ride);
   }
   // Close: the window is shut to input at once (clicks fall through, focus leaves) and shrinks back into its button.
+  // Nib's strip stays docked and rides the shrink, so his bubble only comes back beside him once the window is gone.
   function winShut(id) {
     const d = $('panel-dialog');
     if (winFx?.shut) return;
-    winStop();
+    winStop(); winRowsAt = null;
     if (reduced) { d.close(); return; }
     const src = winSrc?.id === id && winSrc.el?.isConnected ? winSrc.el : winButton(id), R = d.getBoundingClientRect(), fx = winFx = { anims: [], shut: true };
     d.inert = true; d.style.transformOrigin = winOrigin(d, R);
-    // Anticipation: a small swell before it goes.
-    const a = d.animate([{ translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)' }, { scale: '1.02', offset: .25 }, { ...(src ? winFrom(R, src.getBoundingClientRect()) : { translate: '0 0', scale: '.9' }), opacity: 0, filter: 'blur(1.5px)' }], { duration: 220, easing: 'cubic-bezier(.5,0,.8,.4)', fill: 'forwards' });
-    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [1, 0] }, { duration: 220, fill: 'forwards', pseudoElement: '::after' }));
+    // Anticipation: a small swell in place (~5 frames), then it shrinks into its button, blurred only on the way.
+    const a = d.animate([{ translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)', easing: 'ease-out' }, { translate: '0 0', scale: '1.02', opacity: 1, filter: 'blur(0)', offset: .35, easing: WIND },
+      { ...(src ? winFrom(R, src.getBoundingClientRect()) : { translate: '0 0', scale: '.9' }), opacity: 0, filter: 'blur(1.5px)' }], { duration: 240, fill: 'forwards' });
+    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [1, 0] }, { duration: 240, fill: 'forwards', pseudoElement: '::after' }));
     a.onfinish = () => { if (winFx === fx) { winStop(); d.close(); } };
+    winRideOn(fx);
   }
   // A press made during the grow is meant for where the window is landing: snap it there and click what's under it.
   addEventListener('pointerdown', e => {
@@ -854,9 +906,17 @@
   window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); render(); if (ui.win) drawWindow(); } catch {} } });
   setInterval(() => { if (frozen) return; try { localStorage.setItem(POS, JSON.stringify(world.getState())); } catch {} }, 1000);
 
-  // Nib's tiny face on the dock chip.
-  // Nib's face on the dock chip: the avatar cropped to its head.
-  (function chipFace() { window.Avatars.draw($('nib-face').getContext('2d'), 'nib', 8, 17, 1, {}); })();
+  // Nib's face on the dock chip: the avatar cropped to its head. When he can't be seen in the office, a payout's happy hop
+  // (#1) plays here, on the same held whole-pixel frames, the lift halved so his face stays in the frame.
+  const face = $('nib-face').getContext('2d');
+  function chipFace(o) { face.clearRect(0, 0, 16, 14); window.Avatars.draw(face, 'nib', 8, 17, 1, o || {}); }
+  let faceAt = null;
+  function faceHop() {
+    if (reduced) return;
+    const go = faceAt === null; faceAt = performance.now(); // a second payout mid-hop starts it over
+    if (go) requestAnimationFrame(function f(t) { const p = window.Avatars.hop(Math.max(0, t - faceAt)); chipFace(p && { mood: 'happy', bob: Math.round(p.y / 2), sx: p.sx, sy: p.sy }); if (p) requestAnimationFrame(f); else faceAt = null; });
+  }
+  chipFace();
 
   // ---------- boot ----------
   syncWorld();

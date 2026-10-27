@@ -78,14 +78,17 @@
     const trail = springTrail();
     function trailBubble(x, y, px) {
       if (reduced || bubble.hidden) { trail.reset(); return [x, y]; } // a fresh bubble starts in place
-      const far = 16 * px;
-      return trail.to(x, y, performance.now(), px, bubble.dataset.side === 'left' ? [-far, 6, -far, far] : [-6, far, -far, far]);
+      const far = 16 * px, box = { left: [-far, 6, -far, far], right: [-6, far, -far, far], above: [-far, far, -far, 6], below: [-far, far, -6, far] }[bubble.dataset.side];
+      return trail.to(x, y, performance.now(), px, box || [0, 0, 0, 0]);
     }
+    // The docked strip's height, for style.css (--strip): the window shortens so a tall strip never covers its title bar.
+    let stripH = 0;
+    function strip(h) { h = Math.round(h); if (h === stripH) return false; stripH = h; document.documentElement.style.setProperty('--strip', h + 'px'); return true; }
     function draw() {
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
       if (layer.width !== Math.round(w * dpr) || layer.height !== Math.round(h * dpr)) { layer.width = Math.round(w * dpr); layer.height = Math.round(h * dpr); }
       g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, layer.width, layer.height);
-      if (!A.visible || world.getState().room !== 'office') { bubble.hidden = true; return; }
+      if (!A.visible || world.getState().room !== 'office') { bubble.hidden = true; strip(0); return; }
       const rr = world.roomRect(), lr = layer.getBoundingClientRect(), s = rr.width / 320;
       const px = s; // one art pixel = one world pixel: the avatar is 16×21, like the founder
       const fx = rr.left - lr.left + A.x * s, fy = rr.top - lr.top + A.y * s + 2 * s; // between the feet
@@ -101,26 +104,44 @@
       window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: hp && A.mood === 'idle' ? 'happy' : A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy, ...(hp ? {} : lifePose()) });
       g.translate(-lx, -ly);
       if (A.mood === 'sleep' && !reduced) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - (t * 4 % 6)); }
-      placeBubble(ox + lr.left, oy + lr.top, px);
+      placeBubble(ox + lr.left, oy + lr.top, px, rr);
     }
-    function placeBubble(x, y, px) {
+    function placeBubble(x, y, px, room) {
+      const nx = x, ny = y; // where Nib is: the side is picked from him, not from the bubble's lagging anchor
       [x, y] = trailBubble(x, y, px); // #6: lags Nib on a spring
-      if (bubble.hidden) return;
+      if (bubble.hidden) { strip(0); delete bubble.dataset.side; return; }
       // A window is open: Nib speaks from a strip docked on top of it, never over what you're working on.
-      const dock = opts.dock && opts.dock();
+      let dock = opts.dock && opts.dock();
       bubble.classList.toggle('docked', !!dock);
-      if (dock) { bubble.style.left = Math.round(dock.left) + 'px'; bubble.style.width = Math.round(dock.width) + 'px'; bubble.style.top = Math.max(8, Math.round(dock.top - bubble.offsetHeight - 6)) + 'px'; return; }
-      bubble.style.width = '';
-      const bw = bubble.offsetWidth, bh = bubble.offsetHeight, nibW = 20 * px;
-      const vw = innerWidth, margin = 10;
-      let side = opts.side ? opts.side() : bubbleSide;
-      if (side === 'left' && x - bw - 6 < margin) side = 'right';
-      if (side === 'right' && x + nibW + 6 + bw > vw - margin) side = 'left';
-      let left = side === 'left' ? x - bw - 6 : x + nibW + 6;
-      const avoid = opts.avoid && opts.avoid();
-      if (avoid && side === 'left') left = Math.min(left, avoid.left - bw - 8);
+      if (dock) {
+        bubble.style.width = Math.round(dock.width) + 'px';
+        const bh = bubble.offsetHeight;
+        if (strip(bh)) dock = opts.dock(); // the window may have shortened to make room
+        bubble.style.left = Math.round(dock.left) + 'px'; bubble.style.top = Math.max(8, Math.round(dock.top - bh - 6)) + 'px'; return;
+      }
+      strip(0); bubble.style.width = '';
+      const bw = bubble.offsetWidth, bh = bubble.offsetHeight, nibW = 20 * px, nibH = 23 * px, vw = innerWidth, margin = 10, cur = bubble.dataset.side;
+      // Beside Nib when it fits, else above or below him (phones), on the side that covers less of the office, never on him.
+      // A line waiting for your answer may cover the dock: you answer it first. Hysteresis: the side it's on holds until it
+      // misses by more than the 6px gap, so a spring overshoot can't flip it.
+      const floor = innerHeight - 8 - (bubble.classList.contains('asks') ? 0 : parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dock-top')) || 100);
+      const spare = { left: nx - bw - 6 - margin, right: vw - margin - nx - nibW - 6 - bw, above: ny - bh - 6 - 70, below: floor - ny - nibH - 6 - bh };
+      const fit = sd => spare[sd] >= (sd === cur ? -6 : 0), pref = opts.side ? opts.side() : bubbleSide;
+      const cover = (a, b) => room ? Math.max(0, Math.min(b, room.top + room.height) - Math.max(a, room.top)) : 0;
+      const vert = cover(ny - bh - 6, ny - 6) <= cover(ny + nibH + 6, ny + nibH + 6 + bh) ? ['above', 'below'] : ['below', 'above'];
+      if (cur === vert[1]) vert.reverse();
+      const side = [pref, pref === 'left' ? 'right' : 'left', ...vert].find(fit) || (spare.above > spare.below ? 'above' : 'below');
+      let left, top;
+      if (side === 'above' || side === 'below') {
+        left = x + 8 * px - bw / 2;
+        top = Math.max(8, Math.min(innerHeight - bh - 8, side === 'above' ? y - bh - 6 : y + nibH + 6));
+      } else {
+        left = side === 'left' ? x - bw - 6 : x + nibW + 6;
+        const avoid = opts.avoid && opts.avoid();
+        if (avoid && side === 'left') left = Math.min(left, avoid.left - bw - 8);
+        top = Math.max(70, Math.min(innerHeight - bh - 100, y - bh * 0.35));
+      }
       left = Math.max(margin, Math.min(vw - bw - margin, left));
-      let top = y - bh * 0.35; top = Math.max(70, Math.min(innerHeight - bh - 100, top));
       bubble.style.left = Math.round(left) + 'px'; bubble.style.top = Math.round(top) + 'px'; bubble.dataset.side = side;
     }
     function frame(now) {
@@ -159,12 +180,16 @@
         } else {
           sayTimer = setTimeout(() => done(true), o.ms || Math.max(2600, 55 * text.length));
         }
+        // Place the new line now: a line said after this frame's draw (an arrival callback) would paint once at the old size.
+        draw();
       });
     }
     function hush() { clearTimeout(sayTimer); if (finish) finish(false); bubble.hidden = true; bubbleOpen = false; }
     function setMood(m) { A.mood = m; A.face = m; }
     return {
-      hop: () => { if (!reduced && !A.path.length) A.hop = 0; }, // squash & stretch: one happy hop on the spot (not mid-walk)
+      // Squash & stretch: one happy hop on the spot (not mid-walk). If he's walking or the office is covered (a window open),
+      // nobody would see it, so opts.faceHop plays it where you're looking (game.js: his dock portrait).
+      hop: () => { if (reduced) return; if (!A.path.length) A.hop = 0; if (opts.faceHop && (A.path.length || !A.visible || (opts.covered && opts.covered()))) opts.faceHop(); },
       goTo, place, say, hush, setMood,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
       pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; }, show: v => { A.visible = !!v; }
