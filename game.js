@@ -92,6 +92,7 @@
     // A line that waits for you (Next or a choice) must be seen: bring you back from the Team view.
     const show = () => {
       pend--;
+      if (frozen) return [Promise.resolve(false)]; // leaving for another chapter: the office stays as it was behind the iris
       if (timed && ui.night) return [Promise.resolve(false)]; // a tip still waiting its turn when you went to sleep is dropped
       if (timed && (waiting || q !== asked)) { flashLine(text, o.ms || 3600); return [Promise.resolve(true)]; } // a question went first
       if (!timed) { asked++; if (window.Stage3UI?.isOpen()) window.Stage3UI.close(); }
@@ -468,7 +469,10 @@
   // window shuts, the office pushes in, and the card comes once the push is holding (~300-500 ms in).
   async function goal(card, station, who) {
     closeWindow();
+    for (const t = Date.now(); $('panel-dialog').open && Date.now() - t < 600;) await wait(30); // punch the office, not a closing window
     if (await punch(station, who, null, true)) await wait(420);
+    const line = !reduced && $('nib-bubble').querySelector('.nib-text')?.talk; // let Nib finish the line he's typing before the card covers it
+    if (line && line.done) await Promise.race([line.done, wait(1500)]);
     card();
   }
   // Resolves true once the punch has started.
