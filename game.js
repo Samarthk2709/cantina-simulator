@@ -288,11 +288,11 @@
   function payChip(r, station, who, key) {
     punchFor(r, station, who, key); // #13: a critical or the goal also punches the office in
     if (reduced || document.hidden || !r.pay || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
-    const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who, key };
+    const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who, key }, clear = new Promise(go => c.go = go);
     chips.push(c); held.cash += c.pay; held.rep += c.rep; wallet(); // agents' pay was already rendered: take it back until the chip lands
     setTimeout(() => land(c), 4000); // never hold pay longer than this, even if frames stop (hidden tab)
-    flyChip(c);
-    return true;
+    flyChip(c).finally(c.go);
+    return clear; // resolves once the chip is well clear of where it left (an agent's label waits on it, #16)
   }
   // An element's layout box, without its transform (a tag mid-slam or mid-settle).
   const restRect = el => { const p = el.offsetParent, b = p ? p.getBoundingClientRect() : new DOMRect(); return new DOMRect(b.left + (p ? p.clientLeft - p.scrollLeft : 0) + el.offsetLeft, b.top + (p ? p.clientTop - p.scrollTop : 0) + el.offsetTop, el.offsetWidth, el.offsetHeight); };
@@ -343,6 +343,7 @@
       else { // the arc: a quadratic curve, shrinking into the wallet
         const e = io((t - 280) / 620, 2), u = 1 - e, ax = p0.x + back.x, ay = p0.y + back.y;
         x = u * u * ax + 2 * u * e * p1.x + e * e * p2.x; y = u * u * ay + 2 * u * e * p1.y + e * e * p2.y; sc = 1 - 0.35 * e;
+        if (Math.abs(x - p0.x) > 100 || e > 0.8) c.go(); // past where an agent's label rises (#16)
         const v = Math.hypot(x - last.x, y - last.y) / Math.max(1, (now - lt) / 16.7); // px per frame
         blur = Math.round(Math.min(2.5, Math.max(0, (v - 4) / 6)) * 10) / 10; // motion blur only while fast
       }

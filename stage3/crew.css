@@ -4,7 +4,15 @@
 /* One way in (a HUD button) and one way out (top of the roster) */
 .s3-toggle{font-weight:600}
 .s3-toggle span{color:var(--muted);font-weight:400;margin-left:4px}
-.s3-toggle .need{color:var(--amber);margin-left:4px}
+.s3-toggle .need{color:var(--amber);margin-left:4px}.s3-toggle small{font-size:inherit}
+/* Phone: the 40 px Team button can't hold "1 needs you" or "2 working"; the count becomes a chip under "Team"
+   (amber when someone needs you; the nudge pops it in place). */
+@media (max-width:650px){
+  .s3-toggle:has(.need,span){display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;line-height:1}
+  .s3-toggle :is(.need,span){margin:0;min-width:16px;padding:1px 4px;border-radius:999px;font-size:11px;line-height:12px;text-align:center}
+  .s3-toggle span{background:var(--line-2)}.s3-toggle .need{background:var(--amber);color:#1a1205}
+  .s3-toggle small{display:none}
+}
 .s3-back{align-self:flex-start;background:none;border:0;color:var(--muted)!important;padding:4px 10px 0;font-size:13px!important}
 .s3-back:hover{color:var(--ink)!important}
 body.stage3 #founder-chips{display:none}
@@ -48,6 +56,12 @@ body.stage3 #founder-chips{display:none}
 .s3-float{position:absolute;left:0;top:0;z-index:1;width:0;height:0;pointer-events:none}
 .s3-float span{position:absolute;left:0;bottom:0;translate:-50% 0;transform-origin:50% 100%;font:600 12px var(--mono);white-space:nowrap;color:var(--good);text-shadow:0 1px 0 #000,0 0 3px #000,0 0 6px #000}
 .s3-float .crit{color:var(--amber)}.s3-float .pen{color:var(--danger-ink)}
+/* Night (crew.js toggles #s3-layer.night with #night.on): agents dim with the office like Nib, bubbles and labels go,
+   on the night's own timing (style.css .night.fall/.rise). */
+.s3-agent,.s3-bubble,.s3-float{transition:filter .5s ease-in,opacity .5s ease-in}
+#s3-layer.night .s3-agent{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}
+#s3-layer.night :is(.s3-bubble,.s3-float){opacity:0;transition:opacity .9s linear .2s}
+@media (prefers-reduced-motion:reduce){#s3-layer :is(.s3-agent,.s3-bubble,.s3-float){transition:none!important}}
 .s3-oos{border-color:var(--danger-ink)!important;opacity:.85}
 .s3-oos-tag{display:block;font:600 9px var(--mono);letter-spacing:.08em;color:var(--danger-ink);margin-top:2px}
 
