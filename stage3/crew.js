@@ -89,6 +89,7 @@
         setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(A.phrase(a)))}</span>` : ''}`);
         el.setAttribute('aria-label', `${a.name}: ${A.phrase(a)}. Open chat.`);
         jobs.push([a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k, lift, placed]);
+        if (a.id !== 'nib' && window.FloorDust) kickDust(a, el); // #10 (Nib kicks his own in nib.js)
       }
       // Standing bubbles oldest first, then walkers: a newcomer stacks above its neighbours instead of pushing them up.
       const rank = a => a.path.length || a.nibWalking ? 2e9 : since[a.id] ?? 1e9;
@@ -98,6 +99,20 @@
     requestAnimationFrame(drawLayer);
   }
   const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
+  // Footstep dust & landing puffs (#10): a footfall every 10 px walked (step frames 0 and 2 of Nib's walk/5 cycle) and a
+  // burst when the waiting hop (crew.css s3-hop) lands, at 43.75% of its loop, read off the svg's own animation so it
+  // keeps each agent's 50 ms offset. Specks sit at the feet in office pixels; nib.js (window.FloorDust) draws them.
+  const DUST = {};
+  function kickDust(a, el) {
+    const d = DUST[a.id] || (DUST[a.id] = {x: a.pos.x, y: a.pos.y, walk: 0, hop: null, p: 0, it: 0});
+    const moved = Math.hypot(a.pos.x - d.x, a.pos.y - d.y); d.x = a.pos.x; d.y = a.pos.y;
+    if (a.moving && moved < 20) { const w0 = d.walk; d.walk += moved; if ((d.walk / 10 | 0) !== (w0 / 10 | 0)) window.FloorDust.step(a.pos.x, a.pos.y + 2, a.facing); } // a jump (sent home) isn't a step
+    const svg = el.querySelector('.st-waiting svg'), h = svg && svg.getAnimations().find(x => x.animationName === 's3-hop');
+    if (!h) { d.hop = null; return; }
+    const {progress: p, currentIteration: it} = h.effect.getComputedTiming();
+    if (h === d.hop && p >= 0.4375 && (it !== d.it || d.p < 0.4375)) window.FloorDust.land(a.pos.x, a.pos.y + 2);
+    d.hop = h; d.p = p; d.it = it;
+  }
   // Follow-through (#6): an agent that stops leans on a pixel and rocks back (a.drift, from harness.js), and its bubble
   // trails it on Nib's bubble spring instead of riding the walk bob: it lags while walking and overshoots a touch on
   // stop. (x, y) is the agent's anchor without bob or lean, (dx, dy) how far the sprite sits from it. A bubble never
