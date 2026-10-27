@@ -3,6 +3,9 @@
 (function () {
   'use strict';
   // Nib's look lives in avatars.js, shared with Stage 1, the team view and the endings.
+  // talk.js (#11) didn't load: lines appear whole, through the same handle (already finished), so nothing else breaks.
+  window.Talk = window.Talk || { type: (el, t) => (el.textContent = t, el.talk = { text: t, typing: false, said: t.length, done: Promise.resolve(), finish() {}, hurry() {} }),
+    set: (el, t) => el.talk && el.talk.text === t ? el.talk : window.Talk.type(el, t) };
 
   function create(opts) {
     const W = opts.W, world = opts.world, layer = opts.canvas, bubble = opts.bubble, g = layer.getContext('2d');
@@ -202,7 +205,7 @@
       return h;
     }
     function skip() { const h = bubble.querySelector('.nib-text').talk; if (!h || !h.typing) return false; h.finish(); return true; }
-    bubble.addEventListener('click', () => { if (!bubble.hidden) skip(); });
+    bubble.addEventListener('click', e => { if (!bubble.hidden && !e.target.closest('button')) skip(); }); // an answer's click mustn't skip the line it brings
     function setMood(m) { A.mood = m; A.face = m; }
     return {
       // Squash & stretch: one happy hop on the spot (not mid-walk). If he's walking or the office is covered (a window open),

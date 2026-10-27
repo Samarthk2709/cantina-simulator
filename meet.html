@@ -178,7 +178,7 @@ let typing=null, finishTyping=null, advance=null;
 // Talking text (#11, talk.js): the line types with speech rhythm (pauses on commas and stops, key words pop in amber).
 function typeLine(text,after){
   return new Promise(res=>{
-    setMood('talk'); const t=Talk.type(line,text);
+    setMood('talk'); const t=window.Talk?Talk.type(line,text):(line.textContent=text,{typing:false,finish(){}}); // talk.js missing: the line appears whole
     const done=()=>{typing=null;finishTyping=null;t.finish();setMood(after);res();};
     if(!t.typing){done();return;} // reduced motion: the whole line at once
     typing=t; finishTyping=done; t.done.then(()=>{ if(finishTyping===done) done(); });
