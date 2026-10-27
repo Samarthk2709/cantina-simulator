@@ -131,14 +131,14 @@
 
   // ---------- roster ----------
   function renderSide() {
-    const s = G.live(), sel = (k, id) => view.kind === k && (id === undefined || view.id === id) ? 'sel' : '';
+    const s = G.live(), w = G.wallet ? G.wallet() : s, sel = (k, id) => view.kind === k && (id === undefined || view.id === id) ? 'sel' : ''; // w: the HUD's wallet
     const rows = A.list().map(a => `<button class="s3-row ${sel('agent', a.id)} ${a.q ? 'need' : ''}" data-go="agent:${a.id}">${avatar(a)}<span class="txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(A.phrase(a))}</span></span></button>`).join('');
     const next = A.hireable()[0], r = next && A.roster[next];
     const rules = A.RULES.filter(x => A.crew().rules.all?.[x.k]).length;
     setHTML($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
       ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
       <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
-      <div class="s3-foot">${s.rep}/60 rep to Elite · ${money(s.cash)}</div>`);
+      <div class="s3-foot">${w.rep}/60 rep to Elite · ${money(w.cash)}</div>`);
   }
 
   // ---------- one agent's timeline ----------
@@ -306,6 +306,7 @@
     if (pending) return; pending = true;
     requestAnimationFrame(() => { pending = false; update(); if (Date.now() - lastRefresh > 800) { lastRefresh = Date.now(); G.hud(); } });
   });
+  addEventListener('first-office:wallet', renderSide); // the footer moves with the HUD's wallet, as pay chips land
   renderSide(); renderToggle();
   window.Stage3UI = {open: id => { view = {kind: 'agent', id: id || 'nib'}; setOpen(true); }, close: () => setOpen(false), isOpen: () => open};
 });
