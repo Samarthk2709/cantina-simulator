@@ -372,14 +372,15 @@
   }
   const room = (rid, x) => { x.act.room = rid; return x; }; // remembered so a penalty can mark the room to avoid
   // Floating finds (#16): a label rises from the agent's head on the floor (crew.js). The chip (#4) carries the money.
-  const floatUp = (a, text, kind) => window.Stage3Float?.(a.id, text, kind);
+  const floatUp = (a, text, kind, after) => window.Stage3Float?.(a.id, text, kind, after); // after: the pay chip, which leaves the head first
   function paid(a, r, station) {
     if (!r.accepted) return;
     a.task.accepted++; a.stats.accepted++; a.stats.earned += r.pay || 0;
-    if (!G.payChip?.(r, station, a.id)) G.floatAt('+' + money(r.pay), station); // the chip flies from the agent to the wallet
+    const chip = G.payChip?.(r, station, a.id); // the chip flies from the agent to the wallet
+    if (!chip) G.floatAt('+' + money(r.pay), station);
     G.toast(r.crit ? `CRITICAL · ${a.name} · +${money(r.pay)}` : `${a.name}: ${r.grade} report · +${money(r.pay)} · +${r.rep} rep`, r.crit ? 'crit' : 'good');
     if (r.tierUp) G.toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
-    floatUp(a, (r.crit ? 'CRITICAL' : r.grade + ' report') + (r.rep ? ` · +${r.rep} rep` : ''), r.crit ? 'crit' : 'find'); // #16
+    floatUp(a, (r.crit ? 'CRITICAL' : r.grade + ' report') + (r.rep ? ` · +${r.rep} rep` : ''), r.crit ? 'crit' : 'find', chip); // #16
   }
 
   // ---------- job routines: read the game, pick one tool ----------
@@ -540,9 +541,8 @@
       t.chained = true;
       if (!r.ok || !r.chained) return bad(a, r.why || 'The chain didn\'t hold.');
       push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`);
-      G.floatAt('CRITICAL', 'hq'); G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
-      G.payChip?.(r, 'hq', a.id); // the chain's pay flies to the wallet too
-      floatUp(a, 'CRITICAL chain', 'crit'); // #16
+      G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
+      floatUp(a, 'CRITICAL chain', 'crit', G.payChip?.({...r, crit: true}, 'hq', a.id)); // #16 (the label over the agent is the CRITICAL); its pay flies amber, like yours
     }, ready.name);
     if (t.chained) return {done: 'Chain connected.'};
     return {done: 'No chain is ready.'};

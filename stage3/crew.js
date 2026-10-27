@@ -63,7 +63,7 @@
   }
   function renderToggle() {
     const need = A.list().filter(a => a.q).length, busy = A.busy();
-    setHTML($('s3-toggle'), `Team${need ? ` <b class="need">${need} need${need > 1 ? '' : 's'} you</b>` : busy ? ` <span>${busy} working</span>` : ''}`);
+    setHTML($('s3-toggle'), `Team${need ? ` <b class="need">${need}<small> need${need > 1 ? '' : 's'} you</small></b>` : busy ? ` <span>${busy}<small> working</small></span>` : ''}`);
   }
 
   // ---------- agents on the office floor ----------
@@ -72,6 +72,7 @@
     const w = G.world, layer = $('s3-layer');
     const show = w && !open && w.getState().room === 'office';
     layer.hidden = !show;
+    layer.classList.toggle('night', !$('night')?.hidden && $('night').classList.contains('on')); // agents dim with the office (crew.css)
     if (show) {
       const rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width, jobs = [], placed = [];
       for (const a of A.list()) {
@@ -140,43 +141,53 @@
 
   // ---------- floating finds (motion #16): a label rises from the agent's head on the office floor ----------
   // harness.js calls Stage3Float: "+1 bug" on a find, the grade and rep on a payout (the pay chip, #4, carries the
-  // money, so it's never shown twice), "−3 rep" on a penalty. Pop .7 → 1.1, dip 4 px back to 1 (the anticipation), drift
-  // up 48 px over 1.8 s and fade. Labels that land together start 3 frames apart; an agent's labels take stacked slots,
-  // at most 3 in the air, 2 more wait, the rest drop; a neighbour's labels stack the same way. They ride the agent's room
-  // position (no walk bob), so a walker carries its label and the camera never drags it; near an edge they slide in.
-  // Not shown while Team covers the office or the tab is hidden. Reduced motion: a brief static label.
-  const FLOAT_MAX = 3, FLOAT_WAIT = 2, FLOAT_STEP = 17, floats = [], floatQ = {};
+  // money, so it's never shown twice; its label waits until the chip has left the head), "−3 rep" on a penalty. Pop
+  // .7 → 1.1, dip 4 px back to 1 (the anticipation), drift up 48 px (less on a small office) over 1.8 s and fade.
+  // Each frame the labels are laid out newest first: a label starts above every tag and bubble of its desk (agents
+  // within a desk's width), and an older one it would touch is pushed up above it. Nothing rises into the HUD or a
+  // bubble or tag further up: a label stops under it, and one pushed into it drops. Labels that land together start
+  // 3 frames apart; at most 3 per agent in the air, 2 more wait, the rest drop. They ride the agent's room position
+  // (no walk bob), so a walker carries its label and the camera never drags it; near an edge they slide in. Not shown
+  // while Team covers the office, the tab is hidden or it's night. Reduced motion: a brief static label, still stacked.
+  const FLOAT_MAX = 3, FLOAT_WAIT = 2, FLOAT_MS = 1800, floats = [], floatQ = {};
+  const RISE = [[0, -10], [.15, 4], [.25, 0], [.8, 40], [1, 48]]; // [progress, px up]: each segment eases out
+  const rise = p => { if (p <= 0) return RISE[0][1]; for (let i = 1; i < RISE.length; i++) { const [p1, y1] = RISE[i], [p0, y0] = RISE[i - 1]; if (p <= p1) { const u = (p - p0) / (p1 - p0); return y0 + (y1 - y0) * (1 - (1 - u) * (1 - u)); } } return RISE.at(-1)[1]; };
   let floatNext = 0, floatLoop = false;
-  function floatFind(id, text, kind) {
+  function floatFind(id, text, kind, after) {
+    if (after?.then) return void after.then(() => floatFind(id, text, kind)); // a payout's chip leaves first
     const a = A.get(id), el = sprites[id], w = G.world;
-    if (!a?.pos || !el || open || document.hidden || $('s3-layer').hidden || w?.getState().room !== 'office') return;
-    const mine = floats.filter(f => f.id === id);
-    if (mine.length >= FLOAT_MAX) { const q = floatQ[id] || (floatQ[id] = []); if (q.length < FLOAT_WAIT) q.push([text, kind]); return; }
-    const rect = w.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width;
-    const b = el.querySelector('.s3-bubble')?.getBoundingClientRect(), top = Math.min(el.getBoundingClientRect().top - 14, b?.height ? b.top : Infinity);
-    const near = floats.filter(f => f.id === id || Math.abs(f.x - a.pos.x) * k < 100 && Math.abs(f.y - a.pos.y) * k < 40); // its own, and a neighbour's
-    let slot = 0; while (near.some(f => f.slot === slot)) slot++;
-    const f = {id, slot, x: a.pos.x, y: a.pos.y, up: (rect.top + a.pos.y * k - top + 4) / k, box: document.createElement('div')};
+    if (!a?.pos || !el || open || document.hidden || $('s3-layer').hidden || $('s3-layer').classList.contains('night') || w?.getState().room !== 'office') return;
+    if (floats.filter(f => f.id === id).length >= FLOAT_MAX) { const q = floatQ[id] || (floatQ[id] = []); if (q.length < FLOAT_WAIT) q.push([text, kind]); return; }
+    const f = {id, x: a.pos.x, y: a.pos.y, off: 0, box: document.createElement('div')};
     f.box.className = 's3-float'; f.box.innerHTML = `<span class="${kind || 'find'}">${esc(text)}</span>`;
-    $('s3-layer').appendChild(f.box); floats.push(f); f.w = f.box.firstChild.offsetWidth * 1.1; floatPlace(f, rect, k);
-    const at = Math.max(performance.now(), floatNext); floatNext = at + 50; // offset: 3 frames apart
-    const done = () => { f.box.remove(); floats.splice(floats.indexOf(f), 1); const n = floatQ[id]?.shift(); if (n) floatFind(id, ...n); };
-    if (!floatLoop) { floatLoop = true; requestAnimationFrame(floatFrame); }
-    if (calm) { setTimeout(done, 1400); return; }
-    f.box.firstChild.animate([{transform: 'translateY(10px) scale(.7)', opacity: 0}, {transform: 'translateY(-4px) scale(1.1)', opacity: 1, offset: .15},
-      {transform: 'translateY(0)', opacity: 1, offset: .25}, {transform: 'translateY(-40px)', opacity: 1, offset: .8}, {transform: 'translateY(-48px)', opacity: 0}],
-      {duration: 1800, delay: at - performance.now(), fill: 'backwards', easing: 'ease-out'}).finished.then(done, done);
+    $('s3-layer').appendChild(f.box); floats.push(f); f.w = f.box.firstChild.offsetWidth * 1.1; f.h = f.box.firstChild.offsetHeight; // f.w has room for the pop's overshoot
+    f.at = Math.max(performance.now(), floatNext); floatNext = f.at + 50; // offset: 3 frames apart
+    f.done = () => { if (!f.box.isConnected) return; f.box.remove(); floats.splice(floats.indexOf(f), 1); const n = floatQ[id]?.shift(); if (n) floatFind(id, ...n); };
+    if (calm) setTimeout(f.done, 1400);
+    else f.box.firstChild.animate([{transform: 'scale(.7)', opacity: 0}, {transform: 'scale(1.1)', opacity: 1, offset: .15}, {transform: 'scale(1)', opacity: 1, offset: .25},
+      {opacity: 1, offset: .8}, {opacity: 0}], {duration: FLOAT_MS, delay: f.at - performance.now(), fill: 'backwards', easing: 'ease-out'}).finished.then(f.done, f.done);
+    floatFrame(true);
   }
-  function floatPlace(f, rect, k) {
-    const p = A.get(f.id)?.pos; if (p) { f.x = p.x; f.y = p.y; } // a walker carries its label
-    const x = Math.max(f.w / 2 + 4, Math.min(innerWidth - f.w / 2 - 4, rect.left + f.x * k)); // f.w has room for the pop's overshoot
-    f.box.style.transform = `translate(${Math.round(x)}px,${Math.round(rect.top + (f.y - f.up) * k - f.slot * FLOAT_STEP)}px)`;
-  }
-  function floatFrame() { // follows the room on screen (scroll, resize) while any label is up
-    if (!floats.length) { floatLoop = false; return; }
-    const rect = G.world.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width;
-    floats.forEach(f => floatPlace(f, rect, k));
-    requestAnimationFrame(floatFrame);
+  function floatFrame(now) { // lays the labels out and follows the room on screen (scroll, resize) while any is up
+    if (now !== true) { if (!floats.length) { floatLoop = false; return; } requestAnimationFrame(floatFrame); }
+    else if (!floatLoop) { floatLoop = true; requestAnimationFrame(floatFrame); }
+    const rect = G.world.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width, t = performance.now(), sc = calm ? 0 : Math.max(.5, Math.min(1, k / 3));
+    const obs = [], hud = document.querySelector('.hud')?.getBoundingClientRect(), placed = [];
+    for (const a of A.list()) { const el = sprites[a.id]; if (el && a.pos) for (const n of [el, ...el.querySelectorAll('.s3-tag,.s3-bubble')]) { const r = n.getBoundingClientRect(); if (r.width) obs.push([r, a.pos.x, a.pos.y]); } }
+    if (hud?.height) obs.push([hud, -1e4, -1e4]);
+    for (let i = floats.length - 1; i >= 0; i--) { // newest first: it takes the spot over the desk, older ones move up
+      const f = floats[i], p = A.get(f.id)?.pos; if (p) { f.x = p.x; f.y = p.y; } // a walker carries its label
+      const cx = Math.max(f.w / 2 + 4, Math.min(innerWidth - f.w / 2 - 4, rect.left + f.x * k)), l = cx - f.w / 2 - 2, r = cx + f.w / 2 + 2, ay = rect.top + f.y * k;
+      const desk = ([, x, y]) => Math.abs(x - f.x) <= 64 && Math.abs(y - f.y) <= 24, over = ([b]) => b.left < r && b.right > l;
+      for (const o of obs) if (desk(o) && over(o)) f.off = Math.max(f.off, ay - o[0].top + 3); // above the desk's tags and bubbles, and never sinks back
+      const floor = ay - f.off;
+      let ceil = -Infinity; for (const o of obs) if (!desk(o) && over(o) && o[0].bottom <= floor) ceil = Math.max(ceil, o[0].bottom + 2);
+      let y = floor - rise((t - f.at) / FLOAT_MS) * sc, pushed = false;
+      for (let j = 0; j < placed.length; j++) { const q = placed[j]; if (q.l < r && q.r > l && y > q.top - 2 && y - f.h < q.bottom + 2) { y = q.top - 2; pushed = true; j = -1; } }
+      if (y - f.h < ceil) { y = ceil + f.h; if (pushed && !f.drop) { f.drop = true; if (calm) f.done(); else f.box.animate([{opacity: 1}, {opacity: 0}], 100).finished.then(f.done, f.done); } }
+      if (!f.drop) placed.push({l, r, top: y - f.h, bottom: y});
+      f.box.style.transform = `translate(${Math.round(cx)}px,${Math.round(y)}px)`;
+    }
   }
   window.Stage3Float = floatFind;
   // Penalties also show as a small toast in the office, in the game's own toast style.

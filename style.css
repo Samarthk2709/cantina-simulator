@@ -323,6 +323,7 @@ button:is(:active,.pressing):not(:disabled,.room,.s3-agent,.code-line){transform
 
 /* #15 Attention nudges: buttons.js wiggles a button that needs you and pops its badge; the Team count needs a box to scale. */
 .s3-toggle .need{display:inline-block;transform-origin:0 60%} /* grows into the button's right padding, clear of "Team" */
+@media (max-width:650px){.s3-toggle .need{transform-origin:50% 50%}} /* phone: a count chip under "Team" (crew.css) */
 /* Reduced motion: no wiggle; the waiting button keeps an amber edge until you open it. */
 @media (prefers-reduced-motion:reduce){button.nudge{border-color:var(--amber)!important}}
 
