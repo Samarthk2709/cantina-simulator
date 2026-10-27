@@ -287,6 +287,24 @@ button.small{min-height:32px;padding:0 10px;font-size:12px}
 /* the published hover adds side bars to every button; Stage 2's list buttons use their own hover */
 .code-line:hover:not(:disabled),.opt:hover:not(:disabled),.room:hover:not(:disabled),.nib-choice:hover,.program button:hover:not(:disabled){box-shadow:none}
 
+/* #14 Tactile buttons (.pressing: buttons.js, the same as :active): a press sinks the button 2px into its edge in ~70 ms (4 frames) and it darkens as it leaves the
+   light; buttons.js springs it back on release with a 1px overshoot (--tap-over). `translate`, not `transform`, so it
+   rides on top of entrances (dock-in, decide-btn) and #15's wiggle. Rooms (centred by translate), floor sprites and
+   code lines keep the published 1px; disabled buttons don't move. Release is instant here: buttons.js owns it. */
+button:is(:active,.pressing):not(:disabled,.room,.s3-agent,.code-line){transform:none;translate:0 2px;filter:brightness(.85);transition:background .15s,border-color .15s,translate 70ms ease-out,filter 70ms ease-out,box-shadow 70ms ease-out}
+/* Floating chrome with a drop shadow sinks onto the floor: the shadow tightens as it goes down. */
+:is(#settings,#goal-open):is(:active,.pressing):not(:disabled){box-shadow:0 4px 10px rgba(0,0,0,.3)}
+/* Roster rows press, never dim: the avatar inside keeps its colours, and 3px is 2 art px, the overshoot 1 (24px = 16 art px). */
+#s3-view .s3-row:is(:active,.pressing):not(:disabled){translate:0 3px;filter:none;--tap-over:-1.5px}
+/* Text links press 1px, like a link. */
+:is(.s3-link,.s3-back):is(:active,.pressing):not(:disabled){translate:0 1px;filter:none}
+@media (prefers-reduced-motion:reduce){button:is(:active,.pressing){transition:none!important}}
+
+/* #15 Attention nudges: buttons.js wiggles a button that needs you and pops its badge; the Team count needs a box to scale. */
+.s3-toggle .need{display:inline-block;transform-origin:0 60%} /* grows into the button's right padding, clear of "Team" */
+/* Reduced motion: no wiggle; the waiting button keeps an amber edge until you open it. */
+@media (prefers-reduced-motion:reduce){button.nudge{border-color:var(--amber)!important}}
+
 /* Narrow screens: goal + wallet, then Nib's line, then one row of station buttons. */
 @media (max-width:1000px) and (min-height:521px){
   .dock{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}

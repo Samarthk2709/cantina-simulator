@@ -446,7 +446,7 @@
     const grow = from ? [from, { translate: '0 0', scale: '1.03', opacity: 1, filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)' }]
       : src ? [{ ...winFrom(R, src.getBoundingClientRect()), opacity: 0, filter: 'blur(1.5px)' }, { opacity: 1, offset: .3 }, { translate: '0 0', scale: '1.03', filter: 'blur(0)', offset: .7 }, { translate: '0 0', scale: '1', filter: 'blur(0)' }]
       : [{ scale: '.9', opacity: 0, easing: WIND }, { scale: '.87', opacity: .8, offset: .3, easing: SETTLE }, { scale: '1.02', offset: .7 }, { scale: '1', opacity: 1 }];
-    if (src) fx.anims.push(src.animate([{ translate: '0 0', scale: '1' }, { translate: '0 3px', scale: '.94', filter: 'brightness(.75)', offset: .55 }, { translate: '0 0', scale: '1' }], { duration: 110, easing: 'ease-out' }));
+    if (src) fx.anims.push(window.Tactile?.release(src) || src.animate([{ translate: '0 0', scale: '1' }, { translate: '0 3px', scale: '.94', filter: 'brightness(.75)', offset: .55 }, { translate: '0 0', scale: '1' }], { duration: 110, easing: 'ease-out' })); // #14: one you just pressed springs back instead
     const a = d.animate(grow, { duration: src || from ? 260 : 300, delay: pre, easing: src || from ? 'cubic-bezier(.3,.7,.3,1)' : 'linear', fill: 'backwards' });
     fx.anims.push(a, pf.animate({ opacity: [dim, 1] }, { duration: 240 * (1 - dim), delay: pre, easing: 'ease-out', fill: 'backwards', pseudoElement: '::after' }));
     a.onfinish = () => { if (winFx === fx) winStop(); };
