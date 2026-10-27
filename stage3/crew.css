@@ -44,6 +44,10 @@ body.stage3 #founder-chips{display:none}
 .s3-tag{position:absolute;left:50%;top:calc(-14px - var(--lift,0px));transform:translateX(-50%);font:600 10px var(--mono);color:var(--ink);background:#18303acc;padding:0 5px;border-radius:3px;white-space:nowrap}
 .s3-bubble{position:absolute;left:50%;bottom:calc(100% + 15px + var(--lift,0px));transform:translateX(-50%);font:11px var(--sans);color:#08131a;background:#f5fbff;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .s3-bubble.need{background:var(--amber)}
+/* Floating finds (motion #16): the box sits on the spot above the head (crew.js floatPlace), the label pops and drifts inside it. */
+.s3-float{position:absolute;left:0;top:0;z-index:1;width:0;height:0;pointer-events:none}
+.s3-float span{position:absolute;left:0;bottom:0;translate:-50% 0;transform-origin:50% 100%;font:600 12px var(--mono);white-space:nowrap;color:var(--good);text-shadow:0 1px 0 #000,0 0 3px #000,0 0 6px #000}
+.s3-float .crit{color:var(--amber)}.s3-float .pen{color:var(--danger-ink)}
 .s3-oos{border-color:var(--danger-ink)!important;opacity:.85}
 .s3-oos-tag{display:block;font:600 9px var(--mono);letter-spacing:.08em;color:var(--danger-ink);margin-top:2px}
 

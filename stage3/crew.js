@@ -137,6 +137,48 @@
     b.style.translate = `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`;
   }
   requestAnimationFrame(drawLayer);
+
+  // ---------- floating finds (motion #16): a label rises from the agent's head on the office floor ----------
+  // harness.js calls Stage3Float: "+1 bug" on a find, the grade and rep on a payout (the pay chip, #4, carries the
+  // money, so it's never shown twice), "−3 rep" on a penalty. Pop .7 → 1.1, dip 4 px back to 1 (the anticipation), drift
+  // up 48 px over 1.8 s and fade. Labels that land together start 3 frames apart; an agent's labels take stacked slots,
+  // at most 3 in the air, 2 more wait, the rest drop; a neighbour's labels stack the same way. They ride the agent's room
+  // position (no walk bob), so a walker carries its label and the camera never drags it; near an edge they slide in.
+  // Not shown while Team covers the office or the tab is hidden. Reduced motion: a brief static label.
+  const FLOAT_MAX = 3, FLOAT_WAIT = 2, FLOAT_STEP = 17, floats = [], floatQ = {};
+  let floatNext = 0, floatLoop = false;
+  function floatFind(id, text, kind) {
+    const a = A.get(id), el = sprites[id], w = G.world;
+    if (!a?.pos || !el || open || document.hidden || $('s3-layer').hidden || w?.getState().room !== 'office') return;
+    const mine = floats.filter(f => f.id === id);
+    if (mine.length >= FLOAT_MAX) { const q = floatQ[id] || (floatQ[id] = []); if (q.length < FLOAT_WAIT) q.push([text, kind]); return; }
+    const rect = w.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width;
+    const b = el.querySelector('.s3-bubble')?.getBoundingClientRect(), top = Math.min(el.getBoundingClientRect().top - 14, b?.height ? b.top : Infinity);
+    const near = floats.filter(f => f.id === id || Math.abs(f.x - a.pos.x) * k < 100 && Math.abs(f.y - a.pos.y) * k < 40); // its own, and a neighbour's
+    let slot = 0; while (near.some(f => f.slot === slot)) slot++;
+    const f = {id, slot, x: a.pos.x, y: a.pos.y, up: (rect.top + a.pos.y * k - top + 4) / k, box: document.createElement('div')};
+    f.box.className = 's3-float'; f.box.innerHTML = `<span class="${kind || 'find'}">${esc(text)}</span>`;
+    $('s3-layer').appendChild(f.box); floats.push(f); f.w = f.box.firstChild.offsetWidth * 1.1; floatPlace(f, rect, k);
+    const at = Math.max(performance.now(), floatNext); floatNext = at + 50; // offset: 3 frames apart
+    const done = () => { f.box.remove(); floats.splice(floats.indexOf(f), 1); const n = floatQ[id]?.shift(); if (n) floatFind(id, ...n); };
+    if (!floatLoop) { floatLoop = true; requestAnimationFrame(floatFrame); }
+    if (calm) { setTimeout(done, 1400); return; }
+    f.box.firstChild.animate([{transform: 'translateY(10px) scale(.7)', opacity: 0}, {transform: 'translateY(-4px) scale(1.1)', opacity: 1, offset: .15},
+      {transform: 'translateY(0)', opacity: 1, offset: .25}, {transform: 'translateY(-40px)', opacity: 1, offset: .8}, {transform: 'translateY(-48px)', opacity: 0}],
+      {duration: 1800, delay: at - performance.now(), fill: 'backwards', easing: 'ease-out'}).finished.then(done, done);
+  }
+  function floatPlace(f, rect, k) {
+    const p = A.get(f.id)?.pos; if (p) { f.x = p.x; f.y = p.y; } // a walker carries its label
+    const x = Math.max(f.w / 2 + 4, Math.min(innerWidth - f.w / 2 - 4, rect.left + f.x * k)); // f.w has room for the pop's overshoot
+    f.box.style.transform = `translate(${Math.round(x)}px,${Math.round(rect.top + (f.y - f.up) * k - f.slot * FLOAT_STEP)}px)`;
+  }
+  function floatFrame() { // follows the room on screen (scroll, resize) while any label is up
+    if (!floats.length) { floatLoop = false; return; }
+    const rect = G.world.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width;
+    floats.forEach(f => floatPlace(f, rect, k));
+    requestAnimationFrame(floatFrame);
+  }
+  window.Stage3Float = floatFind;
   // Penalties also show as a small toast in the office, in the game's own toast style.
   C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
 

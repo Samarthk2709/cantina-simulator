@@ -371,12 +371,15 @@
       prove: "Proving one of Nib's finds", submit_as_is: "Submitting one of Nib's finds", buy: `Buying ${d}`, chain: `Chaining a critical in ${d}`, take_target: `Switching to ${d}`}[n.toolName] || gistOf(a.task);
   }
   const room = (rid, x) => { x.act.room = rid; return x; }; // remembered so a penalty can mark the room to avoid
+  // Floating finds (#16): a label rises from the agent's head on the floor (crew.js). The chip (#4) carries the money.
+  const floatUp = (a, text, kind) => window.Stage3Float?.(a.id, text, kind);
   function paid(a, r, station) {
     if (!r.accepted) return;
     a.task.accepted++; a.stats.accepted++; a.stats.earned += r.pay || 0;
     if (!G.payChip?.(r, station, a.id)) G.floatAt('+' + money(r.pay), station); // the chip flies from the agent to the wallet
     G.toast(r.crit ? `CRITICAL · ${a.name} · +${money(r.pay)}` : `${a.name}: ${r.grade} report · +${money(r.pay)} · +${r.rep} rep`, r.crit ? 'crit' : 'good');
     if (r.tierUp) G.toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
+    floatUp(a, (r.crit ? 'CRITICAL' : r.grade + ' report') + (r.rep ? ` · +${r.rep} rep` : ''), r.crit ? 'crit' : 'find'); // #16
   }
 
   // ---------- job routines: read the game, pick one tool ----------
@@ -423,6 +426,7 @@
         if (!r.ok) { a.stats.wasted++; return note(a, `Someone got to that finding first, so my trip was wasted.`, rule(a, 'claim') ? null : 'claim'); }
         tried.push(line);
         if (r.hit) { t.drafts.push(fid); tool(a, `Found it on line ${line + 1}: ${D.CLASSES[f.cls].name.toLowerCase()}.`); }
+        if (r.hit) floatUp(a, '+1 bug', 'find'); // #16
       }, `${D.CLASSES[f.cls].name} in ${roomName(prog.id, f.room)}, line ${line + 1}`));
     }
     const dark = prog.rooms.filter(r => E.canMap(s, prog.id, r[0]) && allowedRoom(a, prog.id, r[0]));
@@ -538,6 +542,7 @@
       push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`);
       G.floatAt('CRITICAL', 'hq'); G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
       G.payChip?.(r, 'hq', a.id); // the chain's pay flies to the wallet too
+      floatUp(a, 'CRITICAL chain', 'crit'); // #16
     }, ready.name);
     if (t.chained) return {done: 'Chain connected.'};
     return {done: 'No chain is ready.'};
@@ -549,6 +554,7 @@
 
   function penaltyLine(a, p) {
     a.stats.pens++; a.stats.repLost += p.rep; a.lastPenalty = Date.now();
+    floatUp(a, `−${p.rep} rep`, 'pen'); // #16: the on-floor echo of the penalty toast
     const fix = p.program ? 'scope' : p.title === 'False alarm' ? 'proof' : p.title === 'Report rejected' ? 'honest' : null;
     push(a, 'pen', p.text, {title: p.title, fix: fix && !rule(a, fix) ? fix : null});
     if (p.program && a.next?.room) a.task.avoid.push(p.program + ':' + a.next.room);
