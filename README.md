@@ -63,6 +63,15 @@ Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), buil
 | 6 | Follow-through | Nib and agents lean a pixel on when they stop. Speech bubbles trail on a spring |
 | 7 | Staging dim | The office or Team timeline dims behind decision cards (spend questions, penalty fixes, Nib's choices) |
 | 8 | Idle life | Idle characters breathe a pixel, blink and glance, each on its own rhythm |
+| 9 | Ghost drain | Spending focus leaves a pale chunk on the meter that drains a moment later |
+| 10 | Dust | Pixel dust behind each footstep, and a burst when a character lands from a hop |
+| 11 | Talking text | Nib's lines type out with pauses at punctuation; money, CRITICAL, grades and rep pop in amber. Click or Enter finishes a line (`talk.js`) |
+| 12 | Lamps | Warm light pools at each station switch off one by one at sleep and back on in the morning |
+| 13 | Camera punch-in | The office zooms ~7% toward a critical, a chain or the chapter goal, starting on the tag's impact. The HUD, dock and windows stay put |
+| 14 | Tactile buttons | Buttons sink on press and spring back with a 1 px overshoot (`buttons.js`) |
+| 15 | Attention nudges | The Team button and badged dock buttons wiggle every few seconds until opened (`buttons.js`) |
+| 16 | Floating labels | "+1 bug", grade and rep, "CRITICAL chain" or "−N rep" rise above the agent. The pay chip carries the dollars |
+| 17 | Pixel iris | A blocky circle closes onto Nib when leaving Stage 1 or changing chapters, then opens on the office (`iris.js`) |
 
 Everything respects `prefers-reduced-motion`: final states are instant, and only blinks remain.
 
@@ -75,6 +84,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), quotas, same-origin and localhost checks |
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
+| `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
 | `index.html`, `game.js`, `nib.js`, `style.css`, `original/` | The office (Stage 2 rebuild), with Stage 3 hooks |
 | `data.js`, `engine.js` | Rules. `stage`, `won3`, agent finds (`guess(…, by)`), `penalize` |
 | `avatars.js` | The whole cast (Nib, Pip, Moss, Rook, Wren and you) as one pixel-avatar set. It's used by Stage 1, the office, the team view, the dock and the endings. Contact sheet: `tests/avatars-sheet.html`, rendered in `evidence/avatars-sheet.png` |
