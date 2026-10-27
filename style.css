@@ -65,6 +65,8 @@
 .talk-u{opacity:0}
 .talk-kw{display:inline-block;font-style:normal;color:var(--amber)}
 .nib-bubble.typing .nib-foot{visibility:hidden}
+.nib-bubble.typing .nib-choice{animation:none} /* their staggered entrance (below) starts once the line is said */
+.nib-bubble:focus{outline:none}.nib-bubble:focus-visible{outline:2px solid var(--ink);outline-offset:3px} /* it holds focus while a line types: the game's ring, not the browser's */
 .nib-choice{display:flex;gap:10px;align-items:flex-start;width:100%;min-height:40px;padding:8px 10px;text-align:left;font-size:13px;line-height:1.35;background:#0b181e;border:1px solid var(--line-2);color:var(--ink);border-radius:6px}
 .nib-choice:hover,.nib-choice:focus-visible{border-color:var(--nib);background:var(--paper-2)}
 .nib-choice kbd{flex:none;font:11px var(--mono);color:var(--nib);border:1px solid var(--line-2);border-radius:3px;padding:0 4px;margin-top:1px}

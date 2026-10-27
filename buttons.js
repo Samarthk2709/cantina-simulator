@@ -12,15 +12,15 @@
   const TAP = 'button:not(:disabled,.room,.s3-agent,.code-line)';
   const key = b => b.id ? '#' + CSS.escape(b.id) : b.dataset.station ? `[data-station="${b.dataset.station}"]`
     : b.dataset.act ? `[data-act="${b.dataset.act}"]` + (b.dataset.id ? `[data-id="${CSS.escape(b.dataset.id)}"]` : '') : null;
-  let held = null, last = null; // the button under the press; the last release {el, key, kf, t}
+  let held = null, last = null, kb = false; // the button under the press (kb: by Space); the last release {el, key, kf, t}
   function tapPop(el, kf, t) {
     if (el.getAnimations().some(a => a.id === 'tap')) return null;
     const a = el.animate(kf, { id: 'tap', duration: 220 }); a.startTime = t; return a;
   }
   // .pressing mirrors :active, which a touch only gets after a delay and Chrome lifts before pointerup is dispatched:
   // the press shows on the first frame, and is still there to be read on release.
-  function hold(el) {
-    held?.classList.remove('pressing'); held = el; if (!el) return;
+  function hold(el, key) {
+    held?.classList.remove('pressing'); held = el; kb = !!key; if (!el) return;
     el.getAnimations().forEach(a => { if (a.id === 'tap') a.cancel(); }); // a quick second press sinks again
     el.classList.add('pressing');
   }
@@ -37,8 +37,10 @@
   addEventListener('pointerdown', e => hold(e.button ? null : e.target.closest?.(TAP) || null), true);
   addEventListener('pointerup', release, true);
   addEventListener('pointercancel', release, true);
-  addEventListener('keydown', e => { if (e.key === ' ' && !e.repeat && e.target.matches?.(TAP)) hold(e.target); }, true);
-  addEventListener('keyup', e => { if (e.key === ' ' && held === e.target) release(); }, true);
+  addEventListener('keydown', e => { if (e.key === ' ' && !e.repeat && e.target.matches?.(TAP)) hold(e.target, true); }, true);
+  // A Space press ends on its keyup wherever focus went (Nib's bubble takes it 30 ms after a line starts), or when focus leaves.
+  addEventListener('keyup', e => { if (e.key === ' ' && kb) release(); }, true);
+  addEventListener('focusout', e => { if (kb && e.target === held) release(); }, true);
   // #5 asks here first: a window opening from a button you just pressed grows as that press springs back, so the
   // button is pressed once (by you), not twice. Null when there was no press: #5 then presses the button itself.
   window.Tactile = {

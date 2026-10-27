@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   const CHAR = 28, COMMA = 140, STOP = 260, WORD = 220; // the mockup's timings (work/motion-ideas, #11)
-  const KEY = /\$\d+(?:,\d{3})*(?:\.\d+)?k?|\b(?:CRITICAL|[Cc]riticals?)\b|\b[SABC] grade\b|[+−]?\b\d+(?:\.\d+)?%|[+−]?\b\d+ rep\b|\bElite\b/g;
+  const KEY = /\$\d+(?:,\d{3})*(?:\.\d+)?k?|\b(?:CRITICAL|[Cc]riticals?)\b|\b[SABC] grade\b|[+−]?\b\d+(?:\.\d+)?%|[+−]?\b\d+(?:\/\d+)? rep\b|\bElite\b/g;
   const BUMP = [{ transform: 'translateY(4px) scale(.8)', opacity: 0 }, { transform: 'translateY(-3px) scale(1.15)', opacity: 1, offset: .5 }, { transform: 'none', opacity: 1 }];
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   // The pause after a character. Only when the next one is a space or the end: "$1.5" or "3,000" don't pause mid-token.
@@ -24,26 +24,38 @@
     plain(at, text.length);
     return units;
   }
-  // How long typing takes (0 under reduced motion): timed lines count their on-screen time from when it ends.
-  const ms = text => reduced() ? 0 : plan(text).slice(0, -1).reduce((t, u) => t + u.ms, 0);
-  // Types `text` into `el`, replacing whatever was there. Returns {text, typing, done (a promise), finish() (skip to the end)}.
-  function type(el, text) {
+  // Types `text` into `el`, replacing whatever was there; the first `from` characters are already said (shown at once).
+  // Returns {text, typing, done (a promise), finish() (skip to the end), hurry(ms) (say the rest within ms), said (characters shown)}.
+  const live = new Set(); // typing now: a hidden tab finishes them (Chrome throttles background timers)
+  document.addEventListener('visibilitychange', () => { if (document.hidden) live.forEach(h => h.finish()); });
+  function type(el, text, from) {
     if (el.talk) el.talk.finish();
-    const units = plan(String(text)), h = { text: String(text), typing: true };
+    const units = plan(String(text)), h = { text: String(text), typing: true, said: 0 };
     el.textContent = '';
     for (const u of units) { u.el = document.createElement(u.kw ? 'em' : 'span'); u.el.className = u.kw ? 'talk-kw talk-u' : 'talk-u'; u.el.textContent = u.s; el.appendChild(u.el); }
-    el.talk = h;
-    let i = 0, timer = 0, end;
+    el.talk = h; live.add(h);
+    let i = 0, timer = 0, end, rush = 0;
     h.done = new Promise(r => { end = r; });
-    const show = (u, bump) => { u.el.classList.remove('talk-u'); if (bump && u.kw) u.anim = u.el.animate(BUMP, { duration: 260, easing: 'ease-out' }); };
-    const stop = () => { h.typing = false; end(); };
+    const show = (u, bump) => { u.el.classList.remove('talk-u'); h.said += u.s.length; if (bump && u.kw) u.anim = u.el.animate(BUMP, { duration: 260, easing: 'ease-out' }); };
+    const stop = () => { h.typing = false; live.delete(h); end(); };
     // A skip shows the rest at once and lands any bump still playing.
     h.finish = () => { if (!h.typing) return; clearTimeout(timer); while (i < units.length) show(units[i++]); units.forEach(u => u.anim && u.anim.finish()); stop(); };
-    const tick = () => { const u = units[i++]; show(u, true); if (i < units.length) timer = setTimeout(tick, u.ms); else stop(); };
-    if (reduced() || !units.length) h.finish(); else tick(); // reduced motion: the whole line at once, key words still amber
+    // Hurry: the rest speeds up to end by `rush` (a newer line is waiting); never slows down.
+    const wait = u => { if (!rush) return u.ms; const left = units.slice(i - 1, -1).reduce((t, v) => t + v.ms, 0); return left ? u.ms * Math.min(1, Math.max(0, rush - Date.now()) / left) : 0; };
+    h.hurry = ms => { if (!h.typing || (rush && rush <= Date.now() + ms)) return; rush = Date.now() + ms; clearTimeout(timer); timer = setTimeout(tick, 0); };
+    const tick = () => { const u = units[i++]; show(u, true); if (i < units.length) timer = setTimeout(tick, wait(u)); else stop(); };
+    while (from > h.said && i < units.length) show(units[i++]); // already said: no bump, no wait
+    if (reduced() || document.hidden || i >= units.length) h.finish(); else tick(); // reduced motion: the whole line at once, key words still amber
     return h;
   }
-  // Types only when the text changed (the dock line is re-rendered all the time).
-  function set(el, text) { if (el.talk ? el.talk.text === text : el.textContent === text) return el.talk; return type(el, text); }
-  window.Talk = { type, set, ms };
+  // Types only when the wording changed (the dock line is re-rendered all the time): a new number in the same sentence
+  // ("3 working · 35/60 rep") updates in place, and a line still typing carries on from where it was.
+  const shape = t => String(t).replace(/\d+/g, '#');
+  function set(el, text) {
+    const h = el.talk, was = h ? h.text : el.textContent;
+    if (was === text) return h;
+    if (shape(was) !== shape(text)) return type(el, text);
+    return type(el, text, h && h.typing ? h.said : Infinity);
+  }
+  window.Talk = { type, set };
 })();

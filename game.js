@@ -73,32 +73,50 @@
   // his happy hop plays on his dock portrait instead (faceHop).
   const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => (ui.win || winFx?.shut) && $('panel-dialog').open ? winRect() : null,
     covered: () => !!ui.win || document.body.classList.contains('s3-agents-open'), faceHop });
-  // Lines that wait for the player (Next or a choice) queue up; timed lines are interrupted by anything newer,
-  // but only once they've been up TIP ms: a newer line waits its turn instead of replacing a tip unread.
-  const TIP = 2000, after = ms => new Promise(r => setTimeout(r, ms));
-  let queue = Promise.resolve(), waiting = 0, tips = Promise.resolve(), tipEnd = 0;
+  // Lines that wait for the player (Next or a choice) queue up; timed lines (tips) are interrupted by anything newer,
+  // but a newer tip waits its turn: until the tip has been up TIP ms and fully shown (typed or skipped) for READ ms.
+  // While a line waits, the one typing hurries (#11). A line you must answer doesn't wait behind tips: the tip on screen
+  // is shown whole and kept up ASK ms, then the question takes over; tips queued before it go to the dock line.
+  const TIP = 2000, READ = 1000, HURRY = 1000, ASK = 1000, after = ms => new Promise(r => setTimeout(r, ms));
+  let queue = Promise.resolve(), waiting = 0, tips = Promise.resolve(), tip = null, pend = 0, asked = 0;
+  // A line on screen ({at, h: its talk.js handle}) notes when it's all shown; turn() resolves when the next may replace it.
+  const onAir = l => { l.h.done.then(() => { l.shown = Date.now(); }); return l; };
+  const turn = l => l ? l.h.done.then(() => after(Math.min(l.until || Infinity, Math.max(l.at + TIP, l.shown + READ)) - Date.now())) : Promise.resolve();
   function nibSay(text, o) {
     o = o || {};
     const timed = !o.next && !o.choices;
     if (timed && waiting) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
     if (timed && innerWidth < 700 && $('panel-dialog').open) { flashLine(text, o.ms || 3600); return Promise.resolve(true); }
+    const q = asked; pend++; if (tip) timed ? tip.h.hurry(HURRY) : tip.h.finish();
     // A line that waits for you (Next or a choice) must be seen: bring you back from the Team view.
     const show = () => {
+      pend--;
       if (timed && ui.night) return [Promise.resolve(false)]; // a tip still waiting its turn when you went to sleep is dropped
-      if (!timed && window.Stage3UI?.isOpen()) window.Stage3UI.close();
-      tipEnd = timed ? Date.now() + window.Talk.ms(text) + Math.min(TIP, o.ms || 2600) : 0; return [nib.say(text, o)]; // #11: the TIP minimum starts once it's typed
+      if (timed && (waiting || q !== asked)) { flashLine(text, o.ms || 3600); return [Promise.resolve(true)]; } // a question went first
+      if (!timed) { asked++; if (window.Stage3UI?.isOpen()) window.Stage3UI.close(); }
+      const r = nib.say(text, o);
+      tip = timed ? onAir({ at: Date.now(), h: $('nib-bubble').querySelector('.nib-text').talk }) : null;
+      if (tip && pend) tip.h.hurry(HURRY);
+      return [r];
     };
-    const run = () => { const t = tips.then(() => after(tipEnd - Date.now())).then(show); tips = t.then(() => {}); return t.then(([r]) => r); }, p = queue.then(run, run);
-    if (!timed) { waiting++; p.finally(() => { waiting--; }); queue = p.catch(() => {}); }
+    const run = () => { const t = tips.then(() => turn(tip)).then(show); tips = t.then(() => {}); return t.then(([r]) => r); };
+    const ask = () => { const l = tip; return (l ? l.h.done.then(() => after(l.at + ASK - Date.now())) : Promise.resolve()).then(show).then(([r]) => r); };
+    if (timed) return queue.then(run, run);
+    waiting++; const p = queue.then(ask, ask); p.finally(() => { waiting--; }); queue = p.catch(() => {});
     return p;
   }
   const nibWalk = (spot, then) => new Promise(r => nib.goTo(spot[0], spot[1], () => { if (then) then(); r(); }));
   function nibToPlayer() { const p = world.getState(); return nibWalk([Math.min(304, p.x + 22), p.y]); }
 
-  // Nib's line in the dock shows a timed line for a while (phones with a window open). Same TIP minimum, in order.
-  let flash = null, flashes = Promise.resolve();
+  // Nib's line in the dock shows a timed line for a while (phones with a window open). Same pacing, in order.
+  let flash = null, flashes = Promise.resolve(), flashN = 0;
   function flashLine(text, ms) {
-    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { if (ui.night) return; const ty = window.Talk.ms(text); flash = { text, at: Date.now() + ty, until: Date.now() + ty + ms }; render(); setTimeout(render, ty + ms + 50); }); // a line still queued at nightfall is stale by morning; #11: its time counts from when it's typed
+    flashN++; if (flash) flash.h.hurry(HURRY);
+    flashes = flashes.then(() => turn(flash)).then(() => {
+      flashN--; if (ui.night) return; // a line still queued at nightfall is stale by morning
+      const f = flash = { text, at: Date.now(), until: Infinity }; render(); f.h = $('objective').talk; onAir(f); if (flashN) f.h.hurry(HURRY);
+      f.h.done.then(() => { f.until = Date.now() + ms; setTimeout(render, ms + 50); }); // #11: its time counts from when it's typed
+    });
   }
 
   // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
@@ -161,7 +179,7 @@
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
     if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; setTimeout(ending3, 1200); setTimeout(punchWon3, 0); }
-    window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: a new line types out
+    window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
@@ -877,7 +895,7 @@
   async function sleep() {
     if (ui.night || ui.busy || ui.morning) return;
     if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad');
-    closeWindow(); nib.hush(); ui.night = true; ui.nightP = 0; render();
+    closeWindow(); nib.hush(); tip = null; ui.night = true; ui.nightP = 0; render();
     const night = $('night'); night.hidden = false; $('night-text').textContent = 'Night ' + s.day + '. ' + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
     await wait(30); night.classList.add('on');
     lightsOut(night); // #12: decoration only, nothing waits on it
