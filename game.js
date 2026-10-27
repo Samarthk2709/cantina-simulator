@@ -98,7 +98,7 @@
   // Nib's line in the dock shows a timed line for a while (phones with a window open). Same TIP minimum, in order.
   let flash = null, flashes = Promise.resolve();
   function flashLine(text, ms) {
-    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { flash = { text, at: Date.now(), until: Date.now() + ms }; render(); setTimeout(render, ms + 50); });
+    flashes = flashes.then(() => after(flash ? Math.min(flash.at + TIP, flash.until) - Date.now() : 0)).then(() => { if (ui.night) return; flash = { text, at: Date.now(), until: Date.now() + ms }; render(); setTimeout(render, ms + 50); }); // a line still queued at nightfall is stale by morning
   }
 
   // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
@@ -190,6 +190,9 @@
     requestAnimationFrame(() => { el.shown = true; }); // toasts that arrive together just rise; only ones already up slide
     setTimeout(() => toastShift(() => el.remove()), 3600);
   }
+  // Phones: if Nib's strip docks at the top while toasts sit there, the stack slides down to the dock so his question stays readable.
+  new MutationObserver(() => { const box = $('toasts'), b = $('nib-bubble'); if (box.classList.contains('top') && !b.hidden && b.classList.contains('docked')) toastShift(() => box.classList.remove('top')); })
+    .observe($('nib-bubble'), { attributes: true, attributeFilter: ['class', 'hidden'] });
   // The stack makes room by sliding (FLIP), never jumping, when a toast comes or goes. `translate`, so a toast's own rise
   // (a transform) is untouched.
   function toastShift(change) {

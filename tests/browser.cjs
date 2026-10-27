@@ -85,8 +85,9 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     for (const [id, name] of [['training', '13-pattern-book'], ['rig', '14-rig'], ['forge', '15-tools'], ['stats', '16-ledger']]) {
       await p.evaluate(id => Stage2.open(id), id); await p.waitForTimeout(250); await shot(p, name);
     }
+    const bugsBefore = (await st(p)).bugs; // 1, or 2 if the proven Ops find was real (proving files it)
     await p.reload(); await p.waitForTimeout(900);
-    assert.equal((await st(p)).bugs, 1, 'progress survives a reload');
+    assert.equal((await st(p)).bugs, bugsBefore, 'progress survives a reload');
     await ctx.close();
   }
 
