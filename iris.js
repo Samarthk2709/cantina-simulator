@@ -54,9 +54,10 @@ window.Iris = (() => {
     if (onBlack) { onBlack(); cv.remove(); }
     setTimeout(nav, hold);
   }
-  // True once, on the page right after go(). Clears the mark either way.
+  // True once, on the page right after go(). Clears the mark either way (a page may have taken it early: html[data-iris]).
   function arrived() {
-    let v = null; try { v = sessionStorage.getItem(KEY); sessionStorage.removeItem(KEY); } catch {}
+    let v = document.documentElement.dataset.iris; delete document.documentElement.dataset.iris;
+    try { v = v || sessionStorage.getItem(KEY); sessionStorage.removeItem(KEY); } catch {}
     if (!v || reduced) document.documentElement.classList.remove('iris-in');
     return !!v && !reduced;
   }
