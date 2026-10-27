@@ -20,6 +20,10 @@
 .meter{display:inline-block;height:6px;background:#0b181e;border-radius:3px;overflow:hidden;vertical-align:middle;border:1px solid var(--line)}
 .meter i{display:block;height:100%;background:var(--amber);transition:width .35s ease-out}
 .meter i.low{background:var(--danger-ink)}
+/* #9 Ghost drain: the pale "cost" chunk a spend leaves behind the focus fill; game.js focusMeter animates it. */
+#focus .meter{position:relative}#focus .meter i{position:relative}
+#focus .meter .ghost{position:absolute;left:0;top:0;bottom:0;width:0;background:#f4e2b0}
+@media (prefers-reduced-motion:reduce){#focus .meter .ghost{display:none}}
 .hud #coffee,.hud #sleep{background:var(--paper);border:1px solid var(--line-2);color:var(--ink);border-radius:7px;font-size:13px}
 .hud #coffee[data-icon]{padding-left:32px}
 .hud #cups{font:12px var(--mono);color:var(--amber);margin-left:2px}
