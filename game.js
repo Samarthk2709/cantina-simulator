@@ -164,6 +164,7 @@
     $('objective').textContent = flash && Date.now() < flash.until ? flash.text : objective();
     $('stats-open').hidden = !s.seen.stats;
     wallet();
+    placeLamps(); // #12: lamp pools follow the stations you've unlocked
     const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
     let freshN = 0; // new dock buttons arrive 3 frames apart (style.css --stagger)
     const btns = ORDER.filter(shown).map(id => {
@@ -775,15 +776,50 @@
   // ---------- coffee, sleep, night ----------
   $('coffee').addEventListener('click', () => { const r = E.coffee(s); if (!r.ok) return toast(r.why, 'bad'); toast('+' + D.COST.coffee + ' focus. ' + s.cups + ' left today.'); if (ui.win) drawWindow(); else render(); });
   $('sleep').addEventListener('click', sleep);
+  // #12 Lights out, lamp by lamp. Warm pools over the stations that exist, on a layer over the world canvas (world.js
+  // stays as published; positioned from roomRect() like nib.js's layer). Sleep flickers them off one by one, 120 ms apart
+  // in steps, farthest from Nib's night spot first, while the night settles; morning lifts the night and flickers them
+  // back on, nearest first. Pure decoration: sleep() never waits on it, so the night's own timing is unchanged.
+  function placeLamps() {
+    const wrap = $('world-wrap'); let L = $('lamps');
+    if (!L) { L = wrap.appendChild(document.createElement('div')); L.id = 'lamps'; L.setAttribute('aria-hidden', 'true'); }
+    L.hidden = world.getState().room !== 'office'; if (L.hidden) return L;
+    const wr = wrap.getBoundingClientRect(), rr = world.roomRect(), room = W.rooms.find(r => r.id === 'office');
+    Object.assign(L.style, { left: rr.left - wr.left + 'px', top: rr.top - wr.top + 'px', width: rr.width + 'px', height: rr.height + 'px' });
+    const ids = ORDER.filter(shown).join();
+    if (L.dataset.ids !== ids) {
+      L.dataset.ids = ids;
+      L.innerHTML = ORDER.filter(shown).map(id => { const st = W.stations.find(x => x.id === id); return `<b data-id="${id}" style="left:${st.x / room.width * 100}%;top:${st.y / room.height * 100}%"><i class="glow"></i><i class="shade"></i></b>`; }).join('');
+    }
+    return L;
+  }
+  window.addEventListener('resize', () => requestAnimationFrame(placeLamps)); // after world.js has resized its canvas
+  function switchLamps(on) {
+    const L = placeLamps(); L.classList.toggle('off', !on);
+    if (reduced) return;
+    const at = shown('rig') ? SPOT.rig : nibHome(), far = b => { const st = W.stations.find(x => x.id === b.dataset.id); return Math.hypot(st.x - at[0], st.y - at[1]); };
+    const lamps = [...L.children].sort((a, b) => far(b) - far(a)); if (on) lamps.reverse();
+    const lit = on ? [0, .8, .3, 1] : [1, .2, .7, 0], at3 = on ? [0, .3, .5, 1] : [0, .3, .45, 1]; // a flicker, not a fade
+    lamps.forEach((b, i) => {
+      const o = { duration: on ? 300 : 260, delay: (on ? 300 : 0) + i * 120, easing: 'steps(4, end)', fill: 'backwards' };
+      b.children[0].animate(lit.map((v, j) => ({ opacity: v, offset: at3[j] })), o);
+      b.children[1].animate(lit.map((v, j) => ({ opacity: 1 - v, offset: at3[j] })), o);
+    });
+  }
+  // The night falls after the first lamps go (style.css .fall) and lifts in the 500 ms sleep() gives it (.rise).
+  function lightsOut(night) { if (!reduced) { night.classList.remove('rise'); night.classList.add('fall'); } switchLamps(false); }
+  function lightsOn(night) { if (!reduced) { night.classList.remove('fall'); night.classList.add('rise'); } switchLamps(true); }
   async function sleep() {
     if (ui.night || ui.busy || ui.morning) return;
     if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad');
     closeWindow(); nib.hush(); ui.night = true; ui.nightP = 0; render();
     const night = $('night'); night.hidden = false; $('night-text').textContent = 'Night ' + s.day + '. ' + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
     await wait(30); night.classList.add('on');
+    lightsOut(night); // #12: decoration only, nothing waits on it
     nib.setLit(true); await nibWalk(shown('rig') ? SPOT.rig : nibHome()); nib.setMood('think');
     const r = E.sleep(s).night;
     for (let i = 1; i <= 10; i++) { ui.nightP = i / 10; syncWorld(); await wait(170); }
+    lightsOn(night); // #12
     night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; ui.morning = true; nib.setLit(false); nib.setMood('idle');
     render();
     const mapped = r.mapped.map(id => T[s.target].rooms.find(x => x[0] === id)[1]);
@@ -863,7 +899,18 @@
     };
   }
   // Writes the current save one last time, then freezes saving and navigates.
-  function leave(url) { save(); frozen = true; if (url) location.href = url; else location.reload(); }
+  // #17: the page goes behind a pixel iris closing onto Nib (iris.js; instant under reduced motion).
+  function leave(url) {
+    save(); frozen = true; const go = () => { if (url) location.href = url; else location.reload(); };
+    ['settings-dialog', 'modal'].forEach(id => { if ($(id).open) $(id).close(); }); // the top layer would sit over the iris
+    if (window.Iris) window.Iris.go(go, ...nibScreen()); else go();
+  }
+  // #17: where Nib is on screen, or the screen's centre when the office isn't in view.
+  function nibScreen() {
+    if (world.getState().room !== 'office' || document.body.classList.contains('s3-agents-open')) return [innerWidth / 2, innerHeight / 2];
+    const rr = world.roomRect(), k = rr.width / W.rooms.find(r => r.id === 'office').width, p = nib.pos();
+    return [rr.left + p.x * k, rr.top + (p.y - 10) * k];
+  }
   function wipe(keepNib) {
     window.Stage3Scope?.reset();
     try { [KEY, POS, 'first-office-crew-v1'].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
@@ -927,6 +974,7 @@
   layout(); render();
   const home = s.seen.intro ? nibHome() : SPOT.side;
   nib.place(home[0], home[1]);
+  if (window.Iris && window.Iris.arrived()) window.Iris.open(...nibScreen()); // #17: a chapter change opens on Nib
   if (!s.seen.intro) {
     (async () => {
       await wait(700);

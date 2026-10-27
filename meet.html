@@ -95,6 +95,7 @@ button,input{font:inherit;color:inherit}
 .next{position:absolute;inset:0;z-index:7;display:grid;place-content:center;gap:20px;text-align:center;background:var(--ink);
   opacity:0;pointer-events:none;transition:opacity 1.2s}
 .next.on{opacity:1;pointer-events:auto}
+.next.cut{transition:none} /* #17: the iris already went to black */
 .next p{font-size:28px;color:var(--lamp)}
 .next span{color:var(--muted)}
 
@@ -139,7 +140,7 @@ button,input{font:inherit;color:inherit}
   <div class="dark" id="dark"><button class="btn" id="wake" autofocus>Turn on the light</button></div>
 </main>
 
-<script src="avatars.js"></script>
+<script src="avatars.js"></script><script src="iris.js"></script>
 <script>
 /* ---------- pixel art: avatars.js, shared with the office and the team ---------- */
 const nibArt=(mood,f)=>Avatars.rects('nib',{mood,f}).map(([x,y,w,h,c])=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
@@ -253,7 +254,16 @@ function pitch(lead=[]){ beat='offer'; return {lines:[...lead,...PITCH],mood:'id
 function accept(){
   beat='done'; mem.completedAt=new Date().toISOString(); mem.acceptedFirstTry??=true; save();
   // Stage 2 is the office at /. Same server, so it reads this memory (name, facts) directly.
-  return {lines:["Good. Let's find somewhere to work.",hop,()=>setTimeout(()=>{$('next').classList.add('on');setTimeout(()=>location.href='/',reduced?300:2600);},reduced?0:1400)],mood:'happy',chips:[]};
+  return {lines:["Good. Let's find somewhere to work.",hop,()=>setTimeout(toOffice,reduced?0:1400)],mood:'happy',chips:[]};
+}
+
+// #17 Pixel iris: the room closes onto Nib, the chapter card holds on black, then the office opens with the iris (iris.js).
+// Reduced motion, or no iris.js: the plain card.
+function toOffice(){
+  const go=()=>location.href='/';
+  if(reduced||!window.Iris){$('next').classList.add('on');setTimeout(go,reduced?300:2600);return;}
+  const r=nib.getBoundingClientRect();
+  Iris.go(go,r.left+r.width/2,r.top+r.height*.45,1100,()=>$('next').classList.add('on','cut'));
 }
 
 async function decide(text){
