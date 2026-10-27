@@ -148,7 +148,7 @@
   function render() {
     const mf = E.maxFocus(s);
     $('focus').hidden = !s.seen.job;
-    $('focus-fill').style.width = (s.focus / mf * 100) + '%';
+    focusMeter(s.focus, mf);
     $('focus-fill').classList.toggle('low', s.focus < mf * 0.25);
     $('focus-num').textContent = s.focus + '/' + mf;
     $('coffee').hidden = !s.seen.rest; $('sleep').hidden = !s.seen.rest;
@@ -217,6 +217,23 @@
     rollTo('cash', w.cash, money, 0); rollTo('rep', w.rep, String, 50); // rep starts 3 frames after cash
     $('panel-wallet').textContent = s.seen.stats ? money(w.cash) + ' · ' + w.rep + ' rep' : '';
     const k = w.cash + ':' + w.rep; if (k !== shownKey) { shownKey = k; dispatchEvent(new Event('first-office:wallet')); } // Team's footer follows
+  }
+  // #9 Ghost drain: a spend drops the fill at once with a flash, and a pale ghost of the old amount holds 450 ms, then
+  // drains 450 ms. Spending mid-drain extends the ghost from where it is; gains just fill (the CSS transition), no ghost.
+  let focusWas = null;
+  function focusMeter(v, mf) {
+    const f = $('focus-fill'), m = f.parentNode, p = v / mf * 100, was = focusWas; focusWas = v;
+    let g = m.querySelector('.ghost'); if (!g) { g = document.createElement('b'); g.className = 'ghost'; f.before(g); }
+    if (was === null || v >= was || reduced || document.hidden || $('focus').hidden || !m.clientWidth) {
+      if (was !== null && v > was) { g.getAnimations().forEach(a => a.cancel()); g.style.width = '0'; } // a refill swallows any ghost left
+      f.style.width = p + '%'; return;
+    }
+    const w = m.clientWidth, from = Math.max(g.getBoundingClientRect().width, f.getBoundingClientRect().width) / w * 100;
+    f.style.transition = 'none'; f.style.width = p + '%'; void f.offsetWidth; f.style.transition = ''; // drops at once
+    f.animate([{ filter: 'brightness(1.8)' }, { filter: 'none' }], 200);
+    $('focus').querySelector('.k').animate([{ transform: 'none' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(2px)' }, { transform: 'none' }], 160);
+    g.getAnimations().forEach(a => a.cancel()); g.style.width = p + '%'; // rests under the fill; no filled animation left to go stale
+    g.animate([{ width: from + '%' }, { width: from + '%', offset: .5, easing: 'cubic-bezier(.5,0,.3,1)' }, { width: p + '%' }], 900);
   }
   function rollTo(id, v, fmt, lag) {
     const el = $(id); let r = rolls[id];
