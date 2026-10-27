@@ -47,7 +47,24 @@ From [ugoki.ai's reel](https://www.instagram.com/reel/De-LYA1xhDV/). Every anima
 
 1. **Anticipation:** pull back about 6 frames (100 ms) before moving. Toasts, Nib's bubble, new dock buttons, the stamp, Stage 1's goal card and chips, and the waiting hop all do it. Nib and agents crouch a pixel and lean back before they start walking.
 2. **Offset:** things that arrive together start 3 frames (50 ms) apart. This covers new dock buttons, Stage 1's chips and goal rows, the avatar loops in the roster, and the agents' walk bobs.
-3. **Motion blur:** only fast movers blur, and only while they're moving. Today that's just the stamp. Walking at 70 px/s is too slow to blur.
+3. **Motion blur:** only fast movers blur, and only while they're moving: price-tag slams, pay chips, and windows in flight. Walking at 70 px/s is too slow to blur.
+
+### Motion effects
+
+Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), built on its own `motion/*` branch and merged here.
+
+| # | Effect | Where |
+|---|---|---|
+| 1 | Squash & stretch | The agents' waiting hop. Nib's happy hop when a bug is paid or a chain traced (on his dock portrait if a window covers him). Stage 1 Nib when you take the job |
+| 2 | Hit-stop & shake | The price tag slams onto the paid row (map, Ops result) or the chain's CRITICAL tag. It holds the impact frame, then shakes with ink specks. CRITICAL gets the full effect with an amber flash |
+| 3 | Rolling counters | Cash and rep count to new values, green on gains and red on losses |
+| 4 | Pay chips | "+$X" arcs from the tag, or from the paying agent, to the wallet. The money lands with the chip. At most 4 fly at once; the rest queue |
+| 5 | Windows from their button | Windows grow out of the button you clicked, rows staggered, and shrink back into it on close |
+| 6 | Follow-through | Nib and agents lean a pixel on when they stop. Speech bubbles trail on a spring |
+| 7 | Staging dim | The office or Team timeline dims behind decision cards (spend questions, penalty fixes, Nib's choices) |
+| 8 | Idle life | Idle characters breathe a pixel, blink and glance, each on its own rhythm |
+
+Everything respects `prefers-reduced-motion`: final states are instant, and only blinks remain.
 
 The founder doesn't wind up: you control it, so it reacts on the frame you press. Fades, blinks, the lamp flicker and bar fills aren't motion, so the rules don't apply to them.
 
@@ -95,7 +112,7 @@ A leftover draft, for example one an agent gave up on, is one **File** click on 
 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
 - **Nib docks to the window:** while a window is open, Nib speaks from one strip docked on top of it, with choices and Next inline, instead of a bubble over your work. Opening a window puts keyboard focus on Nib's waiting line or the window, never the × button.
-- **Toasts:** they sit just above the dock.
+- **Toasts:** they sit just above the dock and slide as the stack changes. On phones with a window open, they sit at the top instead, clear of the window's buttons.
 - **Less text:**
   - Intro paragraphs, legends and fine print are cut down to a few words.
   - Bounty board programs are one row each.
