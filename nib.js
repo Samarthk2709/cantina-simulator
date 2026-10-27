@@ -159,15 +159,16 @@
       clearTimeout(sayTimer);
       if (finish) finish(false); // a newer line replaces whatever Nib was saying
       const body = bubble.querySelector('.nib-text'), foot = bubble.querySelector('.nib-foot');
-      body.textContent = text; foot.innerHTML = '';
+      const id = ++sayN, typed = sayType(body, text); foot.innerHTML = '';
       bubble.hidden = false; bubbleOpen = true; bubbleSide = o.side || 'left';
       bubble.classList.toggle('asks', !!(o.choices || o.next));
       setMood(o.mood || 'talk');
-      if (!reduced && !o.choices) setTimeout(() => { if (A.mood === 'talk') setMood(o.after || 'idle'); }, Math.min(2400, 40 * text.length));
-      else if (o.choices) setTimeout(() => { if (A.mood === 'talk') setMood('think'); }, 900);
+      // #11: he talks while the line types, then settles, or thinks over the choices.
+      if (!reduced && !o.choices) typed.done.then(() => { if (id === sayN && A.mood === 'talk') setMood(o.after || 'idle'); });
+      else if (o.choices) typed.done.then(() => setTimeout(() => { if (id === sayN && A.mood === 'talk') setMood('think'); }, 300));
       return new Promise(resolve => {
         let settled = false;
-        const done = v => { if (settled) return; settled = true; if (finish === done) finish = null; clearTimeout(sayTimer); bubble.hidden = true; bubbleOpen = false; setMood(o.after || 'idle'); resolve(v); };
+        const done = v => { if (settled) return; settled = true; if (finish === done) finish = null; clearTimeout(sayTimer); typed.finish(); bubble.hidden = true; bubbleOpen = false; setMood(o.after || 'idle'); resolve(v); };
         finish = done;
         if (o.choices) {
           o.choices.forEach((c, i) => {
@@ -179,22 +180,37 @@
         } else if (o.next) {
           const b = document.createElement('button'); b.type = 'button'; b.className = 'accent nib-next'; b.dataset.icon = 'arrow';
           b.innerHTML = (o.nextLabel || 'Next') + ' <kbd>Enter</kbd>'; b.addEventListener('click', () => done(true)); foot.appendChild(b);
-          setTimeout(() => b.focus({ preventScroll: true }), 30);
+          // #11: Next is hidden while the line types, so the bubble holds focus (Enter skips), then hands it to Next.
+          setTimeout(() => (typed.typing ? bubble : b).focus({ preventScroll: true }), 30);
+          typed.done.then(() => { if (!settled && [bubble, document.body].includes(document.activeElement)) b.focus({ preventScroll: true }); });
         } else {
-          sayTimer = setTimeout(() => done(true), o.ms || Math.max(2600, 55 * text.length));
+          // #11: a timed line's time on screen counts from when it has finished typing.
+          typed.done.then(() => { if (!settled) sayTimer = setTimeout(() => done(true), o.ms || Math.max(2600, 55 * text.length)); });
         }
         // Place the new line now: a line said after this frame's draw (an arrival callback) would paint once at the old size.
         draw();
       });
     }
     function hush() { clearTimeout(sayTimer); if (finish) finish(false); bubble.hidden = true; bubbleOpen = false; }
+    // Talking text (#11): the line types out (talk.js); choices and Next stay hidden (.typing) until it's done.
+    // A click on the bubble, Enter or 1-3 (game.js) finishes it at once.
+    let sayN = 0;
+    function sayType(body, text) {
+      const h = window.Talk.type(body, text), n = sayN;
+      bubble.classList.toggle('typing', h.typing);
+      h.done.then(() => { if (n === sayN) bubble.classList.remove('typing'); });
+      return h;
+    }
+    function skip() { const h = bubble.querySelector('.nib-text').talk; if (!h || !h.typing) return false; h.finish(); return true; }
+    bubble.addEventListener('click', () => { if (!bubble.hidden) skip(); });
     function setMood(m) { A.mood = m; A.face = m; }
     return {
       // Squash & stretch: one happy hop on the spot (not mid-walk). If he's walking or the office is covered (a window open),
       // nobody would see it, so opts.faceHop plays it where you're looking (game.js: his dock portrait).
       hop: () => { if (reduced) return; if (!A.path.length) A.hop = 0; if (opts.faceHop && (A.path.length || !A.visible || (opts.covered && opts.covered()))) opts.faceHop(); },
-      goTo, place, say, hush, setMood,
+      goTo, place, say, hush, setMood, skip,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
+      get typing() { const h = bubble.querySelector('.nib-text').talk; return bubbleOpen && !!h && h.typing; }, // #11
       pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; }, show: v => { A.visible = !!v; }
     };
   }
