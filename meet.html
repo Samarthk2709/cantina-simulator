@@ -67,7 +67,12 @@ button,input{font:inherit;color:inherit}
 .say input::placeholder{color:#5f5a80}
 .say input:disabled{opacity:.8}
 .btn,.say button,.chips button{background:var(--lamp);color:var(--ink);border:4px solid var(--ink);padding:10px 18px;font-weight:600;cursor:pointer;box-shadow:0 4px 0 var(--ink)}
-.btn:active,.say button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.btn:is(:active,.pressing):not(:disabled),.say button:is(:active,.pressing):not(:disabled){translate:0 3px;box-shadow:0 1px 0 var(--ink)}
+/* #14 Tactile buttons (.pressing: buttons.js, the same as :active): the press sinks into the shadow in ~70 ms; buttons.js springs it back with a 1px overshoot.
+   `translate` rides on the chips' pop-in transform. Chips and links have no shadow: they just sink. */
+.chips button:is(:active,.pressing):not(:disabled){translate:0 2px}.status button:is(:active,.pressing){translate:0 1px}
+.btn,.say button,.chips button,.status button{transition:translate 0s,box-shadow 0s}
+:is(.btn,.say button,.chips button,.status button):is(:active,.pressing):not(:disabled){transition:translate 70ms ease-out,box-shadow 70ms ease-out}
 .say button:disabled,.chips button:disabled{opacity:.7;cursor:default}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;min-height:44px}
 .chips button{background:transparent;color:var(--paper);border-color:var(--muted);box-shadow:none;padding:6px 12px;font-weight:400;font-size:17px;letter-spacing:.02em}
@@ -143,6 +148,7 @@ button,input{font:inherit;color:inherit}
   <div class="dark" id="dark"><button class="btn" id="wake" autofocus>Turn on the light</button></div>
 </main>
 
+<script src="buttons.js"></script>
 <script src="avatars.js"></script><script src="iris.js"></script>
 <script src="talk.js"></script>
 <script>
