@@ -74,6 +74,18 @@
 .night{position:absolute;inset:0;z-index:5;display:grid;place-items:start center;padding-top:90px;background:radial-gradient(ellipse at 70% 75%,rgba(4,10,20,.55),rgba(2,6,12,.88) 60%);opacity:0;transition:opacity .6s ease;pointer-events:all}
 .night.on{opacity:1}
 .night p{margin:0;padding:8px 14px;font:600 13px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cream);background:rgba(8,19,26,.7);border:1px solid var(--line-2);border-radius:6px}
+/* #12 lights out, lamp by lamp: warm pools at the stations (game.js placeLamps), dark pools once they're off */
+#lamps{position:absolute;overflow:hidden;pointer-events:none}
+#lamps b{position:absolute;width:30%;aspect-ratio:1;translate:-50% -50%}
+#lamps i{position:absolute;inset:0;border-radius:50%}
+#lamps .glow{background:radial-gradient(closest-side,rgba(255,184,108,.2),rgba(255,184,108,.06) 55%,rgba(255,184,108,0))}
+#lamps .shade{background:radial-gradient(closest-side,rgba(2,6,12,.55),rgba(2,6,12,0));opacity:0}
+#lamps.off .glow{opacity:0}#lamps.off .shade{opacity:1}
+.night.fall{transition:opacity .9s linear .2s}.night.rise{transition:opacity .5s ease-in}
+@media (prefers-reduced-motion:reduce){.night.fall,.night.rise{transition:none}}
+/* #17 pixel iris: the black cover index.html raises on arrival until iris.js opens it; gone after 2 s even if the script never runs */
+html.iris-in body::after{content:"";position:fixed;inset:0;z-index:2147483000;background:#0c0a22;pointer-events:none;animation:iris-guard 0s 2s forwards}
+@keyframes iris-guard{to{visibility:hidden}}
 
 /* ---- #7 Staging: dim the world for decisions ---- */
 /* While Nib's bubble waits for a choice over the office, the floor dims and desaturates a little (250 ms in,
