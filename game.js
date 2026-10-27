@@ -157,7 +157,6 @@
     }).join('');
     const dock = $('dock');
     if (dock.dataset.html !== btns) { dock.querySelectorAll('[data-station]').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns; }
-    $('panel-wallet').textContent = s.seen.stats ? money(s.cash) + ' · ' + s.rep + ' rep' : '';
     syncWorld();
     save();
   }
@@ -171,11 +170,18 @@
   // ---------- wallet motion: rolling counters (#3) and pay chips flying to the wallet (#4) ----------
   // Cash and rep roll to new values instead of jumping: the number dips, bumps and flashes green on a gain, red on a
   // loss. Pay still in flight in a chip is held back, so the wallet changes when the chip lands, not before.
-  const ROLL = 650, held = { cash: 0, rep: 0 }, rolls = {};
-  let rolling = false;
+  const ROLL = 650, held = { cash: 0, rep: 0 }, rolls = {}, chips = [];
+  let rolling = false, shownKey = '';
+  // What the wallet shows: the true values less pay still in flight. The HUD, the window's bar and Team's footer all use it.
+  const shownWallet = () => ({ cash: s.cash - held.cash, rep: s.rep - held.rep });
   function wallet() {
+    // A spend or penalty made while pay is in flight can eat into it: land those chips now, so it never shows below zero.
+    for (const c of [...chips]) if (s.cash < held.cash || s.rep < held.rep) land(c, true);
+    const w = shownWallet();
     $('cash').dataset.value = s.cash; $('rep').dataset.value = s.rep; // the true values, readable before a roll ends
-    rollTo('cash', s.cash - held.cash, money, 0); rollTo('rep', s.rep - held.rep, String, 50); // rep starts 3 frames after cash
+    rollTo('cash', w.cash, money, 0); rollTo('rep', w.rep, String, 50); // rep starts 3 frames after cash
+    $('panel-wallet').textContent = s.seen.stats ? money(w.cash) + ' · ' + w.rep + ' rep' : '';
+    const k = w.cash + ':' + w.rep; if (k !== shownKey) { shownKey = k; dispatchEvent(new Event('first-office:wallet')); } // Team's footer follows
   }
   function rollTo(id, v, fmt, lag) {
     const el = $(id); let r = rolls[id];
@@ -202,30 +208,45 @@
     }
     if (rolling) requestAnimationFrame(rollFrame);
   }
-  // A paid report sends a "+$131" chip from its source (the stamp, else the agent or station, else screen centre)
-  // along an arc into the cash display. Several payouts leave 3 frames apart, lined up, never piled on each other.
-  const chips = [];
-  let nextPop = 0, lastPop = 0, burst = 0, lastLand = 0;
-  function payChip(r, station, who) {
-    if (reduced || document.hidden || !r.pay || chips.length >= 4 || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
-    const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who };
+  // A payment sends a "+$131" chip along an arc into the cash display, from the tag that stamps it (once that has
+  // landed), else the agent or station. Several payouts leave 3 frames apart, lined up, never piled on each other;
+  // at most 4 fly at once and the rest wait their turn, their pay still held, so money always lands with a chip.
+  let nextPop = 0, lastPop = 0, burst = 0, lastLand = 0, inAir = 0;
+  function payChip(r, station, who, key) {
+    if (reduced || document.hidden || !r.pay || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
+    const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who, key };
     chips.push(c); held.cash += c.pay; held.rep += c.rep; wallet(); // agents' pay was already rendered: take it back until the chip lands
-    setTimeout(() => land(c), 3000); // never hold pay longer than this, even if frames stop (hidden tab)
+    setTimeout(() => land(c), 4000); // never hold pay longer than this, even if frames stop (hidden tab)
     flyChip(c);
     return true;
   }
+  // An element's layout box, without its transform (a tag mid-slam or mid-settle).
+  const restRect = el => { const p = el.offsetParent, b = p ? p.getBoundingClientRect() : new DOMRect(); return new DOMRect(b.left + (p ? p.clientLeft - p.scrollLeft : 0) + el.offsetLeft, b.top + (p ? p.clientTop - p.scrollTop : 0) + el.offsetTop, el.offsetWidth, el.offsetHeight); };
   function chipFrom(c) {
-    const win = !c.who && $('panel-dialog').open ? $('panel-body').querySelector('.stamp, .feedback.hit') || $('panel-body') : null;
+    const body = !c.who && $('panel-dialog').open && $('panel-body');
+    let tag = body && (body.querySelector(`[data-stamp="${c.key}"]`) || body.querySelector('.feedback.hit [data-stamp]')); // a burst on Ops: the newest result
+    const t = tag && restRect(tag), vis = body && $('panel-dialog').getBoundingClientRect(), bar = body && $('panel-dialog').querySelector('.bar').getBoundingClientRect();
+    if (t && (t.top < bar.bottom || t.bottom > vis.bottom)) tag = null; // scrolled out of the window: as if it weren't there
     const ag = c.who && document.querySelector(`#s3-layer:not([hidden]) [data-chat="${c.who}"]`);
-    const b = (win || ag)?.getBoundingClientRect() || world.anchor(c.station);
-    if (!b || !b.width || b.left + b.width / 2 < 0 || b.left + b.width / 2 > innerWidth || b.top < 0 || b.top > innerHeight) return { x: innerWidth / 2, y: innerHeight / 2 };
-    return { x: b.left + b.width / 2, y: win && win.id === 'panel-body' ? b.top + b.height / 2 : b.top - 8 }; // just above the stamp or head, never over it
+    const b = tag ? t : ag?.getBoundingClientRect() || world.anchor(c.station);
+    const p = !b || !b.width || b.left + b.width / 2 < 0 || b.left + b.width / 2 > innerWidth || b.top < 0 || b.top > innerHeight ? { x: innerWidth / 2, y: innerHeight / 2 }
+      : { x: b.left + b.width / 2, y: b.top - 8 }; // just above the tag or head, never over it
+    // Hidden under the open window (an agent, a desk, the centre): start from the window's nearest edge, not its middle.
+    const w = !tag && $('panel-dialog').open && winRect(), m = 14;
+    if (w && p.x > w.left && p.x < w.right && p.y > w.top && p.y < w.bottom) {
+      const out = [[w.left - m, p.y], [w.right + m, p.y], [p.x, w.top - m], [p.x, w.bottom + m]].filter(([x, y]) => x > 8 && x < innerWidth - 8 && y > 8 && y < innerHeight - 8);
+      if (out.length) [p.x, p.y] = out.reduce((a, q) => Math.hypot(q[0] - p.x, q[1] - p.y) < Math.hypot(a[0] - p.x, a[1] - p.y) ? q : a);
+    }
+    return p;
   }
   async function flyChip(c) {
     const frame = () => new Promise(r => requestAnimationFrame(r)), sleep = ms => new Promise(r => setTimeout(r, ms));
-    await frame(); // the window has redrawn: the stamp exists now
-    const stamp = !c.who && $('panel-dialog').open && $('panel-body').querySelector('.stamp');
-    if (stamp) await Promise.race([Promise.allSettled(stamp.getAnimations().map(a => a.finished)), sleep(900)]); // pop once the stamp has landed
+    await frame(); // the window has redrawn: the payment's tag is showing
+    // Its tag stamps first: the chip pops 6 frames after the hit-stop releases. A tag that never shows doesn't hold it long.
+    const st = c.key && stamps.get(c.key);
+    for (const t = performance.now(); st && st.out == null && performance.now() - t < 1500 && chips.includes(c);) await frame();
+    if (st && st.out != null) await sleep(st.out + 100 - document.timeline.currentTime);
+    while (inAir >= 4 && chips.includes(c)) await frame(); // a slot frees when a chip lands
     const at = Math.max(performance.now(), nextPop); nextPop = at + 50; await sleep(at - performance.now()); // offset: 3 frames apart
     const w = $('cash').getBoundingClientRect();
     if (!chips.includes(c) || !w.width || document.hidden || document.body.classList.contains('s3-agents-open')) return land(c);
@@ -236,29 +257,29 @@
     const d = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1, ux = (p1.x - p0.x) / d, uy = (p1.y - p0.y) / d, back = { x: -ux * 3, y: -uy * 3 };
     p0.x -= ux * burst * 24; p0.y -= uy * burst * 24; // a burst lines up behind the first chip, so they leave in a row, never through each other
     const el = document.createElement('div'); el.className = 'pay-chip' + (c.crit ? ' crit' : ''); el.textContent = '+' + money(c.pay);
-    document.body.appendChild(el);
+    document.body.appendChild(el); inAir++;
     const hw = el.offsetWidth / 2, hh = el.offsetHeight / 2, io = (t, n) => t < 0.5 ? Math.pow(2 * t, n) / 2 : 1 - Math.pow(2 - 2 * t, n) / 2;
     let last = p0, lt = t0;
     for (;;) {
       const now = await frame(), t = now - t0;
-      if (!chips.includes(c)) break;
+      if (!chips.includes(c) || t >= 900 || document.body.classList.contains('s3-agents-open')) break; // landed early (a spend), arrived, or Team covers it
       let x = p0.x, y = p0.y, sc = 1, op = 1, blur = 0;
       if (t < 180) { const k = t / 180; sc = k < 0.5 ? 0.6 + 1.1 * k : 1.3 - 0.3 * k; op = Math.min(1, k * 2); } // pop
       else if (t < 280) { const e = io((t - 180) / 100, 3); x += back.x * e; y += back.y * e; } // anticipation: pull back 6 frames
-      else if (t < 900) { // the arc: a quadratic curve, shrinking into the wallet
+      else { // the arc: a quadratic curve, shrinking into the wallet
         const e = io((t - 280) / 620, 2), u = 1 - e, ax = p0.x + back.x, ay = p0.y + back.y;
         x = u * u * ax + 2 * u * e * p1.x + e * e * p2.x; y = u * u * ay + 2 * u * e * p1.y + e * e * p2.y; sc = 1 - 0.35 * e;
         const v = Math.hypot(x - last.x, y - last.y) / Math.max(1, (now - lt) / 16.7); // px per frame
         blur = Math.round(Math.min(2.5, Math.max(0, (v - 4) / 6)) * 10) / 10; // motion blur only while fast
-      } else { land(c); break; }
+      }
       last = { x, y }; lt = now;
       el.style.cssText = `opacity:${op};filter:${blur ? `blur(${blur}px)` : 'none'};transform:translate(${Math.round(x - hw)}px,${Math.round(y - hh)}px) scale(${sc.toFixed(3)})`;
     }
-    el.remove();
+    inAir--; land(c); el.remove();
   }
-  function land(c) {
+  function land(c, quiet) {
     const i = chips.indexOf(c); if (i < 0) return;
-    chips.splice(i, 1); held.cash -= c.pay; held.rep -= c.rep; wallet();
+    chips.splice(i, 1); held.cash -= c.pay; held.rep -= c.rep; if (!quiet) wallet(); // quiet: wallet() is landing it
     const w = $('stats-open'), now = performance.now();
     if (!reduced && !w.hidden && now - lastLand > 160) { w.classList.remove('land'); void w.offsetWidth; w.classList.add('land'); lastLand = now; } // a small squash, not one per chip
   }
@@ -290,40 +311,58 @@
     render();
   }
 
-  // Hit-stop & shake (motion #2): a new stamp slams (its CSS animation), freezes on the impact frame, then the paper shakes
-  // and ink specks fly. CRITICAL and a traced chain get it all; ACCEPTED a lighter one (shorter hold and shake, no flash).
+  // Hit-stop & shake (motion #2). A payment is stamped where it shows: its tag on the bug's map row, on the Ops desk's result,
+  // or a chain's CRITICAL tag at HQ. A fresh one slams (its CSS animation), freezes on the impact frame, then its row shakes
+  // and ink specks fly. CRITICAL gets it all; a normal payment a lighter one (shorter hold and shake, no flash).
   // drawWindow redraws often, so each stamp keeps its start time: a redraw mid-effect carries on, a later one shows it at rest.
-  const IMPACT = 267; // ms into the 460 ms slam (its 58% key) where the stamp hits the paper
-  const landed = new Map(); // stamp key → animation-clock time (document.timeline) when it first showed
+  const stamps = new Map(); // "found:<fid>" | "chain:<tid>" → { due: when paid, t0: when it first showed, out: when the hold lets go, end }
+  const stampDue = key => stamps.set(key, { due: document.timeline.currentTime });
   function stampFx(body) {
-    const st = body.querySelector('.paper .stamp');
-    if (st) hitstop(st.parentNode, st, 'report:' + ui.fid, st.classList.contains('crit'));
-    body.querySelectorAll('.chain.done[data-tid]').forEach(li => { const k = 'chain:' + li.dataset.tid; if (landed.has(k)) hitstop(li, li.querySelector('.tag'), k, true); });
+    const now = document.timeline.currentTime;
+    body.querySelectorAll('[data-stamp]').forEach(el => {
+      const st = stamps.get(el.dataset.stamp); if (!st || now > st.end) return;
+      if (st.t0 == null && now - st.due > 2000) { st.out = st.end = now; return; } // paid a while ago and only seen now: no slam
+      const box = el.closest('li, .feedback') || el.parentNode;
+      if (st.t0 == null) { st.t0 = now; box.scrollIntoView({ block: 'nearest' }); } // e.g. the Ops result, when you filed from further down
+      hitstop(box, el, st, el.classList.contains('crit'));
+    });
   }
-  function hitstop(box, stamp, key, big) {
-    const now = document.timeline.currentTime; if (!landed.has(key)) landed.set(key, now);
-    const t0 = landed.get(key), hold = big ? 67 : 33, rel = IMPACT + hold;
-    if (reduced || now - t0 > rel + 400) { box.classList.add('stamped'); return; }
+  const scaleOf = k => +(/scale\(([\d.]+)\)/.exec(k.transform || '') || [0, 1])[1];
+  function hitstop(box, stamp, st, big) {
+    const now = document.timeline.currentTime, t0 = st.t0, hold = big ? 67 : 33;
     box.classList.add('hitstop'); box.classList.toggle('lite', !big);
-    box.style.setProperty('--imp', IMPACT + 'ms'); box.style.setProperty('--rel', rel + 'ms');
-    // Specks start on the stamp's edge. Fixed angles, so a redraw mid-burst draws the same ones.
-    const w = stamp.offsetWidth / 2, h = stamp.offsetHeight / 2, cx = stamp.offsetLeft + w, cy = stamp.offsetTop + h, n = big ? 8 : 5, r = big ? 30 : 18;
-    box.insertAdjacentHTML('beforeend', `<span class="specks" aria-hidden="true" style="color:${getComputedStyle(stamp).color}">${Array.from({ length: n }, (_, i) => {
-      const a = (i + .3) / n * 2 * Math.PI, c = Math.cos(a), s = Math.sin(a), d = r * (i % 2 ? .6 : 1);
-      return `<i style="--x0:${Math.round(cx + c * w)}px;--y0:${Math.round(cy + s * h)}px;--dx:${Math.round(c * d)}px;--dy:${Math.round(s * d)}px"></i>`;
+    const a = stamp.getAnimations().find(x => x.animationName), d = a && a.effect.getComputedTiming().duration;
+    // The impact is the slam's most squashed key (where the tag hits), the peak its largest: read from the keyframes,
+    // so a change to the slam moves the hold with it.
+    const f = a ? a.effect.getKeyframes().map(({ computedOffset, ...k }) => k) : [], i = f.reduce((m, k, j) => scaleOf(k) < scaleOf(f[m]) ? j : m, 0);
+    const rel = a ? f[i].offset * d + hold : 0, peak = Math.max(1, ...f.map(scaleOf));
+    st.out = t0 + rel; st.end = t0 + (d || 0) + hold + 400;
+    if (reduced || !a || now > st.end) { box.classList.remove('hitstop', 'lite'); a?.cancel(); st.end = st.out = Math.min(st.end, now); return; }
+    box.style.setProperty('--imp', rel - hold + 'ms'); box.style.setProperty('--rel', rel + 'ms');
+    // At its peak the tag stays inside the window: it grows from the point that keeps it in (inward from an edge) and,
+    // if even that can't fit, peaks smaller. Measured at rest: offsets ignore the slam's transform.
+    const dlg = $('panel-dialog'), D = dlg.getBoundingClientRect(), B = box.getBoundingClientRect(), w = stamp.offsetWidth, h = stamp.offsetHeight;
+    const x0 = B.left + box.clientLeft + stamp.offsetLeft, y0 = B.top + box.clientTop + stamp.offsetTop;
+    const L = Math.max(0, D.left + dlg.clientLeft) + 4, R = Math.min(innerWidth, D.left + dlg.clientLeft + dlg.clientWidth) - 4;
+    const T = Math.max(0, dlg.querySelector('.bar').getBoundingClientRect().bottom) + 4, Bm = Math.min(innerHeight, D.top + dlg.clientTop + dlg.clientHeight) - 4;
+    const S = Math.max(1, Math.min(peak, (R - L) / w, (Bm - T) / h)), k = S - 1;
+    const org = (at, size, lo, hi) => k ? Math.max(0, Math.min(size, (at - lo) / k, Math.max((at + size * S - hi) / k, size / 2))) : size / 2;
+    stamp.style.transformOrigin = `${org(x0, w, L, R)}px ${org(y0, h, T, Bm)}px`;
+    const fit = v => peak > 1 ? 1 + (v - 1) * k / (peak - 1) : v;
+    // Specks start on the tag's edge. Fixed angles, so a redraw mid-burst draws the same ones.
+    const cx = stamp.offsetLeft + w / 2, cy = stamp.offsetTop + h / 2, n = big ? 8 : 5, r = big ? 30 : 18;
+    box.insertAdjacentHTML('beforeend', `<span class="specks" aria-hidden="true" style="color:${getComputedStyle(stamp).color}">${Array.from({ length: n }, (_, j) => {
+      const an = (j + .3) / n * 2 * Math.PI, c = Math.cos(an), s = Math.sin(an), dd = r * (j % 2 ? .6 : 1);
+      return `<i style="--x0:${Math.round(cx + c * w / 2)}px;--y0:${Math.round(cy + s * h / 2)}px;--dx:${Math.round(c * dd)}px;--dy:${Math.round(s * dd)}px"></i>`;
     }).join('')}</span>`);
     box.lastChild.addEventListener('animationend', e => e.currentTarget.remove(), { once: true }); // spent specks would still stretch the scroll area
     // Shake, flash and specks all count from the landing, so they line up with the slam and resume after a redraw.
-    box.getAnimations({ subtree: true }).forEach(a => { if (/^(hit-|speck)/.test(a.animationName)) a.startTime = t0; });
-    // The hit-stop itself: the stamp's own slam, re-timed with its impact keyframe held. A native animation, not a JS
-    // loop, so it stays smooth through the main-thread stalls that follow a submit.
-    stamp.getAnimations().forEach(a => {
-      const d = a.effect.getComputedTiming().duration, f = a.effect.getKeyframes().map(({ computedOffset, ...k }) => k), i = f.findIndex(k => Math.abs(k.offset * d - IMPACT) < 5);
-      if (i < 0) return;
-      const k = f.map((x, j) => ({ ...x, offset: (x.offset * d + (j > i ? hold : 0)) / (d + hold) }));
-      k.splice(i + 1, 0, { ...k[i], offset: rel / (d + hold) }); // same pose again after the hold
-      a.cancel(); stamp.animate(k, d + hold).startTime = t0;
-    });
+    box.getAnimations({ subtree: true }).forEach(x => { if (/^(hit-|speck)/.test(x.animationName)) x.startTime = t0; });
+    // The hit-stop itself: the tag's own slam, re-timed with its impact keyframe held (and its scale fitted). A native
+    // animation, not a JS loop, so it stays smooth through the main-thread stalls that follow a payment.
+    const kf = f.map((x, j) => ({ ...x, ...(x.transform ? { transform: x.transform.replace(/scale\(([\d.]+)\)/, (_, v) => `scale(${fit(+v).toFixed(3)})`) } : {}), offset: (x.offset * d + (j > i ? hold : 0)) / (d + hold) }));
+    kf.splice(i + 1, 0, { ...kf[i], offset: rel / (d + hold) }); // same pose again after the hold
+    a.cancel(); stamp.animate(kf, d + hold).startTime = t0;
     // Settle: a small overshoot on release, on `scale` so it rides on top of the slam's transform and ends at rest.
     stamp.animate([{ scale: 1 }, { scale: big ? 1.04 : 1.02, offset: .4 }, { scale: 1 }], { duration: 200, delay: rel, easing: 'ease-out' }).startTime = t0;
   }
@@ -452,6 +491,8 @@
     }).join('');
     return `<div class="programs">${cards}</div>`;
   }
+  // A paid bug's tag. A fresh payment stamps it wherever it shows (stampFx).
+  const paidTag = fid => { const r = s.found[fid]; return `<span class="tag good${r.crit ? ' crit' : ''}" data-stamp="found:${fid}">${r.crit ? 'CRITICAL · ' : ''}${r.grade} · ${money(r.pay)}</span>`; };
   function mapView() {
     const t = T[s.target], tid = t.id;
     if (!ui.room || !E.isLit(s, tid, ui.room)) ui.room = s.lit[tid][s.lit[tid].length - 1];
@@ -473,7 +514,7 @@
         : st === 'locked' ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === cls.tool).name)}</span>`
         : st === 'tray' ? `<button data-act="go" data-id="contract">On Ops desk</button>`
         : st === 'draft' ? (leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
-        : `<span class="tag good">${found.crit ? 'CRITICAL · ' : ''}${found.grade} · ${money(found.pay)}</span>`;
+        : paidTag(fid);
       return `<li class="slot ${st}"><span class="dot ${st}"></span><div><b>${st === 'open' || st === 'locked' ? 'Something off' : esc(cls.name)}</b><small>${st === 'open' ? 'about ' + money(t.base * cls.mult * E.crowd(s, tid)) : st === 'locked' ? esc(cls.name) : st === 'tray' ? 'Nib thinks it\'s ' + esc(cls.name.toLowerCase()) : found && found.source === 'nib' ? 'found by Nib' : found && found.source === 'agent' ? 'found by ' + esc(found.by) : 'found by you'}</small></div>${right}</li>`;
     }).join('');
     const ch = E.chainState(s, tid), chainNote = [ch.a, ch.b].some(fid => F[fid].room === ui.room) ? `<p class="hint-line">↔ Links to a bug next door. See HQ.</p>` : '';
@@ -557,7 +598,7 @@
       const half = (ok, fid, room) => `<span class="half ${ok ? 'ok' : ''}">${ok ? '✓' : '○'} ${esc(C[F[fid].cls].name)} in ${esc(room)}</span>`;
       const tr = ui.traceMsg && ui.traceMsg.tid === t.id ? ui.traceMsg : null;
       let act = '';
-      if (c.done) act = '<span class="tag good">CRITICAL · chained</span>';
+      if (c.done) act = `<span class="tag good crit" data-stamp="chain:${t.id}">CRITICAL · chained</span>`;
       else if (c.ready) act = `<p class="fine">Why is this critical?</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
       else act = `<p class="fine">${!E.has(s, 'trace') ? 'Needs the Tracer' : 'Needs both bugs'}</p>`;
       return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
@@ -604,7 +645,7 @@
     if (!r.ok) { toast(r.why, 'bad'); return; }
     if (!r.hit) { const m = ui.miss || { lines: [] }; m.lines.push(i); m.last = i; m.why = r.why; ui.miss = m; noteFocus(); drawWindow(); if (m.lines.length === 2) nibSay(C[F[ui.fid].cls].hint, { ms: 4200 }); return; }
     ui.hit = i; ui.miss = null; noteFocus(); s.seen.rest = s.seen.rest || s.stats.manual >= 1; drawWindow();
-    if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt'); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
+    if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
     await teachMoment(ui.fid, r.first);
   }
   async function teachMoment(fid, first) {
@@ -622,20 +663,22 @@
       if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
       else nibSay('OK, I\'ll remember that. ' + (r.after < r.before ? 'Though I feel less sure: ' + pct(r.before) + ' → ' + pct(r.after) + '.' : 'Feels thin, but it\'s a start: ' + pct(r.after) + '.'), { mood: 'think', ms: 4200 });
       if (first) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
-      paid(r.paid, 'hunt'); // your explanation is the report: it's filed and paid now
+      paid(r.paid, 'hunt', fid); // your explanation is the report: it's filed and paid now
       break;
     }
     nibWalk(nibHome());
-    ui.view = 'map'; ui.hit = null; ui.fid = null; if (ui.win !== 'hunt') openStation('hunt'); drawWindow(true);
+    ui.view = 'map'; ui.room = f.room; ui.hit = null; ui.fid = null; if (ui.win !== 'hunt') openStation('hunt'); drawWindow(true); // its row shows the payment
   }
   function fileReport(fid) {
     const r = E.fileDraft(s, fid);
     if (!r.ok) return toast(r.why, 'bad');
-    paid(r, ui.win === 'contract' ? 'contract' : 'hunt');
+    if (ui.win === 'contract') ui.result = { ops: true, good: true, html: `<b>Filed.</b> ${esc(C[F[fid].cls].name)} ${paidTag(fid)}` };
+    paid(r, ui.win === 'contract' ? 'contract' : 'hunt', fid);
     drawWindow();
   }
-  function paid(r, station) {
-    if (!payChip(r, station)) floatAt('+' + money(r.pay), station);
+  function paid(r, station, fid) {
+    const key = 'found:' + fid; stampDue(key); // its tag is stamped where it shows (#2), and its chip leaves from there (#4)
+    if (!payChip(r, station, null, key)) floatAt('+' + money(r.pay), station);
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
@@ -646,7 +689,7 @@
   }
   function prove(id) {
     const c = s.tray.find(x => x.id === id), r = E.prove(s, id); if (!r.ok) return toast(r.why, 'bad');
-    if (r.real) { ui.result = { ops: true, good: true, html: `<b>Real.</b> ${esc(C[F[c.fid].cls].name)} · ${r.paid.grade} · ${money(r.paid.pay)}` }; nibSay('Told you. Mostly.', { mood: 'happy', ms: 2000 }); paid(r.paid, 'contract'); }
+    if (r.real) { ui.result = { ops: true, good: true, html: `<b>Real.</b> ${esc(C[F[c.fid].cls].name)} ${paidTag(r.fid)}` }; nibSay('Told you. Mostly.', { mood: 'happy', ms: 2000 }); paid(r.paid, 'contract', r.fid); }
     else { ui.result = { ops: true, good: false, html: '<b>False alarm.</b> The proof didn\'t hold up. No harm done.' }; nibSay('Sorry. I saw a pattern that wasn\'t there.', { mood: 'sad', ms: 2600 }); }
     drawWindow();
   }
@@ -654,7 +697,7 @@
     const c = s.tray.find(x => x.id === id), r = E.submitRaw(s, id); if (!r.ok) return toast(r.why, 'bad');
     const name = esc(C[F[c.fid].cls].name);
     if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm. −3 reputation.` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
-    else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} · ${r.grade} · ${money(r.pay)}` }; paid(r, 'contract'); }
+    else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} ${paidTag(r.fid)}` }; paid(r, 'contract', r.fid); }
     drawWindow();
   }
   function buyTool(id) {
@@ -664,11 +707,11 @@
     drawWindow();
   }
   function traceChain(tid, option) {
-    const r = E.trace(s, tid, option); if (!r.ok) return toast(r.why, 'bad');
+    const rep = s.rep, r = E.trace(s, tid, option); if (!r.ok) return toast(r.why, 'bad');
     if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
-    landed.set('chain:' + tid, document.timeline.currentTime); // the chain's tag lands with the full hit-stop (motion #2)
+    stampDue('chain:' + tid); // the chain's tag lands with the full hit-stop (motion #2)
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
-    payChip(r, 'hq'); // the chain's pay flies to the wallet too (#4)
+    payChip({ ...r, crit: true, rep: s.rep - rep }, 'hq', null, 'chain:' + tid); // its pay flies from the tag once that lands (#4)
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     nib.hop(); // squash & stretch: and for a critical chain
     drawWindow(); if (r.won) setTimeout(ending, 1600);
@@ -857,5 +900,6 @@
     hud: () => render(), // HUD and dock only: never redraws an open window under your cursor
     restart3: () => { wipe(true); startStage3(window.Stage3Scope.seed({ playerName: s.player, nibName: s.nib, facts: s.memories })); } };
   window.Stage2.payChip = payChip; // agents' pay flies to the wallet too (#4)
+  window.Stage2.wallet = shownWallet; // what the wallet shows, pay in flight held back: Team's footer uses it
   if (stage3()) (window.Stage3Boot || []).forEach(fn => fn());
 })();

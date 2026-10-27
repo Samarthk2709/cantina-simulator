@@ -188,23 +188,26 @@ button.small{min-height:32px;padding:0 10px;font-size:12px}
   42%{transform:rotate(-8deg) scale(1.55);filter:blur(2.5px);animation-timing-function:cubic-bezier(.4,.6,1,1)}
   58%{transform:rotate(-8deg) scale(.92);filter:blur(0);animation-timing-function:cubic-bezier(.2,1.4,.4,1)}
   100%{transform:rotate(-8deg) scale(1);opacity:1;filter:blur(0)}}
-/* Hit-stop & shake (motion #2). game.js hitstop() freezes a new stamp's slam on impact (4 frames CRITICAL, 2 ACCEPTED);
-   then the paper (or chain card) shakes in whole px, decaying, and ink specks fly. Only CRITICAL flashes. --imp (impact)
-   and --rel (release) come from game.js, which also starts these on the slam's clock so a redraw mid-effect carries on. */
+/* Hit-stop & shake (motion #2). A payment's tag (data-stamp: the bug's map row, the Ops result, a chain's CRITICAL tag)
+   slams in like a stamp; game.js hitstop() freezes it on impact (4 frames CRITICAL, 2 otherwise), fits its peak inside
+   the window, then the row shakes in whole px, decaying, and ink specks fly. Only CRITICAL flashes, in amber so it reads
+   on dark rows and light paper alike. --imp (impact) and --rel (release) come from game.js, which also starts these on
+   the slam's clock so a redraw mid-effect carries on. */
+.tag.crit{border-color:rgba(232,181,74,.6);color:var(--amber)}
+.tag[data-stamp]{justify-self:start} /* compact in a grid (a chain card), so it slams and lands like a stamp */
 .hitstop{position:relative;animation:hit-shake .2s var(--rel) steps(1,end)}
 .hitstop.lite{animation-name:hit-shake-lite;animation-duration:.133s}
-.hitstop:not(.lite)::after{content:"";position:absolute;inset:0;border-radius:inherit;background:#fff;opacity:0;pointer-events:none;animation:hit-flash .14s var(--imp) ease-out}
-.stamped .stamp{animation:none} /* already landed: a redraw shows it at rest, never slams it again */
-.chain.hitstop .tag{animation:chain-slam .46s}
+.hitstop:not(.lite)::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--amber);opacity:0;pointer-events:none;animation:hit-flash .16s var(--imp) ease-out}
+.hitstop [data-stamp]{position:relative;z-index:1;background:#0b181e;animation:tag-slam .46s}
 .specks{position:absolute;inset:0;pointer-events:none}
 .specks i{position:absolute;left:var(--x0);top:var(--y0);width:4px;height:4px;margin:-2px;background:currentColor;opacity:0;animation:speck .38s var(--rel) cubic-bezier(.1,.8,.3,1)}
 .hitstop.lite .specks i{animation-duration:.3s}
 @keyframes hit-shake{0%{translate:-5px 3px}17%{translate:4px -3px}33%{translate:-3px 2px}50%{translate:3px -1px}67%{translate:-2px 1px}83%{translate:1px 0}100%{translate:0 0}}
 @keyframes hit-shake-lite{0%{translate:-2px 1px}25%{translate:2px -1px}50%{translate:-1px 1px}75%{translate:1px 0}100%{translate:0 0}}
-@keyframes hit-flash{0%{opacity:.35}100%{opacity:0}}
+@keyframes hit-flash{0%{opacity:.4}100%{opacity:0}}
 @keyframes speck{0%{opacity:1;translate:0 0}60%{opacity:1}100%{opacity:0;translate:var(--dx) var(--dy)}}
-/* The chain card's CRITICAL tag lands like the stamp, minus the tilt (the tag has no transform at rest). */
-@keyframes chain-slam{0%{transform:scale(2.2);opacity:0;filter:blur(0);animation-timing-function:ease-out}
+/* The tag lifts before it slams, blurs on the way down (a fast mover), hits at its most squashed key, then lands sharp. */
+@keyframes tag-slam{0%{transform:scale(2.2);opacity:0;filter:blur(0);animation-timing-function:ease-out}
   22%{transform:scale(2.45);opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.6,0,1,.6)}
   42%{transform:scale(1.55);filter:blur(2.5px);animation-timing-function:cubic-bezier(.4,.6,1,1)}
   58%{transform:scale(.92);filter:blur(0);animation-timing-function:cubic-bezier(.2,1.4,.4,1)}
