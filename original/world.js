@@ -994,8 +994,9 @@
       if (S && live && nearId) items.forEach(function (s) { if (s.id === nearId && !s.kind) r(c, '#c4572b', s.x - 1, s.ty * T - 13, 3, 3); });
       if (Date.now() < boostUntil) r(c, '#ffb347', P.x + 7, P.y - 24 - (anim ? f % 2 : 0), 2, 2);
 
-      // Night treatment follows Claude's exported scene. Overlay artwork before screen-space labels.
-      r(c,'rgba(8,19,26,.68)',0,0,R.width,R.height);
+      // Daytime room tone: a light cool wash so the room reads lit (game.js's .night overlay does the dark).
+      // Overlay artwork before screen-space labels.
+      r(c,'rgba(8,19,26,.16)',0,0,R.width,R.height);
       if(c.createRadialGradient)items.filter(function(st){return ['hunt','forge','rig'].indexOf(st.id)>=0;}).forEach(function(st){var g=c.createRadialGradient(st.x,st.y,0,st.x,st.y,56);if(!g||!g.addColorStop)return;g.addColorStop(0,st.id==='rig'?'rgba(150,205,225,.2)':'rgba(255,184,108,.3)');g.addColorStop(1,'rgba(255,184,108,0)');c.fillStyle=g;c.fillRect(st.x-56,st.y-56,112,112);});
       if (S && V) drawFlags(c, items, V, f, anim);
       // Screen-space labels work in CSS px (labels() draws them at device scale D).

@@ -404,3 +404,27 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 #panel-dialog .triage{font-size:12px;margin:4px 0 0}
 #panel-dialog .hq .opts,#panel-dialog .chain .opts{grid-template-columns:1fr}
 @media (max-width:600px){#panel-dialog .sec .opts{grid-template-columns:1fr}}
+
+/* Vitals box: top left under the chapter title. Compact by default; a click opens lifetime totals and charts (game.js vitals). */
+.vitals{position:absolute;left:18px;top:62px;z-index:6;width:236px;padding:9px 11px 10px;background:var(--paper);border:1px solid var(--line-2);border-radius:8px;color:var(--ink-2);font-size:12px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25);transition:width .18s ease-out,border-color .15s}
+.vitals:hover,.vitals:focus-visible{border-color:var(--nib);outline:none}
+.vitals.open{width:min(400px,calc(100vw - 36px));max-height:calc(100% - 180px);overflow:auto;cursor:default}
+.vitals header{display:flex;justify-content:space-between;margin-bottom:7px;font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.vitals header i{font-style:normal;color:var(--nib)}
+.vitals h4{margin:12px 0 6px;font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.vgrid .v{display:grid;gap:1px;padding:5px 7px;background:var(--ground);border:1px solid var(--line);border-radius:5px;min-width:0}
+.vgrid .v span{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vgrid .v b{font:500 14px var(--mono);color:var(--ink);white-space:nowrap}
+.vgrid .v.cash b{color:var(--good)}.vgrid .v.crit b{color:var(--amber)}.vgrid .v.low b{color:var(--danger-ink)}
+.vitals.open .vgrid{grid-template-columns:repeat(4,1fr);gap:4px}.vitals.open .vgrid .v{align-content:space-between}.vitals.open .vgrid .v span{white-space:normal;line-height:1.2}.vitals.open .vgrid .v b{font-size:13px}
+.vnote{margin:6px 0 0;font-size:11px;color:var(--muted)}
+.vchart{margin:12px 0 0}
+.vchart figcaption{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;color:var(--ink-2)}
+.vchart figcaption span{font-family:var(--mono);color:var(--muted)}
+.vchart svg{display:block;width:100%;height:auto;overflow:visible}
+.vchart rect{fill:var(--line-2)}.vchart rect.now{fill:var(--nib)}
+.vchart path{fill:none;stroke:var(--nib);stroke-width:1.5}
+.vchart circle{fill:var(--paper);stroke:var(--nib);stroke-width:1.2}.vchart circle.now{fill:var(--nib)}
+.vchart text{font:8px var(--mono);fill:var(--muted);text-anchor:middle}
+@media (max-width:700px){.vitals{top:12px;left:12px;width:200px}}

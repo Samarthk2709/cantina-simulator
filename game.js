@@ -184,6 +184,7 @@
     if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
+    vitals();
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
     const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
@@ -737,6 +738,49 @@
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
       <ul class="shoplist">${tiers}</ul>`;
   }
+  // ---------- vitals box ----------
+  // A small box under the chapter title: today's numbers, cash and focus. A click opens lifetime totals and charts.
+  // "Today" is the current game day, measured against the snapshot engine.sleep() saves at the end of each day.
+  function dayRows() {
+    const rows = (s.days || []).slice(), now = { day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned };
+    rows.push(now);
+    // A save from before snapshots existed has no baseline for its early days; start the charts where the data starts.
+    return rows.map((r, i) => { const p = i ? rows[i - 1] : r.day === 1 ? { bugs: 0, crits: 0, earned: 0 } : null; return { ...r, newBugs: p ? r.bugs - p.bugs : null, newCrits: p ? r.crits - p.crits : null, made: p ? r.earned - p.earned : null }; });
+  }
+  function bars(rows, key, label) {
+    const pts = rows.filter(r => r[key] != null).slice(-14), max = Math.max(1, ...pts.map(r => r[key])), W = 280, H = 70, bw = W / Math.max(pts.length, 7);
+    const b = pts.map((r, i) => { const h = Math.max(r[key] ? 3 : 1, r[key] / max * (H - 16)); return `<rect x="${i * bw + 2}" y="${H - 12 - h}" width="${bw - 4}" height="${h}" rx="1.5" class="${r.day === s.day ? 'now' : ''}"><title>Day ${r.day}: ${r[key]}</title></rect><text x="${i * bw + bw / 2}" y="${H - 1}">${r.day}</text>`; }).join('');
+    return `<figure class="vchart"><figcaption>${label} <span>max ${max}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">${b}</svg></figure>`;
+  }
+  function line(rows, key, label, fmt) {
+    const pts = rows.slice(-14), vals = pts.map(r => r[key]), max = Math.max(1, ...vals), W = 280, H = 70, x = i => pts.length > 1 ? 4 + i * (W - 8) / (pts.length - 1) : W / 2, y = v => H - 14 - v / max * (H - 22);
+    const d = pts.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r[key]).toFixed(1)).join(' ');
+    const dots = pts.map((r, i) => `<circle cx="${x(i)}" cy="${y(r[key])}" r="${r.day === s.day ? 3 : 2}" class="${r.day === s.day ? 'now' : ''}"><title>Day ${r.day}: ${fmt(r[key])}</title></circle><text x="${x(i)}" y="${H - 1}">${r.day}</text>`).join('');
+    return `<figure class="vchart"><figcaption>${label} <span>${fmt(vals[vals.length - 1])}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}"><path d="${d}"/>${dots}</svg></figure>`;
+  }
+  function vitals() {
+    const el = $('vitals'); el.hidden = !s.seen.job; if (el.hidden) return;
+    const rows = dayRows(), t = rows[rows.length - 1], open = el.classList.contains('open'), mf = E.maxFocus(s);
+    const cell = (k, v, cls) => `<div class="v ${cls || ''}"><span>${k}</span><b>${v}</b></div>`;
+    const today = `<div class="vgrid">${cell('Bugs today', t.newBugs ?? '—')}${cell('Crits', s.crits, s.crits ? 'crit' : '')}${cell('Cash', money(s.cash), 'cash')}${cell('Focus', s.focus + '/' + mf, s.focus < mf * 0.25 ? 'low' : '')}</div>`;
+    el.setAttribute('aria-expanded', open);
+    if (!open) { el.innerHTML = `<header>Vitals · Day ${s.day}<i>▾</i></header>${today}`; return; }
+    const st = s.stats, tier = E.tier(s), sent = st.proven + st.raw;
+    el.innerHTML = `<header>Vitals · Day ${s.day}<i>▴</i></header>${today}
+      <h4>Today</h4><div class="vgrid">${cell('Earned', t.made == null ? '—' : money(t.made))}${cell('Crits today', t.newCrits ?? '—')}${cell('Coffee left', s.cups)}${cell('Rep · ' + tier.name, s.rep)}</div>
+      <h4>Lifetime</h4><div class="vgrid">${cell('Bugs', s.bugs)}${cell('Crits', s.crits, s.crits ? 'crit' : '')}${cell('Earned', money(st.earned), 'cash')}${cell('Days', s.day)}
+        ${cell('By you', st.manual)}${cell('By ' + esc(s.nib), st.nib)}${cell('By team', st.agent || 0)}${cell('False alarms', st.falseSubmits, st.falseSubmits ? 'low' : '')}</div>
+      ${sent ? `<p class="vnote">${st.proven} proven before sending, ${st.raw} sent raw.</p>` : ''}
+      ${bars(rows, 'newBugs', 'Bugs per day')}${line(rows, 'cash', 'Cash at end of day', money)}${line(rows, 'rep', 'Reputation', String)}`;
+  }
+  function toggleVitals(force) {
+    const el = $('vitals'); if (el.hidden) return;
+    el.classList.toggle('open', force ?? !el.classList.contains('open')); vitals();
+  }
+  $('vitals').addEventListener('click', () => toggleVitals());
+  $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals')) $('vitals').classList.contains('open') && toggleVitals(false); });
+
   function ledgerView() {
     const tier = E.tier(s), next = E.nextTier(s);
     const ladder = D.REP_TIERS.map(t => `<li class="${t === tier ? 'on' : s.rep >= t.min ? 'past' : ''}"><b>${t.name}</b><span>${t.min}+</span><small>${esc(t.perk)}</small></li>`).join('');
@@ -801,13 +845,14 @@
     if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
     await teachMoment(ui.fid, r.first);
   }
-  async function teachMoment(fid, first) {
+  async function teachMoment(fid, first, resumed) { // resumed: the found line's index, when picking up after a reload
     ui.busy = true;
     if (first) { save(); render(); }
     await Promise.race([nibToPlayer(), wait(2500)]);
     const cls = C[F[fid].cls], f = F[fid];
     const choices = shuffledOptions(fid, 'teach').map(i => ['sharp', 'shallow', 'wrong'][i]).map(v => ({ value: v, label: D.fill(cls.teach[v], f.nouns) }));
-    let ask = first ? 'You saw that. I didn\'t. Why is it a bug? Teach me and I\'ll look for it myself.' : 'Why is that one a bug?';
+    let ask = resumed != null ? 'Before the break you found this one: line ' + (resumed + 1) + ' in ' + T[f.target].rooms.find(r => r[0] === f.room)[1] + '. Why is it a bug?'
+      : first ? 'You saw that. I didn\'t. Why is it a bug? Teach me and I\'ll look for it myself.' : 'Why is that one a bug?';
     for (;;) {
       const v = await nibSay(ask, { choices, mood: 'talk' });
       const r = E.teach(s, v);
@@ -1052,6 +1097,7 @@
     const id = ORDER.find(k => ST[k].key === e.key.toLowerCase());
     if (id && shown(id) && !(ui.win && e.target.closest('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
+    else if (e.key.toLowerCase() === 'v') toggleVitals();
   });
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
@@ -1085,10 +1131,10 @@
       s.seen.intro = true; render();
     })();
   } else if (s.pendingTeach) {
-    // Reloaded mid-lesson: pick the question back up at the desk.
-    const fid = s.pendingTeach;
-    ui.fid = fid; ui.view = 'map';
-    setTimeout(() => teachMoment(fid, false), 600);
+    // Reloaded mid-lesson: reopen the code with the found line marked, so the question has its context.
+    const fid = s.pendingTeach, f = F[fid];
+    ui.fid = fid; ui.view = 'hunt'; ui.miss = null; ui.hit = C[f.cls].variants[f.variant].findIndex(l => l.bad);
+    setTimeout(() => { openStation('hunt'); teachMoment(fid, false, ui.hit); }, 600);
   } else if (stage3() && !s.seen.team) {
     (async () => {
       await wait(700);

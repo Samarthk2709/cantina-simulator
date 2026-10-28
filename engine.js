@@ -24,7 +24,7 @@
       stage: 2, day: 1, focus: COST.focus, cups: COST.cups, cash: 0, rep: 0, bugs: 0, crits: 0,
       target: null, picked: Object.fromEntries(ALL_TARGETS.map(t => [t.id, t.picked])), lit: {},
       found: {}, misses: {}, lessons: {}, pendingTeach: null, tray: [], nextId: 1,
-      tools: ['proxy'], gpu: 0, desk: [], chains: {}, seen: {}, log: [], won: false, wonDay: 0, won3: false,
+      tools: ['proxy'], gpu: 0, desk: [], chains: {}, seen: {}, log: [], days: [], won: false, wonDay: 0, won3: false,
       stats: { manual: 0, nib: 0, agent: 0, proven: 0, raw: 0, falseSubmits: 0, earned: 0 }
     };
     Object.keys(CLASSES).forEach(k => { s.lessons[k] = { clean: 0, noisy: 0 }; });
@@ -195,6 +195,8 @@
   // Nib's night: map one room next to what's lit, then try `tries` slots it knows how to look for.
   function sleep(s) {
     const night = { day: s.day, mapped: [], tries: RIGS[s.gpu].tries, made: 0, idle: '' };
+    // End-of-day totals for the vitals box: today's numbers are the change since the last entry.
+    s.days.push({ day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned }); if (s.days.length > 60) s.days.shift();
     s.day++; s.focus = maxFocus(s); s.cups = maxCups(s);
     TARGETS.forEach(t => { if (!t.private) s.picked[t.id] = Math.min(0.9, +(s.picked[t.id] + COST.crowd).toFixed(2)); });
     const tid = s.target;

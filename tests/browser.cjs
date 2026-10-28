@@ -61,6 +61,8 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     assert.equal((await st(p)).pendingTeach, fid, 'Enter/Space must not pick an answer');
     await p.reload(); await p.waitForSelector('.nib-choice', { timeout: 6000 });
     assert.equal((await st(p)).pendingTeach, fid, 'reloading mid-lesson brings the question back');
+    assert.equal(await p.$eval('.code-line.hit', b => +b.dataset.id), await badLine(p, fid), 'the question comes back with the found line on screen');
+    await shot(p, '05b-teach-resumed');
     await teachSharp(p, fid);
     // No report to write: the explanation files the bug, and you're back on the map.
     await p.waitForSelector('.target-map'); await p.waitForTimeout(400);

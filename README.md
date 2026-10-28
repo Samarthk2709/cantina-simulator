@@ -92,6 +92,8 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `stage3/harness.js` | Agents: brief parsing, sanitize/preflight, job routines, tools, stop conditions, movement, narration |
 | `stage3/crew.js`, `stage3/crew.css` | Agent sprites, the Office/Agents switch, the Codex-style Agents view, AGENTS.md |
 
+**Vitals box** (top left, or V): bugs today, crits, cash and focus; click for today's and lifetime totals and per-day charts. "Today" is the current game day, measured against the end-of-day snapshot `engine.sleep()` adds to `s.days` (last 60 days).
+
 Saves (localStorage on this address): `first-office-nib-v1` (Stage 1 memory), `first-office-game-v1` (office), `first-office-crew-v1` (agents and rules).
 
 ## Verify
