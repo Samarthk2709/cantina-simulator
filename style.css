@@ -405,26 +405,65 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 #panel-dialog .hq .opts,#panel-dialog .chain .opts{grid-template-columns:1fr}
 @media (max-width:600px){#panel-dialog .sec .opts{grid-template-columns:1fr}}
 
-/* Vitals box: top left under the chapter title. Compact by default; a click opens lifetime totals and charts (game.js vitals). */
-.vitals{position:absolute;left:18px;top:62px;z-index:6;width:236px;padding:9px 11px 10px;background:var(--paper);border:1px solid var(--line-2);border-radius:8px;color:var(--ink-2);font-size:12px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25);transition:width .18s ease-out,border-color .15s}
-.vitals:hover,.vitals:focus-visible{border-color:var(--nib);outline:none}
-.vitals.open{width:min(400px,calc(100vw - 36px));max-height:calc(100% - 180px);overflow:auto;cursor:default}
-.vitals header{display:flex;justify-content:space-between;margin-bottom:7px;font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-.vitals header i{font-style:normal;color:var(--nib)}
-.vitals h4{margin:12px 0 6px;font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.vgrid .v{display:grid;gap:1px;padding:5px 7px;background:var(--ground);border:1px solid var(--line);border-radius:5px;min-width:0}
-.vgrid .v span{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vgrid .v b{font:500 14px var(--mono);color:var(--ink);white-space:nowrap}
-.vgrid .v.cash b{color:var(--good)}.vgrid .v.crit b{color:var(--amber)}.vgrid .v.low b{color:var(--danger-ink)}
-.vitals.open .vgrid{grid-template-columns:repeat(4,1fr);gap:4px}.vitals.open .vgrid .v{align-content:space-between}.vitals.open .vgrid .v span{white-space:normal;line-height:1.2}.vitals.open .vgrid .v b{font-size:13px}
+/* Vitals box (game.js vitals): a slim list in the margin the room keeps clear on the left. No cards inside the card:
+   rows are label/value pairs on hairlines. Open, it grows (grid-rows 0fr → 1fr), its sections rise in one by one,
+   bars grow and lines draw. Numbers count up and glow when they rise. */
+.vitals{position:absolute;left:18px;top:64px;z-index:6;width:var(--vw,168px);padding:12px 14px 13px;box-sizing:border-box;
+  background:linear-gradient(180deg,rgba(24,48,58,.92),rgba(14,30,38,.92));border:1px solid var(--line-2);border-radius:12px;color:var(--ink-2);font-size:12px;cursor:pointer;
+  box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);backdrop-filter:blur(6px);
+  transition:width .32s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s,transform .12s ease-out}
+.vitals:not(.open):hover{border-color:rgba(127,240,216,.55);box-shadow:0 12px 30px rgba(0,0,0,.32),0 0 0 3px rgba(127,240,216,.07)}
+.vitals:not(.open):active{transform:scale(.98)}
+.vitals:focus-visible{outline:none;border-color:var(--nib)}
+.vitals.open{cursor:default;max-height:calc(100% - 64px - var(--dock-top,90px) - 12px);overflow:auto;scrollbar-width:thin;border-color:rgba(127,240,216,.4)}
+.vitals.over.open{box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.vitals header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font:600 10px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.vitals header span:first-child{color:var(--nib)}
+.vitals .vday{flex:1;letter-spacing:.12em}
+.vitals .chev{width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.vitals.open .chev{transform:translateY(1px) rotate(-135deg)}
+.vitals dl{margin:0}
+.vitals dl>div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid rgba(46,75,88,.55)}
+.vitals dl>div:first-child{border-top:0}
+.vitals dt{color:var(--muted);font-size:11.5px;white-space:nowrap}
+.vitals dd{margin:0;font:500 13px var(--mono);color:var(--ink);white-space:nowrap;border-radius:4px;transition:color .3s}
+.vitals dd small{font-size:10.5px;color:var(--muted)}
+.vitals dd.big{font-size:20px;line-height:1;color:var(--ink)}
+.vitals .cash{color:var(--good)}.vitals .crit{color:var(--amber)}.vitals .bad{color:var(--danger-ink)}
+.vitals .up{animation:v-up .7s ease-out}
+@keyframes v-up{0%{text-shadow:0 0 0 transparent}25%{text-shadow:0 0 10px rgba(127,240,216,.75);color:#d9fff6}100%{text-shadow:0 0 0 transparent}}
+.vitals .vfocus{flex-wrap:wrap;row-gap:5px}
+.vitals .vfocus.low dd b{color:var(--danger-ink)}
+.vitals .vbar{flex-basis:100%;height:3px;border-radius:2px;background:rgba(46,75,88,.8);overflow:hidden}
+.vitals .vbar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--amber),#f3d27c);transition:width .5s cubic-bezier(.2,.8,.2,1)}
+.vitals .vfocus.low .vbar i{background:var(--danger-ink)}
+/* Detail pane */
+.vx{display:grid;grid-template-rows:0fr;transition:grid-template-rows .36s cubic-bezier(.2,.8,.2,1)}
+.vitals.open .vx{grid-template-rows:1fr}
+.vx-in{min-height:0;overflow:hidden}
+.vx section{opacity:0;transform:translateY(6px)}
+.vitals.open .vx section{animation:v-rise .42s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(80ms + var(--i) * 55ms)}
+@keyframes v-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.vitals h4{margin:14px 0 4px;font:600 9.5px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.vx dl{display:grid;grid-template-columns:1fr 1fr;column-gap:18px}
+.vx dl>div:nth-child(2){border-top:0}
 .vnote{margin:6px 0 0;font-size:11px;color:var(--muted)}
-.vchart{margin:12px 0 0}
-.vchart figcaption{display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;color:var(--ink-2)}
-.vchart figcaption span{font-family:var(--mono);color:var(--muted)}
+.vchart{margin:16px 0 0}
+.vchart figcaption{display:flex;justify-content:space-between;margin-bottom:6px;font-size:11.5px;color:var(--ink-2)}
+.vchart figcaption span{font:11px var(--mono);color:var(--muted)}
 .vchart svg{display:block;width:100%;height:auto;overflow:visible}
-.vchart rect{fill:var(--line-2)}.vchart rect.now{fill:var(--nib)}
-.vchart path{fill:none;stroke:var(--nib);stroke-width:1.5}
-.vchart circle{fill:var(--paper);stroke:var(--nib);stroke-width:1.2}.vchart circle.now{fill:var(--nib)}
+.vchart rect{fill:rgba(127,240,216,.28);transform-box:fill-box;transform-origin:bottom}
+.vchart rect.now{fill:var(--nib)}
+.vitals.open .vchart rect{animation:v-grow .5s cubic-bezier(.2,.9,.25,1.15) both;animation-delay:calc(220ms + var(--i) * 35ms)}
+@keyframes v-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.vchart .ln{fill:none;stroke:var(--nib);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:0}
+.vitals.open .vchart .ln{animation:v-draw .8s cubic-bezier(.4,0,.2,1) .28s both}
+@keyframes v-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+.vchart .area{fill:rgba(127,240,216,.08)}
+.vitals.open .vchart .area{animation:v-fade .6s ease-out .5s both}
+@keyframes v-fade{from{opacity:0}to{opacity:1}}
+.vchart circle{fill:#10242c;stroke:var(--nib);stroke-width:1.2}.vchart circle.now{fill:var(--nib)}
+.vitals.open .vchart circle{animation:v-fade .3s ease-out both;animation-delay:calc(300ms + var(--i) * 50ms)}
 .vchart text{font:8px var(--mono);fill:var(--muted);text-anchor:middle}
-@media (max-width:700px){.vitals{top:12px;left:12px;width:200px}}
+@media (max-width:700px){.vitals{top:12px;left:12px}}
+@media (prefers-reduced-motion:reduce){.vitals,.vx,.vitals .chev,.vitals .vbar i{transition:none}.vitals.open .vx section,.vitals.open .vchart *{animation:none!important;opacity:1;transform:none}.vitals .up{animation:none}}

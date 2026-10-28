@@ -300,11 +300,12 @@
       var k = Math.max(0.05, Math.min((x1 - x0) / R.width, (bot - y0) / R.height));
       return { s: k, ox: Math.round(x0 + (x1 - x0 - R.width * k) / 2), oy: Math.round(y0 + (bot - y0 - R.height * k) / 2) };
     }
-    var a = fit(MX, w - MX, M), hud = insets.hud;
+    // insets.left keeps a margin clear on the left (the page's vitals box); the room centres in what's left.
+    var L = MX + (insets.left || 0), a = fit(L, w - MX, M), hud = insets.hud;
     if (!hud || a.ox + R.width * a.s <= hud.left - M || a.oy >= hud.bottom + M) return a;
-    var x1 = hud.left - M, below = fit(MX, w - MX, Math.max(M, insets.top + M)), ox = Math.round(x1 - R.width * a.s);
-    if (ox >= MX && (a.ox - ox <= w * 0.06 || a.s > below.s * 1.15)) return { s: a.s, ox: ox, oy: a.oy };
-    var left = fit(MX, x1, M);
+    var x1 = hud.left - M, below = fit(L, w - MX, Math.max(M, insets.top + M)), ox = Math.round(x1 - R.width * a.s);
+    if (ox >= L && (a.ox - ox <= w * 0.06 || a.s > below.s * 1.15)) return { s: a.s, ox: ox, oy: a.oy };
+    var left = fit(L, x1, M);
     return left.s > below.s * 1.15 ? left : below;
   }
   function movementSpeed(v) { return typeof v === 'number' && SPEEDS.indexOf(v) >= 0 ? v : 1; }
@@ -749,7 +750,7 @@
     // Drawing, taps and guide anchors all use it.
     function fitView(R) {
       var rc = canvas.getBoundingClientRect(), cw = canvas.width / D, k = rc.width ? cw / rc.width : 1, i = insets;
-      var v = roomView(cw, canvas.height / D, R.id, i && { top: i.top * k, bottom: i.bottom * k, hud: i.hud && { left: i.hud.left * k, bottom: i.hud.bottom * k } });
+      var v = roomView(cw, canvas.height / D, R.id, i && { top: i.top * k, bottom: i.bottom * k, left: i.left * k, hud: i.hud && { left: i.hud.left * k, bottom: i.hud.bottom * k } });
       if (D === 1) return v;
       // On dense screens the art gets whole device pixels per art pixel when that costs under 10% of its size.
       var sv = v.s * D, ox = v.ox * D, oy = v.oy * D, sn = Math.floor(sv);
@@ -1141,7 +1142,7 @@
       // below it and the space the dock and status line take at the bottom. Null fits the whole canvas.
       setInsets: function (v) {
         function n(x) { x = +x; return isFinite(x) ? Math.max(0, x) : 0; }
-        insets = v && typeof v === 'object' ? { top: n(v.top), bottom: n(v.bottom), hud: v.hud ? { left: n(v.hud.left), bottom: n(v.hud.bottom) } : null } : null;
+        insets = v && typeof v === 'object' ? { top: n(v.top), bottom: n(v.bottom), left: n(v.left), hud: v.hud ? { left: n(v.hud.left), bottom: n(v.hud.bottom) } : null } : null;
       },
       // Read-only: where the current room is drawn, in viewport px.
       roomRect: function () {

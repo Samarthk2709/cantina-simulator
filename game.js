@@ -64,10 +64,10 @@
   function syncWorld() { world.update({ started: true, paused: false, won: s.won, speed: 1, movementSpeed: 1, compute: s.gpu }, null, false, blocked(), worldView()); }
   function layout() {
     const dock = document.querySelector('.dock-shell').getBoundingClientRect(), hud = document.querySelector('.hud').getBoundingClientRect();
-    world.setInsets(punchIns({ top: Math.max(64, hud.bottom + 8), bottom: innerHeight - dock.top + 12, hud: { left: hud.left, bottom: hud.bottom + 8 } })); // #13: scaled while the office punches in
+    world.setInsets(punchIns({ top: Math.max(64, hud.bottom + 8), bottom: innerHeight - dock.top + 12, left: vitalsGutter(), hud: { left: hud.left, bottom: hud.bottom + 8 } })); // #13: scaled while the office punches in
     document.documentElement.style.setProperty('--dock-top', Math.round(innerHeight - dock.top) + 'px');
     world.setTouch(matchMedia('(pointer: coarse)').matches || innerWidth < 650);
-    requestAnimationFrame(placeLamps); // #12: the room moved; its lamps follow once world.js has refit it
+    requestAnimationFrame(() => { placeLamps(); fitVitals(); }); // #12: the room moved; its lamps (and the vitals box) follow once world.js has refit it
   }
 
   // Nib docks to an open window, and stays docked while it shrinks away. Out of sight (a window over the office, or Team),
@@ -461,7 +461,7 @@
   // world.js turns its insets (CSS px) into canvas px by the canvas's on-screen width, so a zoomed canvas would refit the
   // room inside it. The insets scale with the zoom instead: punchK is the scale world.js sees on its next draw.
   let punchFx = null, punchK = 1, punchBase = null, lastPay = null;
-  function punchIns(v) { punchBase = v; const k = punchK; return k === 1 ? v : { top: v.top * k, bottom: v.bottom * k, hud: v.hud && { left: v.hud.left * k, bottom: v.hud.bottom * k } }; }
+  function punchIns(v) { punchBase = v; const k = punchK; return k === 1 ? v : { top: v.top * k, bottom: v.bottom * k, left: (v.left || 0) * k, hud: v.hud && { left: v.hud.left * k, bottom: v.hud.bottom * k } }; }
   function punchFor(r, station, who, key) {
     lastPay = { station, who, t: performance.now() };
     if (!r.won && (r.crit || station === 'hq')) punch(station, who, key, true); // HQ only pays chains: always critical. The goal punches in goal().
@@ -739,47 +739,84 @@
       <ul class="shoplist">${tiers}</ul>`;
   }
   // ---------- vitals box ----------
-  // A small box under the chapter title: today's numbers, cash and focus. A click opens lifetime totals and charts.
-  // "Today" is the current game day, measured against the snapshot engine.sleep() saves at the end of each day.
+  // A slim list under the chapter title: bugs today, crits, cash and focus. A click (or V) opens today's and lifetime
+  // totals and per-day charts. "Today" is the current game day, measured against the snapshot engine.sleep() saves.
+  // The room keeps a margin clear for the box (layout → vitalsGutter); on screens too narrow for that it overlaps.
+  const VIT = { w: 168, left: 18, gap: 14, openW: 340 };
+  const vitalsGutter = () => s.seen.job && innerWidth >= 900 ? VIT.left + VIT.w + VIT.gap : 0;
   function dayRows() {
-    const rows = (s.days || []).slice(), now = { day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned };
-    rows.push(now);
-    // A save from before snapshots existed has no baseline for its early days; start the charts where the data starts.
+    const rows = (s.days || []).slice();
+    rows.push({ day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned });
+    // A save from before snapshots existed has no baseline for its early days; the charts start where the data starts.
     return rows.map((r, i) => { const p = i ? rows[i - 1] : r.day === 1 ? { bugs: 0, crits: 0, earned: 0 } : null; return { ...r, newBugs: p ? r.bugs - p.bugs : null, newCrits: p ? r.crits - p.crits : null, made: p ? r.earned - p.earned : null }; });
   }
+  // Numbers count to their new value (450 ms, ease-out) and glow briefly when they go up.
+  function countTo(el, v, fmt) {
+    if (v == null) { el.textContent = '—'; el._v = null; return; }
+    const from = el._v; el._v = v;
+    if (from == null || from === v || reduced || document.hidden) { el.textContent = fmt(v); return; }
+    if (v > from) { el.classList.remove('up'); void el.offsetWidth; el.classList.add('up'); }
+    const t0 = performance.now(), step = now => {
+      if (el._v !== v) return; // retargeted
+      const k = Math.min(1, (now - t0) / 450), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmt(Math.round(from + (v - from) * e)); if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
   function bars(rows, key, label) {
-    const pts = rows.filter(r => r[key] != null).slice(-14), max = Math.max(1, ...pts.map(r => r[key])), W = 280, H = 70, bw = W / Math.max(pts.length, 7);
-    const b = pts.map((r, i) => { const h = Math.max(r[key] ? 3 : 1, r[key] / max * (H - 16)); return `<rect x="${i * bw + 2}" y="${H - 12 - h}" width="${bw - 4}" height="${h}" rx="1.5" class="${r.day === s.day ? 'now' : ''}"><title>Day ${r.day}: ${r[key]}</title></rect><text x="${i * bw + bw / 2}" y="${H - 1}">${r.day}</text>`; }).join('');
-    return `<figure class="vchart"><figcaption>${label} <span>max ${max}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">${b}</svg></figure>`;
+    const pts = rows.filter(r => r[key] != null).slice(-14), max = Math.max(1, ...pts.map(r => r[key])), W = 300, H = 74, n = Math.max(pts.length, 7), bw = W / n;
+    const b = pts.map((r, i) => { const h = Math.max(r[key] ? 3 : 1.5, r[key] / max * (H - 18)); return `<g style="--i:${i}"><rect x="${i * bw + 3}" y="${H - 13 - h}" width="${bw - 6}" height="${h}" rx="2" class="${r.day === s.day ? 'now' : ''}"><title>Day ${r.day}: ${r[key]}</title></rect><text x="${i * bw + bw / 2}" y="${H - 1}">${r.day}</text></g>`; }).join('');
+    return `<figure class="vchart"><figcaption>${label}<span>best ${max}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">${b}</svg></figure>`;
   }
   function line(rows, key, label, fmt) {
-    const pts = rows.slice(-14), vals = pts.map(r => r[key]), max = Math.max(1, ...vals), W = 280, H = 70, x = i => pts.length > 1 ? 4 + i * (W - 8) / (pts.length - 1) : W / 2, y = v => H - 14 - v / max * (H - 22);
-    const d = pts.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r[key]).toFixed(1)).join(' ');
-    const dots = pts.map((r, i) => `<circle cx="${x(i)}" cy="${y(r[key])}" r="${r.day === s.day ? 3 : 2}" class="${r.day === s.day ? 'now' : ''}"><title>Day ${r.day}: ${fmt(r[key])}</title></circle><text x="${x(i)}" y="${H - 1}">${r.day}</text>`).join('');
-    return `<figure class="vchart"><figcaption>${label} <span>${fmt(vals[vals.length - 1])}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}"><path d="${d}"/>${dots}</svg></figure>`;
+    const pts = rows.slice(-14), vals = pts.map(r => r[key]), max = Math.max(1, ...vals), W = 300, H = 74;
+    const x = i => pts.length > 1 ? 6 + i * (W - 12) / (pts.length - 1) : W / 2, y = v => H - 15 - v / max * (H - 24);
+    const xy = pts.map((r, i) => [x(i).toFixed(1), y(r[key]).toFixed(1)]), d = xy.map((p, i) => (i ? 'L' : 'M') + p.join(' ')).join(' ');
+    const area = xy.length > 1 ? `<path class="area" d="${d} L${xy[xy.length - 1][0]} ${H - 13} L${xy[0][0]} ${H - 13} Z"/>` : '';
+    const dots = pts.map((r, i) => `<circle cx="${xy[i][0]}" cy="${xy[i][1]}" r="${r.day === s.day ? 3.2 : 2}" class="${r.day === s.day ? 'now' : ''}" style="--i:${i}"><title>Day ${r.day}: ${fmt(r[key])}</title></circle><text x="${xy[i][0]}" y="${H - 1}">${r.day}</text>`).join('');
+    return `<figure class="vchart"><figcaption>${label}<span>${fmt(vals[vals.length - 1])}</span></figcaption><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}">${area}<path class="ln" pathLength="1" d="${d}"/>${dots}</svg></figure>`;
   }
   function vitals() {
-    const el = $('vitals'); el.hidden = !s.seen.job; if (el.hidden) return;
-    const rows = dayRows(), t = rows[rows.length - 1], open = el.classList.contains('open'), mf = E.maxFocus(s);
-    const cell = (k, v, cls) => `<div class="v ${cls || ''}"><span>${k}</span><b>${v}</b></div>`;
-    const today = `<div class="vgrid">${cell('Bugs today', t.newBugs ?? '—')}${cell('Crits', s.crits, s.crits ? 'crit' : '')}${cell('Cash', money(s.cash), 'cash')}${cell('Focus', s.focus + '/' + mf, s.focus < mf * 0.25 ? 'low' : '')}</div>`;
+    const el = $('vitals'), wasHidden = el.hidden; el.hidden = !s.seen.job; if (el.hidden) return;
+    if (wasHidden) layout(); // the room makes way for the box the first time it shows
+    if (!el.firstChild) {
+      el.innerHTML = `<header><span>Vitals</span><span class="vday"></span><i class="chev" aria-hidden="true"></i></header>
+        <dl class="vq"><div><dt>Bugs today</dt><dd data-k="today" class="big"></dd></div><div><dt>Crits</dt><dd data-k="crits"></dd></div>
+          <div><dt>Cash</dt><dd data-k="cash" class="cash"></dd></div><div class="vfocus"><dt>Focus</dt><dd><b data-k="focus"></b><small data-k="fmax"></small></dd><span class="vbar"><i></i></span></div></dl>
+        <div class="vx"><div class="vx-in"></div></div>`;
+    }
+    const rows = dayRows(), t = rows[rows.length - 1], open = el.classList.contains('open'), mf = E.maxFocus(s), q = k => el.querySelector(`[data-k="${k}"]`);
     el.setAttribute('aria-expanded', open);
-    if (!open) { el.innerHTML = `<header>Vitals · Day ${s.day}<i>▾</i></header>${today}`; return; }
-    const st = s.stats, tier = E.tier(s), sent = st.proven + st.raw;
-    el.innerHTML = `<header>Vitals · Day ${s.day}<i>▴</i></header>${today}
-      <h4>Today</h4><div class="vgrid">${cell('Earned', t.made == null ? '—' : money(t.made))}${cell('Crits today', t.newCrits ?? '—')}${cell('Coffee left', s.cups)}${cell('Rep · ' + tier.name, s.rep)}</div>
-      <h4>Lifetime</h4><div class="vgrid">${cell('Bugs', s.bugs)}${cell('Crits', s.crits, s.crits ? 'crit' : '')}${cell('Earned', money(st.earned), 'cash')}${cell('Days', s.day)}
-        ${cell('By you', st.manual)}${cell('By ' + esc(s.nib), st.nib)}${cell('By team', st.agent || 0)}${cell('False alarms', st.falseSubmits, st.falseSubmits ? 'low' : '')}</div>
-      ${sent ? `<p class="vnote">${st.proven} proven before sending, ${st.raw} sent raw.</p>` : ''}
-      ${bars(rows, 'newBugs', 'Bugs per day')}${line(rows, 'cash', 'Cash at end of day', money)}${line(rows, 'rep', 'Reputation', String)}`;
+    el.querySelector('.vday').textContent = 'Day ' + s.day;
+    countTo(q('today'), t.newBugs, String); countTo(q('crits'), s.crits, String); countTo(q('cash'), s.cash, money); countTo(q('focus'), s.focus, String);
+    q('fmax').textContent = '/' + mf; q('crits').classList.toggle('crit', s.crits > 0);
+    el.querySelector('.vfocus').classList.toggle('low', s.focus < mf * 0.25); el.querySelector('.vbar i').style.width = Math.round(s.focus / mf * 100) + '%';
+    fitVitals();
+    // The detail pane is rebuilt only when its numbers change, so its entrance animations don't replay on every render().
+    const st = s.stats, tier = E.tier(s), key = open && JSON.stringify([rows, st, s.cups, s.nib]);
+    const inner = el.querySelector('.vx-in'); if (!open || inner.dataset.key === key) return; inner.dataset.key = key;
+    const row = (k, v, cls) => `<div><dt>${k}</dt><dd class="${cls || ''}">${v}</dd></div>`;
+    inner.innerHTML = `<section style="--i:0"><h4>Today</h4><dl>${row('Earned', t.made == null ? '—' : money(t.made), 'cash')}${row('Crits', t.newCrits ?? '—')}${row('Coffee left', s.cups)}${row('Reputation', s.rep + ' <small>' + esc(tier.name) + '</small>')}</dl></section>
+      <section style="--i:1"><h4>Lifetime</h4><dl>${row('Bugs', s.bugs)}${row('Crits', s.crits, s.crits ? 'crit' : '')}${row('Earned', money(st.earned), 'cash')}${row('Days', s.day)}
+        ${row('By you', st.manual)}${row('By ' + esc(s.nib), st.nib)}${row('By team', st.agent || 0)}${row('False alarms', st.falseSubmits, st.falseSubmits ? 'bad' : '')}</dl>
+        ${st.proven + st.raw ? `<p class="vnote">${st.proven} proven before sending · ${st.raw} sent raw</p>` : ''}</section>
+      <section style="--i:2">${bars(rows, 'newBugs', 'Bugs per day')}</section><section style="--i:3">${line(rows, 'cash', 'Cash, end of day', money)}</section><section style="--i:4">${line(rows, 'rep', 'Reputation', String)}</section>`;
+  }
+  // Closed, the box sits in the margin the room keeps for it. Open, it widens into the margin if that's wide enough,
+  // otherwise it floats over the room's edge until closed.
+  function fitVitals() {
+    const el = $('vitals'); if (el.hidden) return;
+    const avail = world.roomRect().left - document.querySelector('.playfield').getBoundingClientRect().left - VIT.left - VIT.gap;
+    const open = el.classList.contains('open'), w = open ? Math.max(VIT.openW, Math.min(400, Math.floor(avail))) : VIT.w;
+    el.classList.toggle('over', w > avail); el.style.setProperty('--vw', w + 'px');
   }
   function toggleVitals(force) {
     const el = $('vitals'); if (el.hidden) return;
     el.classList.toggle('open', force ?? !el.classList.contains('open')); vitals();
   }
-  $('vitals').addEventListener('click', () => toggleVitals());
+  $('vitals').addEventListener('click', e => { if (!$('vitals').classList.contains('open') || e.target.closest('header')) toggleVitals(); });
   $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
-  document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals')) $('vitals').classList.contains('open') && toggleVitals(false); });
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals') && $('vitals').classList.contains('open')) toggleVitals(false); });
 
   function ledgerView() {
     const tier = E.tier(s), next = E.nextTier(s);
