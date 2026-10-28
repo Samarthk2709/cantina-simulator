@@ -1062,13 +1062,13 @@
       });
     }
     function frame(now) {
-      if (!alive) return;
-      raf = window.requestAnimationFrame(frame);
+      if (!alive) return false;
       var dt = last ? Math.min(0.05, Math.max(0, (now - last) / 1000)) : 0;
-      last = now; if (document.hidden) return; t += dt; pulseT = Math.max(0, pulseT - dt);
+      last = now; if (document.hidden) return true; t += dt; pulseT = Math.max(0, pulseT - dt);
       cam.k = cam.follow ? Math.min(1, cam.k + dt / 0.45) : Math.max(0, cam.k - dt / 0.45);
       if (mq && mq.matches) cam.k = cam.follow ? 1 : 0;
       step(dt); stepFounders(dt); emitCtx(); draw();
+      return true;
     }
 
     var api = {
@@ -1170,7 +1170,7 @@
       },
       boost: function () { boostUntil = Date.now() + 15000; },
       destroy: function () {
-        alive = false; window.cancelAnimationFrame(raf); clearInput();
+        alive = false; raf(); clearInput();
         window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clearInput);
         document.removeEventListener('visibilitychange', onVis); canvas.removeEventListener('pointerdown', onPointer);
         if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
@@ -1180,7 +1180,7 @@
     document.addEventListener('visibilitychange', onVis); canvas.addEventListener('pointerdown', onPointer);
     var ro = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null;
     if (ro) ro.observe(canvas); else window.addEventListener('resize', resize);
-    resize(); raf = window.requestAnimationFrame(frame);
+    resize(); raf = window.Loop.add(frame);
     return api;
   }
 

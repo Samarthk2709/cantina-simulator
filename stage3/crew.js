@@ -97,7 +97,7 @@
       jobs.sort((p, q) => rank(p[0]) - rank(q[0])).forEach(j => followThrough(...j));
       for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
     }
-    requestAnimationFrame(drawLayer);
+    return true;
   }
   const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
   // Footstep dust & landing puffs (#10): a footfall every 10 px walked (step frames 0 and 2 of Nib's walk/5 cycle) and a
@@ -137,7 +137,7 @@
     const [sx, sy] = tr.to(tx, y - up, performance.now(), k, [Math.max(-far, lo - tx), Math.min(far, hi - tx), Math.max(-far, Math.min(0, m - top + up)), up]);
     b.style.translate = `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`;
   }
-  requestAnimationFrame(drawLayer);
+  window.Loop.add(drawLayer);
 
   // ---------- floating finds (motion #16): a label rises from the agent's head on the office floor ----------
   // harness.js calls Stage3Float: "+1 bug" on a find, the grade and rep on a payout (the pay chip, #4, carries the
@@ -228,7 +228,7 @@
         .map(([x, y, w, h, c]) => `<rect x="${L.glance < 0 ? 16 - x - w : x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
     }
   }
-  (function lifeLoop() { idleLife(); requestAnimationFrame(lifeLoop); })();
+  window.Loop.add(function lifeLoop() { idleLife(); return true; });
   const lifeWatch = new MutationObserver(idleLife);
   ['s3-side', 's3-main', 's3-layer'].forEach(id => lifeWatch.observe($(id), {childList: true, subtree: true}));
 

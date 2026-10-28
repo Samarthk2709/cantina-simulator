@@ -754,7 +754,7 @@
   $('view-toggle').addEventListener('click', () => { setFollow(!follow); $('world').focus({ preventScroll: true }); });
   setFollow(follow, true);
   // The lamp pools sit on the room's on-screen rect; while the camera moves they follow every frame.
-  (function camTick() { const c = world.camera(); if (c.follow || c.moving) placeLamps(); requestAnimationFrame(camTick); })();
+  window.Loop.add(function camTick() { const c = world.camera(); if (c.follow || c.moving) placeLamps(); return true; });
 
   // ---------- vitals box ----------
   // A slim list under the chapter title: bugs today, crits, cash and focus. A click (or V) opens today's and lifetime

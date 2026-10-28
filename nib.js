@@ -152,9 +152,9 @@
     }
     function frame(now) {
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now; t += dt; f = (t * 7) | 0;
-      step(dt); draw(); requestAnimationFrame(frame);
+      step(dt); draw(); return true;
     }
-    requestAnimationFrame(frame);
+    window.Loop.add(frame);
 
     // Bubble: text, optional choices [{label, value}], optional next. Returns a promise of the choice.
     function say(text, o) {

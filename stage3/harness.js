@@ -626,7 +626,7 @@
       if (!paused && !G.ui().night && !G.frozen()) { try { step(dt * speed); } catch (e) { console.error('agents:', e); } }
       acc += dt; if (acc > 1) { acc = 0; secondTick(); }
     }
-    requestAnimationFrame(frame);
+    return true;
   }
   function secondTick() {
     if (paused) return;
@@ -710,7 +710,7 @@
   C.on(() => changed());
   checkModel(); setInterval(checkModel, 60000);
   setInterval(persist, 3000);
-  requestAnimationFrame(frame);
+  window.Loop.add(frame);
 
   window.Stage3Agents = {
     list: () => hired().map(id => agents[id]), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),
