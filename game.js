@@ -185,6 +185,7 @@
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
     vitals();
+    $('view-toggle').hidden = !s.seen.intro;
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
     const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
@@ -738,6 +739,23 @@
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
       <ul class="shoplist">${tiers}</ul>`;
   }
+  // ---------- camera ----------
+  // By default the view is zoomed in and follows you, holding you at the centre. The button at the bottom right (or Z)
+  // zooms out to the whole office; the choice is remembered on this address.
+  const VIEW = 'first-office-view-v1';
+  let follow = true; try { follow = localStorage.getItem(VIEW) !== 'fit'; } catch {}
+  function setFollow(on, quiet) {
+    follow = on; world.setCamera({ follow: on });
+    if (!quiet) try { localStorage.setItem(VIEW, on ? 'follow' : 'fit'); } catch {}
+    const b = $('view-toggle'); b.setAttribute('aria-pressed', on); b.classList.toggle('out', !on);
+    b.querySelector('span').textContent = on ? 'Whole office' : 'Follow me';
+    b.setAttribute('aria-label', on ? 'Zoom out to the whole office' : 'Zoom in and follow you');
+  }
+  $('view-toggle').addEventListener('click', () => { setFollow(!follow); $('world').focus({ preventScroll: true }); });
+  setFollow(follow, true);
+  // The lamp pools sit on the room's on-screen rect; while the camera moves they follow every frame.
+  (function camTick() { const c = world.camera(); if (c.follow || c.moving) placeLamps(); requestAnimationFrame(camTick); })();
+
   // ---------- vitals box ----------
   // A slim list under the chapter title: bugs today, crits, cash and focus. A click (or V) opens today's and lifetime
   // totals and per-day charts. "Today" is the current game day, measured against the snapshot engine.sleep() saves.
@@ -1135,6 +1153,7 @@
     if (id && shown(id) && !(ui.win && e.target.closest('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
     else if (e.key.toLowerCase() === 'v') toggleVitals();
+    else if (e.key.toLowerCase() === 'z' && !$('view-toggle').hidden) $('view-toggle').click();
   });
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it

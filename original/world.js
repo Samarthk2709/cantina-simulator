@@ -300,10 +300,13 @@
       var k = Math.max(0.05, Math.min((x1 - x0) / R.width, (bot - y0) / R.height));
       return { s: k, ox: Math.round(x0 + (x1 - x0 - R.width * k) / 2), oy: Math.round(y0 + (bot - y0 - R.height * k) / 2) };
     }
-    // insets.left keeps a margin clear on the left (the page's vitals box); the room centres in what's left.
-    var L = MX + (insets.left || 0), a = fit(L, w - MX, M), hud = insets.hud;
+    // insets.left keeps a margin clear on the left (the page's vitals box). The room stays centred when that margin is
+    // already clear, moves right just enough when it isn't, and only shrinks when it can't fit either way.
+    var L = MX + (insets.left || 0), hud = insets.hud;
+    function place(y0) { var c = fit(MX, w - MX, y0); return c.ox >= L ? c : L + R.width * c.s <= w - MX ? { s: c.s, ox: L, oy: c.oy } : fit(L, w - MX, y0); }
+    var a = place(M);
     if (!hud || a.ox + R.width * a.s <= hud.left - M || a.oy >= hud.bottom + M) return a;
-    var x1 = hud.left - M, below = fit(L, w - MX, Math.max(M, insets.top + M)), ox = Math.round(x1 - R.width * a.s);
+    var x1 = hud.left - M, below = place(Math.max(M, insets.top + M)), ox = Math.round(x1 - R.width * a.s);
     if (ox >= L && (a.ox - ox <= w * 0.06 || a.s > below.s * 1.15)) return { s: a.s, ox: ox, oy: a.oy };
     var left = fit(L, x1, M);
     return left.s > below.s * 1.15 ? left : below;
@@ -748,9 +751,20 @@
     var view = { s: 1, ox: 0, oy: 0 }, ctxKey = '', ctxPos = '', ctxT = 0, aria = '', nearId = null, touchUI = false, insets = null;
     // The room's view on this canvas: the free band the app measured (CSS px) in canvas px, else the whole canvas.
     // Drawing, taps and guide anchors all use it.
+    // Camera: cam.k eases 0 → 1 between the whole room (fit) and following the founder at cam.zoom× the fit scale,
+    // with the founder held at the centre of the free band. Everything that reads fitView (drawing, taps, anchors,
+    // roomRect and the page's layers on it) follows.
+    var cam = { follow: false, zoom: 1.75, k: 0 };
     function fitView(R) {
-      var rc = canvas.getBoundingClientRect(), cw = canvas.width / D, k = rc.width ? cw / rc.width : 1, i = insets;
-      var v = roomView(cw, canvas.height / D, R.id, i && { top: i.top * k, bottom: i.bottom * k, left: i.left * k, hud: i.hud && { left: i.hud.left * k, bottom: i.hud.bottom * k } });
+      var rc = canvas.getBoundingClientRect(), cw = canvas.width / D, ch = canvas.height / D, k = rc.width ? cw / rc.width : 1, i = insets;
+      var v = roomView(cw, ch, R.id, i && { top: i.top * k, bottom: i.bottom * k, left: i.left * k, hud: i.hud && { left: i.hud.left * k, bottom: i.hud.bottom * k } });
+      if (cam.k > 0) {
+        var e = cam.k < 1 ? cam.k * cam.k * (3 - 2 * cam.k) : 1, cx = cw / 2, cy = i ? (i.top * k + ch - i.bottom * k) / 2 : ch / 2;
+        var fx0 = (cx - v.ox) / v.s, fy0 = (cy - v.oy) / v.s, fx = fx0 + (P.x - fx0) * e, fy = fy0 + (P.y - 10 - fy0) * e;
+        var sv = v.s * Math.pow(cam.zoom, e) * D, sn = Math.floor(sv);
+        if (e === 1 && sn >= 1 && sn / sv >= 0.9) sv = sn; // whole device pixels per art pixel once settled
+        return { s: sv, ox: Math.round(cx * D - fx * sv), oy: Math.round(cy * D - fy * sv) };
+      }
       if (D === 1) return v;
       // On dense screens the art gets whole device pixels per art pixel when that costs under 10% of its size.
       var sv = v.s * D, ox = v.ox * D, oy = v.oy * D, sn = Math.floor(sv);
@@ -1052,6 +1066,8 @@
       raf = window.requestAnimationFrame(frame);
       var dt = last ? Math.min(0.05, Math.max(0, (now - last) / 1000)) : 0;
       last = now; if (document.hidden) return; t += dt; pulseT = Math.max(0, pulseT - dt);
+      cam.k = cam.follow ? Math.min(1, cam.k + dt / 0.45) : Math.max(0, cam.k - dt / 0.45);
+      if (mq && mq.matches) cam.k = cam.follow ? 1 : 0;
       step(dt); stepFounders(dt); emitCtx(); draw();
     }
 
@@ -1140,6 +1156,9 @@
       setTouch: function (on) { touchUI = !!on; },
       // Free band for the room, in CSS px from the canvas edges: the HUD box ({left, bottom}), the band top
       // below it and the space the dock and status line take at the bottom. Null fits the whole canvas.
+      // follow: true holds the founder at the centre, zoomed in; false shows the whole room. Eases over 450 ms.
+      setCamera: function (o) { if (o && 'follow' in o) cam.follow = !!o.follow; if (o && +o.zoom > 1) cam.zoom = +o.zoom; },
+      camera: function () { return { follow: cam.follow, zoom: cam.zoom, moving: cam.k > 0 && cam.k < 1 }; },
       setInsets: function (v) {
         function n(x) { x = +x; return isFinite(x) ? Math.max(0, x) : 0; }
         insets = v && typeof v === 'object' ? { top: n(v.top), bottom: n(v.bottom), left: n(v.left), hud: v.hud ? { left: n(v.hud.left), bottom: n(v.hud.bottom) } : null } : null;
