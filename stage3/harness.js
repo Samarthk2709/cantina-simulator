@@ -55,7 +55,7 @@
   const agents = {};
   let speed = 1, paused = false, model = {ok: false, label: 'checking…'};
   const listeners = [];
-  const changed = () => listeners.forEach(fn => fn());
+  const changed = () => { listeners.forEach(fn => fn()); if (needs()) window.Loop.wake(); }; // a new task, answer or day: frames again
 
   function makeAgent(id) {
     const saved = crew().agents?.[id] || {};
@@ -617,23 +617,39 @@
   const walking = a => a.id === 'nib' ? a.nibWalking : a.path.length > 0;
 
   // ---------- main loop ----------
-  let last = performance.now(), acc = 0;
-  function frame(now) {
-    const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    if (world()) {
-      for (const a of Object.values(agents)) if (!a.pos) a.pos = a.id === 'nib' ? G.nib.pos() : homeSpot(a);
-      // One bad step must never stop the team for good.
-      if (!paused && !G.ui().night && !G.frozen()) { try { step(dt * speed); } catch (e) { console.error('agents:', e); } }
-      acc += dt; if (acc > 1) { acc = 0; secondTick(); }
-    }
-    return true;
+  // Frames only while an agent moves (walk, wind-up, follow-through), thinks (decides on the next frame) or has a step
+  // to start. A tool's timer needs no frames: the loop sleeps and a timeout wakes it when the soonest one runs out, and
+  // that frame counts the real time slept. Movement keeps its 0.1 s clamp. secondTick has its own interval.
+  let last = performance.now(), nap = false, napT = 0, slept = false;
+  const ready = () => !paused && !G.ui().night && !G.frozen();
+  function moving(a) {
+    if (a.id === 'nib') return a.nibWalking || a.status === 'thinking' || a.status === 'walking';
+    return a.path.length > 0 || a.follow > 0 || !!a.drift || a.crouch || a.status === 'thinking' || a.status === 'walking' || a.energyDay !== S().day
+      || ['idle', 'done', 'queued', 'resting'].includes(a.status) && a.station !== 'home';
   }
+  const needs = () => !stations || ready() && Object.values(agents).some(a => !a.pos || moving(a));
+  function frame(now) {
+    const real = (now - last) / 1000, dt = Math.min(slept ? 1 / 60 : 0.1, real); last = now; // after a sleep, one frame's worth: nothing jumps
+    slept = true;
+    if (!world()) return slept = false, true;
+    for (const a of Object.values(agents)) if (!a.pos) a.pos = a.id === 'nib' ? G.nib.pos() : homeSpot(a);
+    if (!ready()) { nap = false; return false; } // pause, night or leaving: woken by input, the night's end (crew.js) or A.pause
+    // One bad step must never stop the team for good.
+    try { step(dt * speed, (nap ? Math.min(real, 10) : dt) * speed); } catch (e) { console.error('agents:', e); }
+    nap = false; clearTimeout(napT);
+    if (Object.values(agents).some(moving)) return slept = false, true;
+    const soon = Math.min(...Object.values(agents).map(a => a.status === 'working' ? a.timer : Infinity));
+    if (soon < Infinity) { nap = true; napT = setTimeout(window.Loop.wake, Math.max(0, soon / speed * 1000)); }
+    return false;
+  }
+  // A hidden tab gets no frames, so its timers stand still as before; it starts counting again when shown.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) last = performance.now(); });
   function secondTick() {
-    if (paused) return;
+    if (paused || document.hidden || !stations) return;
     pullQueue();
     changed();
   }
-  function step(dt) {
+  function step(dt, tdt = dt) { // tdt: the tool timers' clock (real time across a nap)
     const scene = G.ui().busy || G.ui().morning; // a lesson or the morning talk: Nib stays put
     for (const a of Object.values(agents)) {
       if (a.id === 'nib' && scene) continue;
@@ -654,7 +670,7 @@
       if (a.id !== 'nib') followThrough(a, dt, from);
       if (a.status === 'thinking') think(a);
       else if (a.status === 'walking' && !walking(a)) { a.status = 'working'; a.timer = a.next.dur; a.bubble = a.next.toolName; }
-      else if (a.status === 'working' && (a.timer -= dt) <= 0) run(a);
+      else if (a.status === 'working' && (a.timer -= tdt) <= 0) run(a);
       else if (a.id !== 'nib' && ['idle', 'done', 'queued', 'resting'].includes(a.status) && !a.path.length && a.station !== 'home') { a.station = 'home'; walkTo(a, homeSpot(a)); a.bubble = ''; }
     }
   }
@@ -708,15 +724,19 @@
   hired().forEach(makeAgent);
   Object.values(agents).filter(a => a.status === 'thinking').slice(slots()).forEach(a => { a.status = 'queued'; });
   C.on(() => changed());
-  checkModel(); setInterval(checkModel, 60000);
-  setInterval(persist, 3000);
+  // Hidden: no model checks or saves on a timer; the log is saved as the tab hides or the page goes.
+  checkModel(); setInterval(() => { if (!document.hidden) checkModel(); }, 60000);
+  setInterval(() => { if (!document.hidden) persist(); }, 3000);
+  setInterval(secondTick, 1000);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
+  addEventListener('pagehide', persist);
   window.Loop.add(frame);
 
   window.Stage3Agents = {
     list: () => hired().map(id => agents[id]), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),
     send, answer, stop, hire, setRule, addRule, rule, ruleList, RULES, TOOLS, parseLocal, isQuestion, lint, label, stopLabel, live,
     resetAll: () => G.restart3(), slots, busy, phrase, gistOf, model: () => model,
-    speed: v => { if (v) speed = v; return speed; }, pause: v => { if (v !== undefined) paused = v; return paused; },
+    speed: v => { if (v) { speed = v; window.Loop.wake(); } return speed; }, pause: v => { if (v !== undefined) { paused = v; window.Loop.wake(); } return paused; },
     onChange: fn => listeners.push(fn), crew,
   };
 });

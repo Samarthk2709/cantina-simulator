@@ -59,7 +59,7 @@
     if (v) ['up', 'down', 'left', 'right'].forEach(d => G.world.move?.(d, false));
     open = v; $('s3-view').hidden = !v; document.body.classList.toggle('s3-agents-open', v);
     if (v) renderMain(); else $('world')?.focus({preventScroll: true});
-    renderToggle();
+    renderToggle(); window.Loop.wake(); // the floor layer hides or comes back
   }
   function renderToggle() {
     const need = A.list().filter(a => a.q).length, busy = A.busy();
@@ -67,77 +67,107 @@
   }
 
   // ---------- agents on the office floor ----------
-  const sprites = {};
+  // Runs on the shared loop, but writes only what changed: a sprite sits on a transform (rounded to device pixels) and
+  // its markup is rebuilt only when its state, phrase or name moves on. It asks for frames only while someone walks,
+  // crouches or drifts, or a bubble's spring is settling. Every frame something else animates (the camera, a room
+  // change) it is called anyway, so the sprites still follow the room's rect.
+  const sprites = {}, px = v => Math.round(v * devicePixelRatio) / devicePixelRatio;
+  const put = (el, prop, v) => { const c = el.__css || (el.__css = {}); if (c[prop] !== v) { c[prop] = v; el.style.setProperty(prop, v); } };
+  let shown = false;
   function drawLayer() {
     const w = G.world, layer = $('s3-layer');
-    const show = w && !open && w.getState().room === 'office';
-    layer.hidden = !show;
-    layer.classList.toggle('night', !$('night')?.hidden && $('night').classList.contains('on')); // agents dim with the office (crew.css)
-    if (show) {
-      const rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width, jobs = [], placed = [];
-      for (const a of A.list()) {
-        if (!a.pos) continue;
-        let el = sprites[a.id];
-        if (!el) { el = sprites[a.id] = document.createElement('button'); el.className = 's3-agent' + (a.id === 'nib' ? ' nib' : ''); el.dataset.chat = a.id; layer.appendChild(el); }
-        // Walk bob is offset 3 frames (50 ms) per agent; during the wind-up the agent crouches a pixel and leans back.
-        // Reduced motion: neither, the agent just walks.
-        const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k, crouch = a.crouch && !calm;
-        const bob = crouch ? -k : a.moving && !calm ? Math.round(Math.sin((performance.now() + i * 50) / 90) * k) : 0, lean = crouch ? -(a.facing || 1) * k : 0;
-        const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking', lift = st === 'waiting' && a.id !== 'nib' && !calm ? 9 * k : 0;
-        el.classList.toggle('flip', a.facing < 0);
-        el.style.cssText = `left:${rect.left + a.pos.x * k + lean - wd / 2}px;top:${rect.top + a.pos.y * k - h + 2 * k - bob}px;width:${wd}px;height:${h}px;--lift:${lift}px`;
-        // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
-        setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(A.phrase(a)))}</span>` : ''}`);
-        el.setAttribute('aria-label', `${a.name}: ${A.phrase(a)}. Open chat.`);
-        jobs.push([a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k, lift, placed]);
-        if (a.id !== 'nib' && window.FloorDust) kickDust(a, el); // #10 (Nib kicks his own in nib.js)
+    const show = !!w && !open && w.getState().room === 'office';
+    if (layer.hidden !== !show) layer.hidden = !show;
+    const night = !$('night')?.hidden && $('night').classList.contains('on');
+    if (layer.classList.contains('night') !== night) layer.classList.toggle('night', night); // agents dim with the office (crew.css)
+    if (!show) { shown = false; return false; }
+    const back = !shown; shown = true; // a hidden layer drops its CSS animations: shown again, each hop starts over
+    let more = false;
+    const now = performance.now(), rect = w.roomRect(), room = window.CantinaWorld.allRooms.find(r => r.id === 'office'), k = rect.width / room.width, jobs = [], placed = [];
+    for (const a of A.list()) {
+      if (!a.pos) continue;
+      let el = sprites[a.id];
+      if (!el) { el = sprites[a.id] = document.createElement('button'); el.className = 's3-agent' + (a.id === 'nib' ? ' nib' : ''); el.dataset.chat = a.id; el.style.left = el.style.top = '0'; layer.appendChild(el); }
+      // Walk bob is offset 3 frames (50 ms) per agent; during the wind-up the agent crouches a pixel and leans back.
+      // Reduced motion: neither, the agent just walks.
+      const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k, crouch = a.crouch && !calm;
+      const bob = crouch ? -k : a.moving && !calm ? Math.round(Math.sin((now + i * 50) / 90) * k) : 0, lean = crouch ? -(a.facing || 1) * k : 0;
+      const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking', lift = st === 'waiting' && a.id !== 'nib' && !calm ? 9 * k : 0;
+      if (el.classList.contains('flip') !== a.facing < 0) el.classList.toggle('flip', a.facing < 0);
+      put(el, 'transform', `translate(${px(rect.left + a.pos.x * k + lean - wd / 2)}px,${px(rect.top + a.pos.y * k - h + 2 * k - bob)}px)`);
+      put(el, 'width', wd + 'px'); put(el, 'height', h + 'px'); put(el, '--lift', lift + 'px');
+      // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
+      const ph = A.phrase(a), key = `${st}|${i}|${a.name}|${busyNow ? ph : ''}`;
+      if (el.__key !== key) {
+        el.__key = key;
+        setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(ph))}</span>` : ''}`);
+        el.__bubble = el.querySelector('.s3-bubble');
+        if (DUST[a.id]) DUST[a.id].hop = null; // a new svg: its hop (if any) starts now
       }
-      // Standing bubbles oldest first, then walkers: a newcomer stacks above its neighbours instead of pushing them up.
-      const rank = a => a.path.length || a.nibWalking ? 2e9 : since[a.id] ?? 1e9;
-      jobs.sort((p, q) => rank(p[0]) - rank(q[0])).forEach(j => followThrough(...j));
-      for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
+      if (el.__label !== ph) { el.__label = ph; el.setAttribute('aria-label', `${a.name}: ${ph}. Open chat.`); }
+      if (back && DUST[a.id]) DUST[a.id].hop = null;
+      if (a.moving || a.crouch || a.drift || a.path.length || a.nibWalking) more = true;
+      jobs.push([a, el, rect.left + a.pos.x * k, rect.top + a.pos.y * k, lean, -bob, h, k, lift, placed]);
+      if (a.id !== 'nib' && window.FloorDust) kickDust(a, st, i, now); // #10 (Nib kicks his own in nib.js)
     }
-    return true;
+    // Standing bubbles oldest first, then walkers: a newcomer stacks above its neighbours instead of pushing them up.
+    const rank = a => a.path.length || a.nibWalking ? 2e9 : since[a.id] ?? 1e9;
+    jobs.sort((p, q) => rank(p[0]) - rank(q[0])).forEach(j => { if (followThrough(...j)) more = true; });
+    for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
+    return more;
   }
   const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
   // Footstep dust & landing puffs (#10): a footfall every 10 px walked (step frames 0 and 2 of Nib's walk/5 cycle) and a
-  // burst when the waiting hop (crew.css s3-hop) lands, at 43.75% of its loop, read off the svg's own animation so it
-  // keeps each agent's 50 ms offset. Specks sit at the feet in office pixels; nib.js (window.FloorDust) draws them.
-  const DUST = {};
-  function kickDust(a, el) {
-    const d = DUST[a.id] || (DUST[a.id] = {x: a.pos.x, y: a.pos.y, walk: 0, hop: null, p: 0, it: 0});
+  // burst when the waiting hop (crew.css s3-hop: 1.6 s, delay −i × 50 ms) lands, at 43.75% of its loop. The landings are
+  // worked out from when the hop's svg went in, not read off the animation, and a timeout wakes the loop for the next.
+  // Specks sit at the feet in office pixels; nib.js (window.FloorDust) draws them.
+  const DUST = {}, HOP = 1600, LAND = 0.4375 * HOP;
+  let hopDue = Infinity, hopT = 0;
+  function kickDust(a, st, i, now) {
+    const d = DUST[a.id] || (DUST[a.id] = {x: a.pos.x, y: a.pos.y, walk: 0, hop: null});
     const moved = Math.hypot(a.pos.x - d.x, a.pos.y - d.y); d.x = a.pos.x; d.y = a.pos.y;
     if (a.moving && moved < 20) { const w0 = d.walk; d.walk += moved; if ((d.walk / 10 | 0) !== (w0 / 10 | 0)) window.FloorDust.step(a.pos.x, a.pos.y + 2, a.facing); } // a jump (sent home) isn't a step
-    const svg = el.querySelector('.st-waiting svg'), h = svg && svg.getAnimations().find(x => x.animationName === 's3-hop');
-    if (!h) { d.hop = null; return; }
-    const {progress: p, currentIteration: it} = h.effect.getComputedTiming();
-    if (h === d.hop && p >= 0.4375 && (it !== d.it || d.p < 0.4375)) window.FloorDust.land(a.pos.x, a.pos.y + 2);
-    d.hop = h; d.p = p; d.it = it;
+    if (st !== 'waiting' || calm) { d.hop = null; return; }
+    if (d.hop == null) { const t0 = now - i * 50; d.hop = t0 + LAND + Math.max(0, Math.ceil((now - t0 - LAND) / HOP + 1e-9)) * HOP; } // the first landing still to come
+    else if (now >= d.hop) { window.FloorDust.land(a.pos.x, a.pos.y + 2); window.Loop.wake(); d.hop += Math.ceil((now - d.hop + 1e-9) / HOP) * HOP; }
+    if (d.hop < hopDue || hopDue <= now) { clearTimeout(hopT); hopDue = d.hop; hopT = setTimeout(() => { hopDue = Infinity; window.Loop.wake(); }, d.hop - now + 1); }
   }
   // Follow-through (#6): an agent that stops leans on a pixel and rocks back (a.drift, from harness.js), and its bubble
   // trails it on Nib's bubble spring instead of riding the walk bob: it lags while walking and overshoots a touch on
   // stop. (x, y) is the agent's anchor without bob or lean, (dx, dy) how far the sprite sits from it. A bubble never
   // sinks onto its agent or leaves the screen (near an edge it slides in, so it reads on a phone), stacks above a
   // neighbour's bubble instead of covering it (same desk; a walker's rises as it nears), and a new one starts in place.
-  // Reduced motion: no lean or spring; bubbles still keep on-screen and apart.
+  // Reduced motion: no lean or spring; bubbles still keep on-screen and apart. Returns true while the spring still moves.
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches, trails = {}, since = {}; // since: when each standing bubble settled, in order
   let born = 0;
   function followThrough(a, el, x, y, dx, dy, h, k, lift, placed) {
-    if (a.drift && !a.crouch && !calm) { const ex = Math.round(a.drift[0] * k), ey = Math.round(a.drift[1] * k); el.style.translate = `${ex}px ${ey}px`; dx += ex; dy += ey; }
-    const b = el.querySelector('.s3-bubble');
-    if (!b) { trails[a.id]?.reset(); delete since[a.id]; return; }
+    let tr0 = '';
+    if (a.drift && !a.crouch && !calm) { const ex = Math.round(a.drift[0] * k), ey = Math.round(a.drift[1] * k); tr0 = `${ex}px ${ey}px`; dx += ex; dy += ey; }
+    put(el, 'translate', tr0);
+    const b = el.__bubble;
+    if (!b) { trails[a.id]?.reset(); delete since[a.id]; return false; }
     const [bw, bh] = b.__size || (b.__size = [b.offsetWidth, b.offsetHeight]), far = 16 * k, m = 4, lo = m + bw / 2, hi = innerWidth - m - bw / 2;
     const top = y - h + 2 * k - 15 - lift - bh, tx = Math.max(lo, Math.min(hi, x)); // its top on the anchor (.s3-bubble: 15px above the sprite)
     if (a.path.length || a.nibWalking) delete since[a.id]; else since[a.id] ??= ++born;
     let up = 0; // how far it rises to clear the bubbles of neighbours (a desk's width) placed before it this frame
     for (let j = 0; j < placed.length; j++) { const [px, pt, pw, ph, ax, ay] = placed[j]; if (Math.abs(ax - x) <= 64 * k && Math.abs(ay - y) <= 24 * k && Math.abs(px - tx) < (pw + bw) / 2 + 2 && top - up < pt + ph + 2 && top - up + bh + 2 > pt) { up = top + bh + 2 - pt; j = -1; } }
     up = Math.min(up, Math.max(0, top - m)); placed.push([tx, top - up, bw, bh, x, y]);
-    if (calm) { b.style.translate = `${Math.round(tx - x - dx)}px ${Math.round(-up - dy)}px`; return; }
-    const tr = trails[a.id] || (trails[a.id] = window.BubbleTrail());
-    const [sx, sy] = tr.to(tx, y - up, performance.now(), k, [Math.max(-far, lo - tx), Math.min(far, hi - tx), Math.max(-far, Math.min(0, m - top + up)), up]);
-    b.style.translate = `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`;
+    if (calm) { put(b, 'translate', `${Math.round(tx - x - dx)}px ${Math.round(-up - dy)}px`); return false; }
+    const tr = trails[a.id] || (trails[a.id] = window.BubbleTrail()), now = performance.now(), box = [Math.max(-far, lo - tx), Math.min(far, hi - tx), Math.max(-far, Math.min(0, m - top + up)), up];
+    // A settled spring that slept past its 200 ms snap is touched at rest first, so a new target (a neighbour's bubble
+    // stacking) still springs instead of jumping.
+    if (b.__still >= 2 && b.__args && now - b.__args[2] > 150) tr.to(b.__args[0], b.__args[1], now - 16, b.__args[3], b.__args[4]);
+    b.__args = [tx, y - up, now, k, box];
+    const [sx, sy] = tr.to(tx, y - up, now, k, box);
+    put(b, 'translate', `${Math.round(sx - x - dx)}px ${Math.round(sy - y - dy)}px`);
+    // Settled once it moves under 0.02 px a frame for two frames running; a spring left a hair off snaps on the next move.
+    const still = b.__at && Math.abs(sx - b.__at[0]) < 0.02 && Math.abs(sy - b.__at[1]) < 0.02;
+    b.__still = still ? (b.__still || 0) + 1 : 0; b.__at = [sx, sy];
+    return b.__still < 2;
   }
   window.Loop.add(drawLayer);
+  // Night falling or lifting dims the agents: redraw then (night is a class on #night, toggled by game.js).
+  new MutationObserver(() => window.Loop.wake()).observe($('night') || document.body, {attributes: true, attributeFilter: ['class', 'hidden']});
 
   // ---------- floating finds (motion #16): a label rises from the agent's head on the office floor ----------
   // harness.js calls Stage3Float: "+1 bug" on a find, the grade and rep on a payout (the pay chip, #4, carries the
@@ -210,25 +240,34 @@
     const still = !(floor && a && (a.path?.length || a.crouch));
     if (!still) L.glance = 0; // never while walking on the floor: facing belongs to the walk
     // Breath: held frames, a 2.6–3.5 s period per agent (1.6× when resting), the body down for the last 45% of it.
-    const P = (2600 + L.s * 900) * (rest ? 1.6 : 1);
-    return {blink: now < L.until, breath: !lifeReduced && still && (now / P + L.s) % 1 > 0.55, glance: still ? L.glance : 0};
+    const P = (2600 + L.s * 900) * (rest ? 1.6 : 1), ph = (now / P + L.s) % 1;
+    // next: when this agent's frame can next change (blink starts or ends, breath turns), for the life timer.
+    const next = Math.min(now < L.until ? L.until : L.blink, now + ((ph < 0.55 ? 0.55 : 1) - ph) * P);
+    return {blink: now < L.until, breath: !lifeReduced && still && ph > 0.55, glance: still ? L.glance : 0, next};
   }
+  // Driven by a timer set for the soonest blink, breath or glance change, not by frames; the observer below catches
+  // redraws, and the floor tick catches walks starting or ending (a glance never shows while walking).
+  let lifeT = 0, lifeDue = Infinity;
   function idleLife() {
-    const now = performance.now();
+    const now = performance.now(); let due = Infinity;
     for (const el of document.querySelectorAll(open ? '#s3-side .s3-av, #s3-main .s3-av' : '#s3-layer .s3-av')) {
       const done = el.classList.contains('st-done'), svg = el.firstElementChild;
       if (!(done || el.classList.contains('st-idle')) || !svg) continue;
       const host = el.closest('[data-chat],[data-pane],[data-go]'), id = host && (host.dataset.chat || host.dataset.pane || (host.dataset.go || '').split(':')[1]);
       if (!id || !A.get(id)) continue;
       const mood = done ? 'happy' : 'idle', L = lifeOf(id, now, !open), key = `${mood}${+L.breath}${+L.blink}${L.glance}`;
+      due = Math.min(due, L.next);
       if ((svg.__life || mood + '000') === key) continue; // kept on the svg: a new state swaps in a plain one
       svg.__life = key;
       // A glance looks ahead (eyes a pixel forward) or turns and looks back (mirrored); the floor's .flip still applies on top.
       svg.innerHTML = window.Avatars.rects(id, {mood: L.blink ? 'blink' : mood, breath: L.breath, look: L.glance ? 1 : 0})
         .map(([x, y, w, h, c]) => `<rect x="${L.glance < 0 ? 16 - x - w : x}" y="${y}" width="${w}" height="${h}" fill="${c}"/>`).join('');
     }
+    if (due !== lifeDue) { clearTimeout(lifeT); lifeDue = due; if (due < Infinity) lifeT = setTimeout(() => { lifeDue = Infinity; idleLife(); }, Math.max(0, due - now) + 1); }
   }
-  window.Loop.add(function lifeLoop() { idleLife(); return true; });
+  // While anyone walks or crouches on the floor, run it every frame as before (glances clear on the first step).
+  let lifeWalk = false; // and once more as the last one stops, so a breath held off by the walk comes back at once
+  window.Loop.add(function lifeLoop() { const w = !open && A.list().some(a => a.path?.length || a.crouch); if (w || lifeWalk) idleLife(); lifeWalk = w; return false; });
   const lifeWatch = new MutationObserver(idleLife);
   ['s3-side', 's3-main', 's3-layer'].forEach(id => lifeWatch.observe($(id), {childList: true, subtree: true}));
 
@@ -410,7 +449,8 @@
   let pending = false, lastRefresh = 0;
   A.onChange(() => {
     if (pending) return; pending = true;
-    requestAnimationFrame(() => { pending = false; update(); if (Date.now() - lastRefresh > 800) { lastRefresh = Date.now(); G.hud(); } });
+    // The floor layer sleeps between moves, so it's redrawn here too (it writes only what changed) and wakes the loop if it now has motion.
+    requestAnimationFrame(() => { pending = false; update(); if (drawLayer()) window.Loop.wake(); if (Date.now() - lastRefresh > 800) { lastRefresh = Date.now(); G.hud(); } });
   });
   addEventListener('first-office:wallet', renderSide); // the footer moves with the HUD's wallet, as pay chips land
   renderSide(); renderToggle();
