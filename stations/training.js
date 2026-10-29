@@ -79,32 +79,34 @@
       const writing = !!wk || (here && here.status === 'walking'); // an agent studying: a fresh page
 
       bench(k);
-      const bx = x + 4, by = y - 7 + dy;
-      r(c, '#3e2716', x + 6, y + 1, 24, 3); // stand
+      // The player's 'You' tag sits over x+19..x+29 while they stand here, so everything that reacts
+      // (badge, bar, quill, tick, star, slip) lives on the LEFT page; the right page is plain lesson text.
+      const bx = x + 1, by = y - 7 + dy;
+      r(c, '#3e2716', x + 3, y + 1, 24, 3); // stand
       r(c, '#1f2a4a', bx, by, 28, 10); r(c, '#2c3b66', bx, by + 9, 28, 1); // cover
       r(c, '#f1e6c8', bx + 1, by + 1, 12, 8); r(c, '#f1e6c8', bx + 15, by + 1, 12, 8);
       r(c, '#e0d2b4', bx + 1, by + 8, 12, 1); r(c, '#e0d2b4', bx + 15, by + 8, 12, 1);
       r(c, '#1b1f2b', bx + 13, by, 2, 10); // spine
-      // left page: the lesson text, headed in the pattern's colour
-      r(c, page >= 0 && !writing ? PC[page] : '#9aa9ab', bx + 2, by + 2, 4, 1);
-      r(c, '#9aa9ab', bx + 2, by + 4, 9, 1); r(c, '#9aa9ab', bx + 2, by + 6, 7, 1);
+      // right page: the lesson text, headed in the pattern's colour
+      r(c, page >= 0 && !writing ? PC[page] : '#9aa9ab', bx + 16, by + 2, 4, 1);
+      r(c, '#9aa9ab', bx + 16, by + 4, 9, 1); r(c, '#9aa9ab', bx + 16, by + 6, 7, 1);
       if (writing) {
         // agent's notes: ink lines grow behind a quill in the agent's colour
         const col = agentCol(wk || here), n = wk && k.anim ? f % 24 : 0, row = n >> 3, cut = n & 7;
-        for (let j = 0; j < row; j++) r(c, '#1f2a4a', bx + 17, by + 2 + j * 2, 8, 1);
+        for (let j = 0; j < row; j++) r(c, '#1f2a4a', bx + 3, by + 2 + j * 2, 8, 1);
         if (wk) {
-          if (cut) r(c, '#1f2a4a', bx + 17, by + 2 + row * 2, cut, 1);
-          const qd = sa >= 0 ? Math.round((1 - spring(sa, 0.3)) * -6) : 0, tx = bx + 17 + cut, ty = by + 2 + row * 2 + qd;
+          if (cut) r(c, '#1f2a4a', bx + 3, by + 2 + row * 2, cut, 1);
+          const qd = sa >= 0 ? Math.round((1 - spring(sa, 0.3)) * -6) : 0, tx = bx + 3 + cut, ty = by + 2 + row * 2 + qd;
           r(c, '#1b1f2b', tx, ty, 1, 1); r(c, col, tx + 1, ty - 3, 1, 3); r(c, col, tx + 2, ty - 5, 1, 3); r(c, '#f1e6c8', tx + 2, ty - 3, 1, 1);
         }
       } else if (sd >= 0) { /* a fresh page for the agent's tick below */ }
       else if (page >= 0) {
-        // right page: the pattern's bug badge and its precision bar
+        // left page: the pattern's bug badge and its precision bar
         const pc = PC[page];
-        r(c, pc, bx + 18, by + 2, 3, 2); r(c, '#1b1f2b', bx + 21, by + 2, 1, 1); r(c, '#1b1f2b', bx + 17, by + 2, 1, 1); r(c, '#1b1f2b', bx + 17, by + 4, 1, 1); r(c, '#1b1f2b', bx + 21, by + 4, 1, 1);
-        r(c, '#cfd4de', bx + 17, by + 6, 9, 1); r(c, pc, bx + 17, by + 6, Math.max(1, Math.round(9 * P[page] / 0.95)), 1);
-        if (k.anim && f % 40 < 20 && (f & 4)) r(c, '#1f2a4a', bx + 23, by + 3, 1, 1); // ink cursor
-      } else { r(c, '#cfd4de', bx + 17, by + 2, 8, 1); r(c, '#cfd4de', bx + 17, by + 4, 6, 1); } // nothing taught yet
+        r(c, pc, bx + 4, by + 2, 3, 2); r(c, '#1b1f2b', bx + 7, by + 2, 1, 1); r(c, '#1b1f2b', bx + 3, by + 2, 1, 1); r(c, '#1b1f2b', bx + 3, by + 4, 1, 1); r(c, '#1b1f2b', bx + 7, by + 4, 1, 1);
+        r(c, '#cfd4de', bx + 2, by + 6, 10, 1); r(c, pc, bx + 2, by + 6, Math.max(1, Math.round(10 * P[page] / 0.95)), 1);
+        if (k.anim && f % 40 < 20 && (f & 4)) r(c, '#1f2a4a', bx + 10, by + 3, 1, 1); // ink cursor
+      } else { r(c, '#cfd4de', bx + 3, by + 2, 8, 1); r(c, '#cfd4de', bx + 3, by + 4, 6, 1); } // nothing taught yet
       // page in flight
       if (tp >= 0) {
         const PX = [[16, 9], [15, 4], [11, 4], [5, 9]][tp];
@@ -118,12 +120,12 @@
         r(c, P[i] > 0 ? PC[i] : '#3a2f22', bx + 3 + i * 4 + o, by + 10 - lift, 2, len - (i === page && k.anim && (f & 8) ? 1 : 0));
       }
       // agent done: a tick in their colour on the new page
-      if (sd >= 0.45) check(r, c, whoCol(k, 'agent-done'), bx + 19, by + 2);
+      if (sd >= 0.45) check(r, c, whoCol(k, 'agent-done'), bx + 5, by + 2);
       // float: a slip of paper peeks out of the book
-      if (fs >= 0) { const h = Math.round(4 * Math.sin(Math.PI * fs / 1.2)); if (h > 0) r(c, '#fff8e6', bx + 22, by - h, 3, h); }
-      // pay: a gold star stamps onto the right page (red for a critical), with sparks
+      if (fs >= 0) { const h = Math.round(4 * Math.sin(Math.PI * fs / 1.2)); if (h > 0) r(c, '#fff8e6', bx + 6, by - h, 3, h); }
+      // pay: a gold star stamps onto the left page (red for a critical), with sparks
       if (ps >= 0) {
-        const crit = !!lastData(k, 'pay').crit, cx = bx + 21, cy = by + 4;
+        const crit = !!lastData(k, 'pay').crit, cx = bx + 7, cy = by + 4;
         if (ps < 0.1) r(c, '#e0d2b4', cx - 1, cy, 3, 1); // shadow first
         else if (ps < 2 || (f & 1)) {
           const u = outBack((ps - 0.1) / 0.3), yo = Math.round((1 - u) * -12);
@@ -131,7 +133,7 @@
           r(c, crit ? '#f2c230' : '#fff3c8', cx, cy + yo, 1, 1);
         }
         if (ps > 0.35 && ps < 0.9) {
-          const d = 3 + Math.round((ps - 0.35) * 14), sc = crit ? '#f2c230' : '#fff3c8';
+          const d = 3 + Math.min(4, Math.round((ps - 0.35) * 14)), sc = crit ? '#f2c230' : '#fff3c8';
           r(c, sc, cx - d, cy - d, 1, 1); r(c, sc, cx + d, cy - d, 1, 1); r(c, sc, cx - d, cy + d, 1, 1); r(c, sc, cx + d, cy + d, 1, 1);
           if (crit) { r(c, '#e86a6a', cx, cy - d - 2, 1, 1); r(c, '#e86a6a', cx - d - 2, cy, 1, 1); r(c, '#e86a6a', cx + d + 2, cy, 1, 1); }
         }
@@ -143,7 +145,7 @@
       r(c, '#2c2f3a', x + 37, y + 2, 8, 2); r(c, '#5a5f6e', x + 42, y - 8, 1, 10); r(c, '#5a5f6e', x + 38, y - 9 + dip, 5, 1);
       r(c, '#c4572b', x + 34, y - 11 + dip, 6, 2); r(c, '#8a3516', x + 33, y - 9 + dip, 8, 1);
       r(c, ps >= 0.1 && ps < 0.7 && (f & 1) ? '#ffffff' : on ? '#ffe28a' : '#5a5f6e', x + 36, y - 8 + dip, 2, 1);
-      if (on) { c.fillStyle = LIGHT; for (let j = 0; j < 10; j++) c.fillRect(x + 34 - j, y - 7 + dip + j, 6 + j, 1); }
+      if (on) { c.fillStyle = LIGHT; for (let j = 0; j < 10; j++) { const lx = x + 34 - ((j * 3) >> 3); c.fillRect(lx, y - 7 + dip + j, x + 40 + (j >> 1) - lx, 1); } } // ends right of the book
     }
   };
 
@@ -190,8 +192,10 @@
       const crit = ps >= 0 && !!lastData(k, 'pay').crit;
       let target = 0; { let best = -1; for (let i = 0; i < 6; i++) if (P[i] > 0 && P[i] < 0.95 && (best < 0 || P[i] < P[best])) best = i; target = best >= 0 ? best : next >= 0 ? next : 0; }
 
-      // board (behind the bench)
-      r(c, crit && (f & 1) ? '#f2c230' : '#5a3a22', x + 2, y - 13, 30, 17);
+      // board (behind the bench); the frame flashes when the bug lands on every pay (gold/red on a critical,
+      // cream otherwise) since the pinned slot itself can sit under the player's tag
+      const fl = ps >= 0.6 && ps < 1.0 ? Math.floor((ps - 0.6) * 12) & 1 : -1;
+      r(c, fl < 0 ? '#5a3a22' : crit ? (fl ? '#e86a6a' : '#f2c230') : fl ? '#f1e6c8' : '#fff3c8', x + 2, y - 13, 30, 17);
       r(c, '#b07c4c', x + 3, y - 12, 28, 15);
       for (const s of SPECK) r(c, '#9a6a3e', x + 3 + s[0], y - 12 + s[1], 1, 1);
       const sxy = i => [x + 5 + (i % 3) * 9, y - 11 + ((i / 3) | 0) * 7];
@@ -207,8 +211,10 @@
       bench(k);
 
       // jar with the practice bug: the next pattern to teach
-      const jx = x + 34, jy = y - 6;
-      let lid = 0, showBug = true;
+      // walking up: the jar leans back (wind-up), then wobbles with a rattling lid and a glint runs across the glass
+      const wob = sn >= 0 && sn < 0.4 ? (sn < 0.1 ? -1 : (Math.floor(sn * 20) & 1) ? 1 : sn < 0.3 ? -1 : 0) : 0;
+      const jx = x + 34 + wob, jy = y - 6;
+      let lid = sn >= 0.1 && sn < 0.45 ? -((Math.floor(sn * 20) & 1)) : 0, showBug = true;
       if (ps >= 0) { lid = ps < 0.1 ? 1 : ps < 1.2 ? Math.round(-3 * spring(ps, 0.3)) : Math.round(-3 * (1 - cl((ps - 1.2) / 0.3))); showBug = ps < 0.15 || ps > 1.5; }
       if (fs >= 0) lid = (Math.floor(fs * 16) & 1) ? -1 : 0;
       c.fillStyle = GLASS; c.fillRect(jx + 1, jy, 8, 9);
@@ -227,6 +233,7 @@
       }
       r(c, '#9aa9ab', jx, jy - 1, 1, 10); r(c, '#9aa9ab', jx + 9, jy - 1, 1, 10); r(c, '#9aa9ab', jx, jy + 9, 10, 1);
       r(c, '#eaf6ff', jx + 2, jy + 1, 1, 4);
+      if (sn >= 0.2 && sn < 0.6) { const gx = jx + 1 + Math.floor((sn - 0.2) * 20); r(c, '#ffffff', gx, jy + 1, 1, 6); }
       r(c, '#c4572b', jx - 1, jy - 3 + lid, 12, 2); r(c, '#8a3516', jx + 4, jy - 4 + lid, 2, 1);
 
       // pay: the jar bug flies out on an arc and gets pinned to its slot, with a flash
@@ -254,7 +261,7 @@
       if (k.open || so >= 0 || sc >= 0) {
         let lx = x + 17 + Math.round(9 * Math.sin(k.anim ? k.t * 0.9 : 0)), ly = y - 8 + Math.round(2 * Math.sin(k.anim ? k.t * 1.8 : 0));
         if (so >= 0) { const u = spring(so, 0.4); lx = Math.round(x + 40 + (lx - x - 40) * u); ly = Math.round(y - 4 + (ly - y + 4) * u); }
-        else if (sc >= 0) { const u = sc < 0.1 ? -0.1 * sc / 0.1 : ((sc - 0.1) / 0.4) ** 2; lx = Math.round(lx + (x + 42 - lx) * u); } // closed: it withdraws to the right
+        else if (sc >= 0) { const u = sc < 0.1 ? -0.1 * sc / 0.1 : ((sc - 0.1) / 0.4) ** 2; lx = Math.round(lx + (x + 38 - lx) * u); } // closed: it withdraws to the right (ring/handle stay inside x+47)
         c.fillStyle = LENS; c.fillRect(lx - 3, ly - 3, 7, 7);
         r(c, '#cfd4de', lx - 2, ly - 4, 5, 1); r(c, '#cfd4de', lx - 2, ly + 4, 5, 1); r(c, '#cfd4de', lx - 4, ly - 2, 1, 5); r(c, '#cfd4de', lx + 4, ly - 2, 1, 5);
         r(c, '#cfd4de', lx - 3, ly - 3, 1, 1); r(c, '#cfd4de', lx + 3, ly - 3, 1, 1); r(c, '#cfd4de', lx - 3, ly + 3, 1, 1); r(c, '#cfd4de', lx + 3, ly + 3, 1, 1);
@@ -277,6 +284,8 @@
       const sa = ev(k, 'agent-start', 0.6), sd = ev(k, 'agent-done', 1.8);
       const crit = ps >= 0 && !!lastData(k, 'pay').crit;
       const awake = k.near || k.open || !!here;
+      // nobody near for a while (and it's day): the CRT sleeps very dim, so walking up really powers it on
+      const asleep = !awake && !k.night && k.since('leave') > 4 && k.since('agent-done') > 4 && !(ps >= 0) && !(so >= 0);
 
       bench(k);
       // CRT
@@ -295,7 +304,7 @@
       else if (mode === 'line') r(c, '#eaffef', sx + 1, sy + 4, SW - 2, 2);
       else {
         let hk = 1; if (mode === 'grow') hk = outBack((sn - 0.2) / 0.2);
-        const bright = awake || k.night, ink = inv ? '#0b2a1f' : bright ? '#4cf08a' : '#2f7a4f';
+        const bright = awake || k.night, ink = inv ? '#0b2a1f' : bright ? '#4cf08a' : asleep ? '#1d5234' : '#2f7a4f';
         if (inv) r(c, '#4cf08a', sx, sy, SW, SH);
         r(c, inv ? '#0b2a1f' : '#1f5a36', sx + 1, sy + SH - 2, SW - 2, 1); // baseline
         const reading = (f >> 2) % 6;
@@ -303,16 +312,17 @@
           let h = P[i] > 0 ? 1 + Math.round(6 * P[i] / 0.95) : 0;
           if (so >= 0) h = Math.round(h * spring(so - 0.15 - i * 0.05, 0.35)); // open: bars regrow in a wave
           h = Math.max(0, Math.min(8, Math.round(h * hk)));
-          if (h) r(c, i === reading && bright && k.anim ? (inv ? '#0b2a1f' : '#c8ffd8') : ink, sx + 2 + i * 2 + (i > 2 ? 1 : 0), sy + SH - 2 - h, 1, h);
+          if (h) r(c, i === reading && !asleep && k.anim ? (inv ? '#0b2a1f' : '#c8ffd8') : ink, sx + 2 + i * 2 + (i > 2 ? 1 : 0), sy + SH - 2 - h, 1, h);
           else r(c, '#1f5a36', sx + 2 + i * 2 + (i > 2 ? 1 : 0), sy + SH - 3, 1, 1);
         }
         if (bright && !inv) {
-          if (here) { const col = agentCol(here); r(c, col, sx + 1 + (wk ? f % 14 : 0), sy + 1, 1, 1); if (!wk && (f & 4)) r(c, col, sx + SW - 3, sy + 1, 2, 1); } // agent: a plot point marches
-          else if (k.anim && (f & 4)) r(c, '#4cf08a', sx + SW - 3, sy + 1, 2, 1); // cursor
-          if (sd >= 0.2) { const col = whoCol(k, 'agent-done'); r(c, col, sx + SW - 5, sy + 2, 3, 1); r(c, col, sx + SW - 4, sy + 1, 1, 3); }
+          // markers stay left of sx+SW-5 (x+19+ sits under the player's 'You' tag)
+          if (here) { const col = agentCol(here); r(c, col, sx + 1 + (wk ? f % 14 : 0), sy + 1, 1, 1); if (!wk && (f & 4)) r(c, col, sx + SW - 6, sy + 1, 2, 1); } // agent: a plot point marches
+          else if (k.anim && (f & 4)) r(c, '#4cf08a', sx + SW - 6, sy + 1, 2, 1); // cursor
+          if (sd >= 0.2) { const col = whoCol(k, 'agent-done'); r(c, '#0b2a1f', sx + 3, sy, 5, 5); r(c, col, sx + 4, sy + 2, 3, 1); r(c, col, sx + 5, sy + 1, 1, 3); }
           if (fs >= 0) r(c, '#c8ffd8', sx + 1, sy + 1, Math.min(10, 2 + Math.round(fs * 14)), 1);
         }
-        if (k.anim) { c.fillStyle = SCAN; c.fillRect(sx, sy + (f % SH), SW, 1); }
+        if (k.anim && !asleep) { c.fillStyle = SCAN; c.fillRect(sx, sy + (f % SH), SW, 1); }
       }
       r(c, '#c9b998', sx - 1, sy - 1, SW + 2, 1); // bezel lip
 
