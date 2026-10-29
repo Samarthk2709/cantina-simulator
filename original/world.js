@@ -739,13 +739,19 @@
         if(id==='founder'){if(travelling){P.x=actor.x;P.y=actor.y;P.facing=actor.facing;}else{actor.x=P.x;actor.y=P.y;}}
       });
     }
+    // Redraw on demand (PERF_PLAN phase 2): a frame draws only when something visible changed (dirty, movement,
+    // camera easing, a new 8 fps sprite frame, live effects) or 250 ms have passed; it asks for more frames only while
+    // something moves or eases. t (the animation clock) is real time since create, so sleeping never stops it.
+    var dirty = true, awake = true, lastDraw = 0, lastF = -1, wasMoving = false, tmr = 0, t0 = performance.now(), SAFETY = 250;
+    function clock() { return Math.max(t, (performance.now() - t0) / 1000); }
+    function poke() { dirty = true; if (window.Loop) window.Loop.wake(); }
     // Canvas labels use the page's mono face (--mono) once it has loaded, so every browser draws the same letters;
-    // until then, and in harnesses without document.fonts, plain monospace. Labels are redrawn every frame.
+    // until then, and in harnesses without document.fonts, plain monospace.
     var labelFace = 'monospace', D = 1; // D: device pixels per CSS pixel of the canvas backing store
     try {
       if (document.fonts && document.fonts.ready && window.getComputedStyle) document.fonts.ready.then(function () {
         var m = String(getComputedStyle(document.documentElement).getPropertyValue('--mono') || '').trim();
-        if (m) return document.fonts.load('bold 16px ' + m).then(function () { labelFace = m; });
+        if (m) return document.fonts.load('bold 16px ' + m).then(function () { labelFace = m; poke(); });
       }).catch(function () {});
     } catch (_) {}
     var view = { s: 1, ox: 0, oy: 0 }, ctxKey = '', ctxPos = '', ctxT = 0, aria = '', nearId = null, touchUI = false, insets = null;
@@ -827,7 +833,7 @@
       var w = Math.max(1, Math.round((rc.width || 640) * D)), h = Math.max(1, Math.round((rc.height || 400) * D));
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
-      c.imageSmoothingEnabled = false;
+      c.imageSmoothingEnabled = false; poke(); // a resized canvas is blank until redrawn
     }
     function ignoreTarget(el) {
       if (document.querySelector && document.querySelector('dialog[open]')) return true;
@@ -850,7 +856,7 @@
       if (d) delete keys[d];
       if (e.code === 'KeyE' || e.code === 'Space' || e.key === 'e' || e.key === 'E' || e.key === ' ') eHeld = false;
     }
-    function onVis() { if (document.hidden) clearInput(); }
+    function onVis() { if (document.hidden) clearInput(); else poke(); }
     function onPointer(e) {
       if (!active()) return;
       var rc = canvas.getBoundingClientRect();
@@ -937,11 +943,26 @@
       if (i.bottom > 0 && i.bottom * k < vh - 40) { bot = vh - i.bottom * k; out.push({ x: -4, y: bot, w: vw + 8, h: vh, keep: true }); }
       return { boxes: out, bottom: bot };
     }
+    // Text widths per font and string, so idle redraws never measure text (cleared when it grows large).
+    var mcache = {}, mcount = 0, lcache = { key: '', placed: null };
+    function mw(font, s) {
+      var k = font + '\n' + s, w = mcache[k];
+      if (w == null) { if (++mcount > 600) { mcache = {}; mcount = 1; } w = mcache[k] = c.measureText(s).width; }
+      return w;
+    }
     function labels(vw, vh, sc, fs, list, bodies) {
-      var lh = fs + 6, ko = chromeKeep(vw, vh), placed = ko.boxes.concat(bodies || []), shifts = [0, -1, 1, -2, 2, -3, 3, -4, 4];
-      c.setTransform(D, 0, 0, D, 0, 0); c.font = 'bold ' + fs + 'px ' + labelFace; c.textAlign = 'center'; c.textBaseline = 'middle';
+      var lh = fs + 6, ko = chromeKeep(vw, vh), font = 'bold ' + fs + 'px ' + labelFace;
+      c.setTransform(D, 0, 0, D, 0, 0); c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
+      // The collision layout depends only on these inputs: reuse it while none of them changed.
+      var key = vw + '|' + vh + '|' + font + '|' + JSON.stringify(ko) + '|' + JSON.stringify(list) + '|' + JSON.stringify(bodies || []), placed;
+      if (lcache.key === key) placed = lcache.placed;
+      else { placed = layoutLabels(vw, lh, ko, font, list, bodies); lcache.key = key; lcache.placed = placed; }
+      drawLabels(lh, placed);
+    }
+    function layoutLabels(vw, lh, ko, font, list, bodies) {
+      var placed = ko.boxes.concat(bodies || []), shifts = [0, -1, 1, -2, 2, -3, 3, -4, 4];
       list.forEach(function (L) {
-        var w = Math.min(vw - 4, L.w || Math.ceil(c.measureText(L.s).width) + 10), height = lh + (L.progress != null ? 12 : 0), pos = null;
+        var w = Math.min(vw - 4, L.w || Math.ceil(mw(font, L.s)) + 10), height = lh + (L.progress != null ? 12 : 0), pos = null;
         var x = L.align === 'l' ? L.x + w / 2 : L.align === 'r' ? L.x - w / 2 : L.x;
         for (var col = 0; col < 3 && !pos; col++) for (var i = 0; i < shifts.length; i++) {
           var rx = x - w / 2 + [0, -1, 1][col] * (w + 8);
@@ -955,7 +976,9 @@
         if (!pos) pos = [Math.max(2, Math.min(vw - w - 2, x - w / 2)), Math.max(2, Math.min(ko.bottom - height - 2, L.y))];
         placed.push({ x: pos[0], y: pos[1], w: w, h: height, label: L });
       });
-      placed = placed.filter(function (q) { return !q.keep; });
+      return placed.filter(function (q) { return !q.keep; });
+    }
+    function drawLabels(lh, placed) {
       placed.forEach(function (q) {
         var L = q.label;
         if (L.anchor && (Math.abs(q.x + q.w / 2 - L.x) > 16 || Math.abs(q.y - L.y) > lh + 2)) {
@@ -973,7 +996,6 @@
       });
     }
     function draw() {
-      var dpr = +window.devicePixelRatio; if ((dpr > 0 && isFinite(dpr) ? dpr : 1) !== D) resize();
       var vw = canvas.width, vh = canvas.height, anim = !(mq && mq.matches), f = anim ? (t * 8) | 0 : 0, R = cur;
       var v = fitView(R), sc = v.s;
       view.s = sc; view.ox = v.ox; view.oy = v.oy;
@@ -1001,7 +1023,7 @@
       rings = rings.filter(function (q) { return t - q.at < RING; });
       rings.forEach(function (q) {
         if (q.room !== R.id) return;
-        var k = (t - q.at) / RING;
+        var k = Math.max(0, (t - q.at) / RING);
         c.strokeStyle = 'rgba(0,113,227,' + (0.9 * (1 - k)).toFixed(2) + ')'; c.lineWidth = 1.5; c.beginPath();
         c.ellipse(q.x + q.w / 2, q.y + q.h / 2, q.w / 2 + 4 + k * 12, q.h / 2 + 4 + k * 8, 0, 0, 7); c.stroke();
       });
@@ -1043,9 +1065,9 @@
         if (!station) return;
         // A chip is as wide as its text and stays inside the room; a caption too long for the room is shortened with
         // "…", never dropped. The width counts "Paused · " and two-digit numbers, so pausing or a countdown never resizes it.
-        c.font = 'bold ' + fs + 'px ' + labelFace;
+        var font = c.font = 'bold ' + fs + 'px ' + labelFace;
         var room = [sx(0), sx(R.width)], cap = Math.min(vwC - 4, Math.max(120, room[1] - room[0])), name = job.caption, caption, cw;
-        var width = function (n) { var s = (n ? n + ' · ' : '') + 'Paused · ' + job.remaining.replace(/^Paused · /, ''); return Math.ceil(c.measureText(s.replace(/\d+/g, function (d) { return d.length < 2 ? '00' : d; })).width) + 10; };
+        var width = function (n) { var s = (n ? n + ' · ' : '') + 'Paused · ' + job.remaining.replace(/^Paused · /, ''); return Math.ceil(mw(font, s.replace(/\d+/g, function (d) { return d.length < 2 ? '00' : d; }))) + 10; };
         while ((cw = width(name)) > cap && name) name = name.length > 2 ? name.replace(/…$/, '').slice(0, -1).replace(/\s+$/, '') + '…' : '';
         caption = name ? name + ' · ' + job.remaining : job.remaining;
         list.unshift({ s: caption, w: Math.max(72, Math.min(cap, cw)), room: room, x: sx(station.x), y: sy(station.ty * T) - lh - 16,
@@ -1056,19 +1078,37 @@
       floats = floats.filter(function (q) { return t - q.at < FLOAT; });
       floats.forEach(function (q) {
         if (q.room !== R.id) return;
-        var k = (t - q.at) / FLOAT, x = sx(q.x), y = sy(q.y) - lh / 2 - 4 - k * 20, w = Math.ceil(c.measureText(q.s).width) + 12;
+        var k = Math.max(0, (t - q.at) / FLOAT), x = sx(q.x), y = sy(q.y) - lh / 2 - 4 - k * 20, w = Math.ceil(mw('bold ' + fs + 'px ' + labelFace, q.s)) + 12;
         c.globalAlpha = 1 - k; r(c, '#0066cc', Math.round(x - w / 2), Math.round(y - lh / 2), w, lh);
         c.fillStyle = '#ffffff'; c.fillText(q.s, Math.round(x), Math.round(y + 1)); c.globalAlpha = 1;
       });
     }
+    function held() { for (var k in keys) if (keys[k]) return true; for (k in touch) if (touch[k]) return true; return false; }
+    function founderSig() { var o = ''; for (var id in founders) { var a = founders[id]; o += id + a.x + ',' + a.y + a.facing + a.path.length + ';'; } return o; }
     function frame(now) {
       if (!alive) return false;
-      var dt = last ? Math.min(0.05, Math.max(0, (now - last) / 1000)) : 0;
-      last = now; if (document.hidden) return true; t += dt; pulseT = Math.max(0, pulseT - dt);
+      // Movement dt stays clamped; the first frame after a sleep moves at most one 60 Hz frame's worth.
+      var raw = last ? Math.max(0, (now - last) / 1000) : 0, dt = !awake && raw > 0.05 ? 1 / 60 : Math.min(0.05, raw);
+      last = now;
+      if (document.hidden) { awake = false; dirty = true; clearTimeout(tmr); tmr = 0; return false; } // visibilitychange wakes the loop
+      t = Math.max(t, (now - t0) / 1000);
+      var p0 = pulseT, k0 = cam.k, x0 = P.x, y0 = P.y, f0 = founderSig();
+      pulseT = Math.max(0, pulseT - dt);
       cam.k = cam.follow ? Math.min(1, cam.k + dt / 0.45) : Math.max(0, cam.k - dt / 0.45);
       if (mq && mq.matches) cam.k = cam.follow ? 1 : 0;
-      step(dt); stepFounders(dt); emitCtx(); draw();
-      return true;
+      step(dt); stepFounders(dt);
+      var dpr = +window.devicePixelRatio; if ((dpr > 0 && isFinite(dpr) ? dpr : 1) !== D) resize();
+      var anim = !still(), f = anim ? (t * 8) | 0 : 0, fx = rings.length || floats.length;
+      var walkers = S && S.started && !S.paused && !frozen && Object.keys(founders).some(function (id) { return founders[id].path.length; });
+      var want = active() && (held() || route.length > 0) || walkers || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx;
+      if (dirty || want || moving !== wasMoving || P.x !== x0 || P.y !== y0 || cam.k !== k0 || pulseT !== p0 || f !== lastF || founderSig() !== f0 || now - lastDraw >= SAFETY) {
+        dirty = false; wasMoving = moving; lastF = f; lastDraw = now;
+        emitCtx(); draw();
+      }
+      awake = !!want; clearTimeout(tmr); tmr = 0;
+      // Asleep: wake for the next sprite frame (f changes 8x/s), or for the 250 ms safety redraw under reduced motion.
+      if (!awake) tmr = setTimeout(function () { tmr = 0; if (alive) window.Loop.wake(); }, Math.max(1, Math.min(SAFETY - (now - lastDraw), anim ? ((lastF + 1) / 8 - t) * 1000 + 2 : SAFETY)));
+      return awake;
     }
 
     var api = {
@@ -1128,14 +1168,14 @@
       pulseAt: function (id) {
         var b = still() ? null : spot(id);
         if (!b) return false;
-        rings.push({ room: cur.id, x: b.x, y: b.y, w: b.w, h: b.h, at: t }); if (rings.length > 6) rings.shift();
+        rings.push({ room: cur.id, x: b.x, y: b.y, w: b.w, h: b.h, at: clock() }); if (rings.length > 6) rings.shift();
         return true;
       },
       // A short label ("+3") that rises over a station or the terminals and fades.
       float: function (text, id) {
         var b = still() ? null : spot(id);
         if (!b) return false;
-        floats.push({ room: cur.id, x: b.x + b.w / 2, y: b.y, s: String(text).slice(0, 12), at: t }); if (floats.length > 6) floats.shift();
+        floats.push({ room: cur.id, x: b.x + b.w / 2, y: b.y, s: String(text).slice(0, 12), at: clock() }); if (floats.length > 6) floats.shift();
         return true;
       },
       walked: function () { return walkedByPlayer; },
@@ -1170,11 +1210,23 @@
       },
       boost: function () { boostUntil = Date.now() + 15000; },
       destroy: function () {
-        alive = false; raf(); clearInput();
+        alive = false; raf(); clearInput(); clearTimeout(tmr);
         window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clearInput);
         document.removeEventListener('visibilitychange', onVis); canvas.removeEventListener('pointerdown', onPointer);
         if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       }
+    };
+    // Calls that can change what the canvas shows mark it dirty and wake the loop. update() runs on every app render,
+    // so it only does that when the sanitised state, view or flags actually changed.
+    var lastUpd = '';
+    ['assignFounder', 'founders', 'move', 'interact', 'goTo', 'pulseAt', 'float', 'restore', 'reset', 'pulse', 'setTouch', 'setCamera', 'setInsets', 'boost'].forEach(function (k) {
+      var fn = api[k]; api[k] = function () { var out = fn.apply(this, arguments); poke(); return out; };
+    });
+    var upd = api.update;
+    api.update = function () {
+      var out = upd.apply(this, arguments), key = JSON.stringify([S, V, frozen, blocked, cur.id, P.x, P.y]);
+      if (key !== lastUpd) { lastUpd = key; poke(); }
+      return out;
     };
     window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp); window.addEventListener('blur', clearInput);
     document.addEventListener('visibilitychange', onVis); canvas.addEventListener('pointerdown', onPointer);
