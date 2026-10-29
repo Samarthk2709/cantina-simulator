@@ -633,7 +633,7 @@
     slept = true;
     if (!world()) return slept = false, true;
     for (const a of Object.values(agents)) if (!a.pos) a.pos = a.id === 'nib' ? G.nib.pos() : homeSpot(a);
-    if (!ready()) { nap = false; return false; } // pause, night or leaving: woken by input, the night's end (crew.js) or A.pause
+    if (!ready()) { settleNap(); nap = false; return false; } // pause, night or leaving: the nap so far still counts; woken by input, the night's end (crew.js) or A.pause
     // One bad step must never stop the team for good.
     try { step(dt * speed, (nap ? Math.min(real, 10) : dt) * speed); } catch (e) { console.error('agents:', e); }
     nap = false; clearTimeout(napT);
