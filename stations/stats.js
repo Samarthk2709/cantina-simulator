@@ -1,12 +1,15 @@
 /* Ledger Vault: animated variants. See stations/fx.js for the contract.
    a Tumbler Lock: the dial idles and spins open for you, the door swings to show gold bars (one per $800 held).
-   b Ticker Ledger: an adding-machine head on the safe reads your reputation on a rolling counter and prints a tape.
+   b Ticker Ledger: an adding-machine head on the safe reads your reputation on a rolling counter and prints a tape
+     down the safe's right edge (all below y-10, under the station label, and clear of the level plate; its beacon sits
+     on the head).
    c Sentry Vault: a camera pans and scans, tripwire lasers guard the base, payments ride a pneumatic tube in.
    The original identity stays: safe body, door, dial and handle, bottom lamp; beacon from level 4 (on the roof, where
    the level plate doesn't cover it), gold trim from level 7. world.js still draws the fill gauge and level plate on top.
    Contract gaps, worked around here:
    - Money never lands at the vault (pay events fire at the desk or Ops), so StationFX.emit is wrapped once to mirror
-     every pay elsewhere into a 'deposit' event here ({ ...pay, from }). who says whether you or an agent earned it.
+     every pay elsewhere into a 'deposit' event here ({ ...pay, from }) while a stats variant is on. who says whether
+     you or an agent earned it. Cleaner: a 'deposit' hook in fx.js / game.js.
    - Stage 3 agents never walk to the vault today, so agent reactions use k.agents and agent-* events when present
      (StationFX.emit('stats', 'agent-start', { who: 'pip' })) and agents' deposits. The roster has no colours: AG below.
    - Windows have no close event, so open/close and near/leave edges are timed here (edge()). */
@@ -15,7 +18,8 @@
   const SF = window.StationFX; if (!SF) return;
   if (!SF.vaultTap) {
     const emit0 = SF.emit;
-    SF.emit = function (id, kind, data) { emit0(id, kind, data); if (kind === 'pay' && id !== 'stats') emit0('stats', 'deposit', Object.assign({ from: id }, data || {})); };
+    // Only mirrors while a stats variant is drawing (off: the vault gets nothing extra).
+    SF.emit = function (id, kind, data) { emit0(id, kind, data); if (kind === 'pay' && id !== 'stats' && SF.choice('stats') !== 'off') emit0('stats', 'deposit', Object.assign({ from: id }, data || {})); };
     SF.vaultTap = true;
   }
 
@@ -84,7 +88,7 @@
   }
 
   // ======================= A · Tumbler Lock =======================
-  const IDLE_A = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 2, 1, 0, 7, 6, 6, 7, 0, 0];
+  const IDLE_A = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 2, 1, 0, 7, 6, 6, 7]; // a fidget every 3 s
   const A = {
     name: 'Tumbler Lock',
     busy: () => edging(),
@@ -104,7 +108,7 @@
           hd = ua < 0.06 ? 1 : 0; bolts = ua < 0.1 ? 0 : ua < 0.15 ? 1 : 2;
           if (ua > 0.15 && ua < 0.45) { pos = (16 - Math.floor((ua - 0.15) / 0.3 * 16)) & 7; trail = true; }
         } else if (!unlock) pos = IDLE_A[f % IDLE_A.length];
-        if (work && !unlock) { pos = f & 7; mark = work.col; hd = 1; }
+        if (work && !unlock) { pos = f & 7; mark = work.col; hd = 1; bolts = [2, 1, 0, 1][(f >> 2) & 3]; }
       }
       // Door swing: waits for the unlock when both start together; slams shut fast.
       let door = 0;
@@ -131,6 +135,7 @@
       r(c, DOOR, x + 2 + ox, y + 2, dw, 13);
       if (dw < 12) r(c, '#cfd4de', x + 1 + dw + ox, y + 2, 1, 13); // the door's edge catches the light
       if (dw >= 10) { const s = 12 - dw; dial(c, k, x + 5 - s + ox, y + 8, pos, mark, trail); handle(c, k, x + 12 - s + ox, y + 8, hd); }
+      if (dw === 12 && hd === 0 && anim && !work) { const g = f % 24 - 14; if (g >= 0 && g < 6) r(c, '#fff3c8', x + 12 + ox, y + 8 + g, 1, 1); } // glint runs down the handle
       if (dw === 12) { if (bolts >= 1) r(c, '#cfd4de', x + 14 + ox, y + 9, 1, 1); if (bolts >= 2) r(c, '#cfd4de', x + 14 + ox, y + 12, 1, 1); }
       const critFlash = anim && mo && mo.crit && mo.age > land && mo.age < land + 0.6 && ((mo.age * 10) | 0) % 2 === 0;
       trim(c, k, ox, critFlash);
@@ -140,15 +145,20 @@
       if (work) kp = work.col; else if (walk && anim && f % 8 < 4) kp = walk.col;
       if (mo && mo.agent && mo.age > land && mo.age < land + 0.5) kp = anim && ((mo.age * 12) | 0) % 2 ? '#fff3c8' : tint(mo.who);
       keypad(c, k, kp);
+      if (work) { // the whole keypad lights in their colour, a key press running down it; the lamp takes their colour
+        r(c, work.col, x + 13, y + 18, 2, 5);
+        if (anim) r(c, '#fff3c8', x + 13 + ((f >> 1) & 1), y + 18 + ((f >> 1) % 5), 1, 1);
+        if (!unlock) lampCol = anim && f % 8 >= 6 ? null : work.col;
+      }
       if (done && doneAge < 0.75) lampCol = anim && ((doneAge * 8) | 0) % 2 ? null : tint(done.data.who);
       lamp(c, k, lampCol || (!anim ? GREEN : null));
       if (!anim || !mo) return;
       for (let i = 0; i < coins; i++) {
         const a = mo.age - i * 0.07; if (a < 0) continue;
         const cx = x + 6 + (i % 2) + ox;
-        if (a < 0.1) { coin(c, k, cx, y - 12 - (a < 0.05 ? 1 : 0), mo); continue; }
+        if (a < 0.1) { coin(c, k, cx, y - 8 - (a < 0.05 ? 1 : 0), mo); continue; } // hang below the label
         const p = (a - 0.1) / (land - 0.1);
-        if (p < 1) { const cy = y - 12 + Math.round(12 * p * p); if (p > 0.5) r(c, '#b5842a', cx + 1, cy - 2, 1, 2); coin(c, k, cx, cy, mo); }
+        if (p < 1) { const cy = y - 8 + Math.round(8 * p * p); if (p > 0.5) r(c, '#b5842a', cx + 1, cy - 2, 1, 2); coin(c, k, cx, cy, mo); }
         else if (a < land + 0.12) r(c, PALE, x + 6 + ox, y + 1, 4, 1); // slot flash
       }
     }
@@ -178,10 +188,10 @@
         if (anim && t - od.t0 > od.dur + 0.1) { od.from = Math.max(0, rep - 10); od.to = rep; od.t0 = t; od.dur = 0.5; }
         feed(mo.agent ? tint(mo.who) : mo.crit ? GOLD : GREEN, 6); feed(null);
       }
-      // Tape: idle feeds a grey line every 2.5 s; opening prints a burst; working agents stamp their colour.
+      // Tape: idle feeds a grey line every 1.5 s; opening prints a burst; working agents stamp their colour.
       if (anim) {
-        const tick = Math.floor(f / 20);
-        if (tick !== tp.tick) { if (tp.tick >= 0) feed(tick % 2 ? null : '#8a8f99', 2 + (tick * 7) % 4); tp.tick = tick; }
+        const tick = Math.floor(f / 12);
+        if (tick !== tp.tick) { if (tp.tick >= 0) feed('#8a8f99', 2 + (tick * 7) % 4); tp.tick = tick; }
         if (k.open && oa < 1 && t - tp.print > 0.12) { tp.print = t; feed((tp.print * 10 | 0) % 2 ? null : '#39445c', 2 + ((t * 13) | 0) % 4); }
         const st = Math.floor(f / 8);
         if (work && st !== tp.stamp) { tp.stamp = st; feed(work.col, 3); }
@@ -194,39 +204,45 @@
       shell(c, k, 0); r(c, DOOR, x + 2, y + 2, 12, 13); dial(c, k, x + 5, y + 8, 0); handle(c, k, x + 12, y + 8, 0);
       trim(c, k, 0); keypad(c, k, work ? work.col : walk && anim && f % 8 < 4 ? walk.col : null); lamp(c, k, !anim ? GREEN : null);
 
-      // Head: wakes with a dip and a hop when you walk up.
+      // Head (y-10..y-1, clear of the station label above): wakes with a dip and a hop when you walk up.
       let dy = 0;
       if (anim && k.near && na < 0.35) dy = na < 0.1 ? 1 : na < 0.22 ? -1 : 0;
-      const hy = y - 11 + dy;
-      r(c, '#2e3547', x, hy, 16, 11); r(c, DOOR, x, hy, 16, 1); r(c, DARK, x, hy + 10, 16, 1);
-      r(c, INK, x + 4, hy, 8, 1); // tape slot
+      const hy = y - 10 + dy;
+      r(c, '#2e3547', x, hy, 16, 10); r(c, DOOR, x, hy, 16, 1); r(c, DARK, x, hy + 9, 16, 1);
+      r(c, INK, x + 13, hy + 9, 3, 1); // tape slot, bottom right
       r(c, INK, x + 2, hy + 2, 12, 7);
-      // Digits roll like an odometer: each wheel turns as the one below it passes 9.
+      // Digits roll like an odometer: each wheel turns as the one below it passes 9. Idle: the ones wheel peeks a notch.
       const v = anim ? odoShown(t) : rep, rolling = anim && t - od.t0 < od.dur + 0.1, fast = rolling && Math.abs(od.to - od.from) >= 10;
       const lit = k.near || k.open || rolling || work ? PALE : '#e8a05a', nudge = anim && rolling && t - od.t0 < 0.1 ? -1 : 0;
+      const peek = anim && !rolling && !k.near && !k.open && f % 40 >= 37 ? (f % 40 === 38 ? 2 : 1) : 0;
       for (let i = 0; i < 3; i++) {
         const place = i === 0 ? 1 : i === 1 ? 10 : 100, vi = v / place, d = Math.floor(vi) % 10;
         const frac = i === 0 ? vi - Math.floor(vi) : Math.max(0, (v % place) - (place - 1));
-        const off = Math.round(frac * 7) + nudge, X = x + 11 - i * 4, top = hy + 2, bot = hy + 8;
+        const off = Math.round(frac * 7) + nudge + (i === 0 ? peek : 0), X = x + 11 - i * 4, top = hy + 2, bot = hy + 8;
         const col = fast && i === 0 ? '#b5842a' : lit;
         digit(c, k, X, hy + 3 - off, d, col, top, bot);
         digit(c, k, X, hy + 10 - off, (d + 1) % 10, col, top, bot);
         if (fast && i === 0) r(c, '#6a4a20', X + 1, Math.max(top, hy + 2 - off), 1, 1); // streak
       }
-      // Bell (top right): rings on a critical.
+      // Bell on the head's top right: rings (and flashes) on a critical.
       const ring = anim && mo && mo.crit && mo.age < 0.7 ? (((mo.age * 16) | 0) % 2 ? 1 : -1) : 0;
-      r(c, GOLD, x + 13 + ring, hy - 3, 1, 1); r(c, GOLD, x + 12 + ring, hy - 2, 3, 1); r(c, '#b5842a', x + 12, hy - 1, 3, 1);
-      // Status lamp on the head: reading, an agent walking in, or idle.
-      r(c, k.near || k.open ? GREEN : walk && (!anim || f % 8 < 4) ? walk.col : work ? work.col : '#1f5a36', x + 1, hy + 2, 1, 2);
-      // Paper tape above the slot (4 rows, newest at the bottom), torn off when an agent finishes.
+      r(c, ring ? PALE : GOLD, x + 13 + ring, hy, 1, 1); r(c, ring ? PALE : GOLD, x + 12 + ring, hy + 1, 3, 1);
+      if (ring) { r(c, PALE, x + 11 + ring, hy + 1, 1, 1); r(c, PALE, x + 15, hy + 1, 1, 1); }
+      // Beacon (level 4) on the head's top left.
+      if (k.L >= 4) { r(c, DARK, x + 1, hy + 1, 3, 1); r(c, k.anim && k.f % 12 < 6 ? '#ffb347' : '#6a4a20', x + 2, hy, 1, 1); r(c, k.anim && k.f % 12 < 6 ? '#ffb347' : '#6a4a20', x + 1, hy + 1, 3, 1); }
+      // Status lamp on the head: reading, an agent walking in, or idle (a faint breath).
+      r(c, k.near || k.open ? GREEN : walk && (!anim || f % 8 < 4) ? walk.col : work ? work.col : anim && f % 16 < 2 ? '#2f8a52' : '#1f5a36', x + 1, hy + 3, 1, 2);
+      // Paper tape hanging from the slot down the safe's right edge (x+14..15, clear of the level plate), newest entry
+      // at the top, each a 2x2 mark; the bottom half is torn off when an agent finishes.
+      const fall = tearA < 0.4 ? Math.round(tearA * 10) : 0;
+      r(c, CREAM, x + 14, y, 2, 6); r(c, CREAM, x + 14, y + 6 + fall, 2, 6); r(c, '#fff3c8', x + 14, y + 11 + fall, 2, 1);
       for (let i = 0; i < 4; i++) {
-        const ty = hy - 4 + i - (i < 2 && tearA < 0.4 ? Math.round(tearA * 8) : 0);
-        r(c, i === 0 ? '#fff3c8' : CREAM, x + 5, ty, 6, 1);
-        const ln = tape[i]; if (ln) r(c, ln.col, x + 5 + (ln.len >= 6 ? 0 : 1), ty, Math.min(6, ln.len), 1);
+        const ln = tape[3 - i]; if (!ln) continue;
+        const ty = y + 1 + 3 * i + (i >= 2 ? fall : 0);
+        r(c, ln.col, x + 14, ty, 2, ln.len >= 3 ? 2 : 1);
       }
-      // Stamp arm: an agent at work stamps the tape once a second.
-      if (work) { const down = anim && f % 8 < 2; r(c, STEEL, x + 3, hy - 5, 1, 4); r(c, work.col, x + 2, hy - (down ? 3 : 5), 3, 2); }
-      beacon(c, k, 0);
+      // Stamp: an agent at work stamps the tape top once a second (parked on the head's front between hits).
+      if (work) { const down = anim && f % 8 < 2; r(c, STEEL, x + 14, hy + 9, 2, 1); r(c, work.col, x + 14, down ? y : hy + 7, 2, 2); }
     }
   };
 
@@ -278,8 +294,10 @@
       let intake = who ? who.col : null;
       if (anim && mo && mo.age < 0.6) {
         const a = mo.age;
-        if (a < 0.1) r(c, GOLD, x + 15, y - 5 + (a < 0.05 ? 0 : 1), 1, 3);
-        else if (a < 0.3) { const cy = y - 4 + Math.round(22 * cl((a - 0.1) / 0.2)); r(c, '#b5842a', x + 15, cy - 3, 1, 3); r(c, mo.agent ? tint(mo.who) : GOLD, x + 15, cy, 1, 3); }
+        // 2 px slug: hangs at the mouth, the mouth bulges and flashes as it goes in, then it shoots down the tube.
+        if (a < 0.1) r(c, GOLD, x + 14, y - 6 + (a < 0.05 ? 0 : 1), 2, 3);
+        else if (a < 0.3) { const cy = y - 4 + Math.round(22 * cl((a - 0.1) / 0.2)); r(c, '#b5842a', x + 14, cy - 3, 2, 3); r(c, mo.agent ? tint(mo.who) : GOLD, x + 14, cy, 2, 3); r(c, PALE, x + 14, cy, 1, 1); }
+        if (a >= 0.08 && a < 0.2) { r(c, PALE, x + 13, y - 3, 3, 1); r(c, '#fff3c8', x + 14, y - 2, 2, 1); }
         else intake = ((a * 12) | 0) % 2 ? '#fff3c8' : mo.agent ? tint(mo.who) : GOLD;
       }
       keypad(c, k, intake);
