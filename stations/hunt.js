@@ -89,7 +89,12 @@
       // Agents on their way: a bezel LED blinks in their colour; at work, keys flash in their colour.
       k.agents.forEach((a, i) => { if (a.status === 'walking' && (!k.anim || (f + i * 2) % 6 < 3)) R(c, agentCol(a), x + 18 - i * 3, y - 7, 2, 1); });
       keyboard(c, k, k.near || k.open || crew.length > 0, crew.length && !k.near ? agentCol(crew[0]) : null);
+      // At work: the right monitor's top bezel lights an LED strip per agent (a chase pixel runs along it) and the
+      // paper fills with notes in their colour. Both sit clear of the speech bubbles, which cover the screens' middle.
+      crew.slice(0, 2).forEach((a, i) => { const col = agentCol(a), lx = x + 29 + i * 7;
+        R(c, col, lx, y - 7, 5, 1); if (k.anim) R(c, '#ffffff', lx + (f + i * 2) % 5, y - 7, 1, 1); });
       R(c, '#f1e6c8', x + 36, y + 7, 7, 5);
+      if (crew.length && !k.open) { const col = agentCol(crew[0]), n = k.anim ? 1 + (f >> 2) % 3 : 3; for (let i = 0; i < n; i++) R(c, col, x + 37, y + 8 + i * 1 + i, 2 + (i * 2) % 4, 1); }
       if (k.open) { R(c, '#8a8a8a', x + 37, y + 8, 5, 1); R(c, '#8a8a8a', x + 37, y + 10, k.anim ? 1 + (f >> 1) % 4 : 3, 1); } // notes while the window is open
       paySparks(c, k, L);
     },
@@ -99,7 +104,7 @@
   function saver(c, k, f, L, Rt) {
     R(c, '#1f2a4a', L.x, L.y, 14, 8); R(c, '#2a2238', Rt.x, Rt.y, 14, 8);
     const bx = x0 => tri(x0, 33), by = tri(Math.floor(f * 0.75), 6), px = L.x + bx(f);
-    if (px + 3 <= L.x + 14 || px >= Rt.x) bugSprite(c, px, L.y + by, '#e86a6a', f % 2 === 0);
+    if (k.anim && (px + 3 <= L.x + 14 || px >= Rt.x)) bugSprite(c, px, L.y + by, '#e86a6a', f % 2 === 0);
     if (!k.anim) bugSprite(c, L.x + 5, L.y + 3, '#e86a6a', true);
   }
   // Awake left screen: scrolling code, a bug crawling on one line (bracketed while the window is open), and
@@ -200,12 +205,16 @@
   function lamp(c, k, f) {
     const x = k.x, y = k.y, on = lampOn(k), p = k.near ? prog(k, 'near', 0.6) : -1, s = p * 0.6;
     const dip = p >= 0 && s < 0.1 ? 1 : 0;
-    let lit = on, glow = on ? 0.22 : 0;
+    // Pool of light as solid wood tints (palette pixels, no alpha): 0 off, 1 flicker, 2 on, 3 overshoot.
+    let lit = on, glow = on ? 2 : 0;
     if (p >= 0 && k.anim) {
       if (s < 0.1) lit = false; else if (s < 0.25) lit = Math.floor((s - 0.1) / 0.05) % 2 === 1; // flicker
-      glow = s < 0.25 ? (lit ? 0.18 : 0) : 0.22 + 0.12 * Math.max(0, 1 - (s - 0.25) / 0.35); // overshoot then settle
+      glow = !lit ? 0 : s < 0.25 ? 1 : s < 0.45 ? 3 : 2; // overshoot then settle
     }
-    if (lit) { c.fillStyle = 'rgba(255,226,138,' + glow.toFixed(2) + ')'; c.fillRect(x + 2, y + 5, 20, 8); c.fillRect(x + 4, y + 4, 16, 10); c.fillRect(x + 7, y + 6, 10, 6); }
+    if (lit && glow) {
+      R(c, '#6a4428', x + 2, y + 5, 20, 8); R(c, '#6a4428', x + 4, y + 4, 16, 10);
+      if (glow > 1) R(c, glow === 3 ? '#8f6a3c' : '#7a5530', x + 7, y + 6, 10, 6);
+    }
     R(c, '#2c2f3a', x + 1, y + 5, 5, 2); R(c, '#39445c', x + 3, y - 8 + dip, 1, 13 - dip); // base and arm
     R(c, '#39445c', x + 3, y - 9 + dip, 4, 1); // elbow
     R(c, '#c4572b', x + 5, y - 11 + dip, 4, 3); R(c, '#8a3516', x + 5, y - 9 + dip, 4, 1); // shade
@@ -216,7 +225,7 @@
     const x = k.x + 22, y = k.y + 2;
     R(c, '#f1e6c8', x, y, 4, 4); R(c, '#c4572b', x, y + 1, 4, 1); R(c, '#f1e6c8', x + 4, y + 1, 1, 2);
     if (!k.anim) return;
-    for (let i = 0; i < 3; i++) { const h = (f + i * 4) % 12; if (h < 9) { c.fillStyle = 'rgba(255,255,255,' + (0.55 - h * 0.05).toFixed(2) + ')'; c.fillRect(x + 1 + ((h >> 2) + i) % 2, y - 1 - h, 1, 1); } }
+    for (let i = 0; i < 3; i++) { const h = (f + i * 4) % 12; if (h < 9) R(c, h < 3 ? '#cfd4de' : h < 6 ? '#9aa0ae' : '#5a5f6e', x + 1 + ((h >> 2) + i) % 2, y - 1 - h, 1, 1); }
   }
   // Notepad: while the window is open, a pen writes lines on it.
   function notepad(c, k, f) {
@@ -273,25 +282,26 @@
       const s = p * 0.6, from = walkX;
       if (s < 0.1) { bugSprite(c, from, y - 1, '#6b3b1f', false); return; }
       const q = outCubic(clamp((s - 0.1) / 0.3)), bx = from + (hideX - from) * q;
-      if (q < 1) { c.fillStyle = 'rgba(107,59,31,.45)'; c.fillRect(Math.round(bx) - 3, y, 3, 1); bugSprite(c, bx, y, '#6b3b1f', Math.floor(s * 30) % 2 === 0); }
+      if (q < 1) { R(c, '#4a2a16', bx - 3, y, 3, 1); bugSprite(c, bx, y, '#6b3b1f', Math.floor(s * 30) % 2 === 0); }
       return;
     }
     if (f % 48 < 6) { R(c, '#1b1f2b', hideX - 1, y - 1, 1, 1); R(c, '#1b1f2b', hideX - 2, y, 1, 1); } // peeking
   }
-  // Agents' sticky notes on the monitor tops, one per agent heading here or working. Arriving: an outline
+  // Agents' sticky notes in a column on the right monitor's right edge, above the jar (the speech bubbles sit over
+  // the screens), one per agent heading here or working. Arriving: an outline
   // (reserved); at work: a filled note that drops in with overshoot and flutters; done: a check, then it peels off.
   function notes(c, k, f) {
     const st = prog(k, 'agent-start', 0.45);
     k.agents.slice(0, 3).forEach((a, i) => {
-      const col = agentCol(a), nx = k.x + 29 + i * 5, ny = k.y - 10;
+      const col = agentCol(a), nx = k.x + 43, ny = k.y - 7 - i * 4;
       if (a.status === 'walking') { if (!k.anim || f % 8 < 6) { R(c, col, nx, ny, 4, 1); R(c, col, nx, ny + 3, 4, 1); R(c, col, nx, ny, 1, 4); R(c, col, nx + 3, ny, 1, 4); } return; }
       const drop = st >= 0 ? Math.round(-5 * (1 - outBack(st))) : 0, lift = k.anim && (f + i * 3) % 10 < 2 ? 1 : 0;
       R(c, col, nx, ny + drop, 4, 4 - lift); R(c, '#1b1f2b', nx + 1, ny + drop + 1, 2, 1);
     });
     const dn = prog(k, 'agent-done', 1), e = lastEv(k, 'agent-done');
     if (dn >= 0 && e && !k.agents.some(a => a.id === e.data.who)) {
-      const col = agentCol({ id: e.data.who }), nx = k.x + 29 + k.agents.length * 5, s = dn;
-      const fall = s < 0.4 ? 0 : Math.round(30 * (s - 0.4) * (s - 0.4)), ny = k.y - 10 + fall;
+      const col = agentCol({ id: e.data.who }), nx = k.x + 43, s = dn;
+      const fall = s < 0.4 ? 0 : Math.round(30 * (s - 0.4) * (s - 0.4)), ny = k.y - 7 - Math.min(2, k.agents.length) * 4 + fall;
       if (ny < k.y + 3) { R(c, col, nx + (s >= 0.4 ? 1 : 0), ny, 4, 4); R(c, '#1f5a36', nx + 1, ny + 2, 1, 1); R(c, '#1f5a36', nx + 2, ny + 1, 1, 1); }
     }
   }
@@ -313,7 +323,7 @@
       keyboard(c, k, k.near || k.open || crew.length > 0, crew.length && !k.near ? agentCol(crew[0]) : null);
       printer(c, k, f);
     },
-    busy(k) { return k.since('pay') < 2 || k.since('near') < 0.6; }
+    busy(k) { const p = k.since('pay'), d = k.since('agent-done'); return p < 2 || (p > 3.5 && p < 4.6) || (d > 1.8 && d < 2.6) || k.since('near') < 0.6; }
   };
   // A hex dump: pairs of bytes per row, scrolling. While open, one row is highlighted (the suspicious bytes).
   function hexDump(c, k, f, sx, sy, crew) {
@@ -344,9 +354,12 @@
     const n = Math.min(BLIPS.length, Math.ceil(bugsOf(k) / 5));
     for (let i = 0; i < n; i++) {
       const b = BLIPS[i], d = ((ang - b[0]) % TAU + TAU) % TAU, bx = cx + Math.round(Math.cos(b[0]) * b[1]), by = cy + Math.round(Math.sin(b[0]) * b[1]);
-      R(c, d < 0.5 ? '#fff3c8' : d < 2 ? '#ffb07a' : '#7a3a14', bx, by, 1, 1);
+      if (d < 0.5) plus(c, bx, by, '#fff3c8', '#ffb07a'); else R(c, d < 2 ? '#ffb07a' : '#7a3a14', bx, by, 2, 1);
     }
-    if (critsOf(k)) R(c, (k.anim ? f % 8 < 5 : true) ? '#e86a6a' : '#7a3a14', cx + 4, cy - 4, 1, 1); // the critical
+    if (critsOf(k)) { // the critical: a 2x1 dot, a plus while the sweep passes it
+      const ca = Math.atan2(-4, 4), d = ((ang - ca) % TAU + TAU) % TAU;
+      if (d < 0.5 && k.anim) plus(c, cx + 4, cy - 3, '#ffffff', '#e86a6a'); else R(c, (k.anim ? f % 8 < 5 : true) ? '#e86a6a' : '#7a3a14', cx + 4, cy - 3, 2, 1);
+    }
     // Open: lock-on brackets round the strongest blip.
     if (k.open && n) { const b = BLIPS[0], bx = cx + Math.round(Math.cos(b[0]) * b[1]), by = cy + Math.round(Math.sin(b[0]) * b[1]), on = !k.anim || f % 4 < 3;
       if (on) { R(c, '#fff3c8', bx - 2, by - 2, 2, 1); R(c, '#fff3c8', bx + 1, by - 2, 2, 1); R(c, '#fff3c8', bx - 2, by + 2, 2, 1); R(c, '#fff3c8', bx + 1, by + 2, 2, 1); } }
@@ -354,15 +367,17 @@
     k.agents.forEach((a, i) => {
       const col = agentCol(a), base = i * 2.1;
       let rr, an;
-      if (a.status === 'walking') { const s = k.since('agent-arrive'); rr = 5 - Math.min(3, Math.floor((k.anim ? s : 0) * 1.2)); an = base + 0.6; }
+      if (a.status === 'walking') { const e = lastWho(k, 'agent-arrive', a.id), s = e ? performance.now() / 1000 - e.at : 0; rr = 5 - Math.min(3, Math.floor((k.anim ? s : 0) * 1.2)); an = base + 0.6; }
       else { rr = 2; an = base + (k.anim ? f * 0.25 : 0); }
-      R(c, col, cx + Math.round(Math.cos(an) * rr), cy + Math.round(Math.sin(an) * rr), 1, 1);
+      R(c, col, cx + Math.round(Math.cos(an) * rr), cy + Math.round(Math.sin(an) * rr), 2, 1);
     });
     // Pings: expanding ring from the centre on near (amber), agent-start (agent colour) and pay (white).
     ping(c, k, cx, cy, sx, sy, 'near', '#ffb07a', null);
     const st = lastEv(k, 'agent-start'); ping(c, k, cx, cy, sx, sy, 'agent-start', st ? agentCol({ id: st.data.who }) : '#7cc4f0', null);
     ping(c, k, cx, cy, sx, sy, 'pay', '#fff3c8', null);
   }
+  function plus(c, x, y, mid, arm) { R(c, arm, x - 1, y, 3, 1); R(c, arm, x, y - 1, 1, 3); R(c, mid, x, y, 1, 1); }
+  function lastWho(k, kind, who) { for (let i = k.events.length - 1; i >= 0; i--) { const e = k.events[i]; if (e.kind === kind && e.data.who === who) return e; } return null; }
   function ping(c, k, cx, cy, sx, sy, kind, col) {
     const p = prog(k, kind, 0.6); if (p < 0 || p >= 1 || !k.anim) return;
     const rad = 1 + Math.round(6 * outCubic(p));
@@ -387,10 +402,10 @@
     R(c, '#8b3a3a', bx, by, 4, 2); if (k.anim && f % 16 === 0) R(c, '#e86a6a', bx + 1, by, 1, 1);
     if (k.near || k.open) R(c, '#e8955f', bx + 1, by, 2, 1);
   }
-  // Receipt printer where the paper was. Idle: a status LED. On pay a receipt feeds up (1 px steps, settles),
+  // Receipt printer on the desk's right end, right of the radar monitor so the slip rises in the clear. Idle: a status LED. On pay a receipt feeds up (1 px steps, settles),
   // shows dollar marks (gold edge for a critical), then tears off and drops. Agent-done prints a short stub.
   function printer(c, k, f) {
-    const x = k.x + 35, y = k.y + 8, pay = prog(k, 'pay', 4.5), ev = lastEv(k, 'pay'), dn = prog(k, 'agent-done', 2.5);
+    const x = k.x + 40, y = k.y + 8, pay = prog(k, 'pay', 4.5), ev = lastEv(k, 'pay'), dn = prog(k, 'agent-done', 2.5);
     let len = 0, tear = 0, col = '#ffffff', edge = null;
     if (pay >= 0 && pay < 1) {
       const s = pay * 4.5; len = Math.round(8 * outBack(clamp((s - 0.15) / 0.9)));
@@ -402,14 +417,14 @@
     }
     if (len > 0 && tear < 12) {
       const ry = y - len + tear, h = Math.max(1, len - (tear ? 0 : 0));
-      R(c, col, x + 2, ry, 5, h);
-      for (let i = 1; i < h - 1; i += 2) R(c, '#8a8a8a', x + 3, ry + i, (i * 3) % 3 + 2, 1);
-      if (h > 4) { R(c, '#3b7a3a', x + 5, ry + 1, 1, 3); R(c, '#3b7a3a', x + 4, ry + 2, 3, 1); } // $
-      if (edge) R(c, edge, x + 2, ry, 5, 1);
+      R(c, col, x + 3, ry, 5, h);
+      for (let i = 1; i < h - 1; i += 2) R(c, '#8a8a8a', x + 4, ry + i, (i * 3) % 3 + 2, 1);
+      if (h > 4) { R(c, '#3b7a3a', x + 6, ry + 1, 1, 3); R(c, '#3b7a3a', x + 5, ry + 2, 3, 1); } // $
+      if (edge) R(c, edge, x + 3, ry, 5, 1);
     }
-    R(c, '#cfd4de', x, y, 9, 5); R(c, '#9aa0ae', x, y + 4, 9, 1); R(c, '#1b1f2b', x + 1, y, 7, 1);
+    R(c, '#cfd4de', x + 1, y, 7, 5); R(c, '#9aa0ae', x + 1, y + 4, 7, 1); R(c, '#1b1f2b', x + 2, y, 5, 1);
     const busyLed = len > 0 && tear === 0;
-    R(c, busyLed ? (k.anim && f % 2 ? '#ffb347' : '#6a4a20') : (!k.anim || f % 12 < 9 ? '#4cf08a' : '#1f5a36'), x + 6, y + 2, 2, 1);
+    R(c, busyLed ? (k.anim && f % 2 ? '#ffb347' : '#6a4a20') : (!k.anim || f % 12 < 9 ? '#4cf08a' : '#1f5a36'), x + 5, y + 2, 2, 1);
   }
 
   FX.add('hunt', { a: A, b: B, c: C });
