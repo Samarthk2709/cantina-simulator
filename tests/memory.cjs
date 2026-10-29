@@ -34,7 +34,7 @@ const SECS = +(process.env.MEM_SECS || 240);
     if (await p.evaluate(() => Stage3Agents.list().every(a => !Stage3Agents.live(a) && a.status !== 'queued'))) {
       await p.evaluate(() => { const b = document.querySelector('#nib-bubble:not([hidden]) .nib-next'); if (b) b.click(); });
       await p.click('#sleep', { timeout: 2000 }).catch(() => {}); await p.waitForTimeout(3000);
-      for (let i = 0; i < 40 && await p.evaluate(() => Stage2.ui().morning || Stage2.ui().night); i++) { const b = await p.$('#nib-bubble:not([hidden]) .nib-next'); if (b) await b.click({ timeout: 1000 }).catch(() => {}); await p.waitForTimeout(300); }
+      for (let i = 0; i < 40 && await p.evaluate(() => Stage2.ui().morning || Stage2.ui().night); i++) { await p.evaluate(() => document.querySelector('#nib-bubble:not([hidden]) .nib-next')?.click()); /* no element handles: Playwright pins each one (and all its listener holds) for the whole run */ await p.waitForTimeout(300); }
     }
     // The team view now and then, so its panes are built and torn down too.
     if (rows.length % 2) { await p.evaluate(() => Stage3UI.open()); await p.waitForTimeout(500); await p.evaluate(() => Stage3UI.close()); }
