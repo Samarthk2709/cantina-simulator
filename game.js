@@ -753,8 +753,16 @@
   }
   $('view-toggle').addEventListener('click', () => { setFollow(!follow); $('world').focus({ preventScroll: true }); });
   setFollow(follow, true);
-  // The lamp pools sit on the room's on-screen rect; while the camera moves they follow every frame.
-  window.Loop.add(function camTick() { const c = world.camera(); if (c.follow || c.moving) placeLamps(); return true; });
+  // The lamp pools sit on the room's on-screen rect; while the camera moves they follow every frame. The camera only
+  // moves while world.js animates (and keeps the loop awake), so this never asks for frames itself, and it skips
+  // placeLamps when the room hasn't moved since the last frame.
+  let camKey = '';
+  window.Loop.add(function camTick() {
+    const c = world.camera(); if (!c.follow && !c.moving) { camKey = ''; return false; }
+    const r = world.roomRect(), k = `${world.getState().room},${r.left},${r.top},${r.width},${r.height},${punchK}`;
+    if (k !== camKey) { camKey = k; placeLamps(); }
+    return false;
+  });
 
   // ---------- vitals box ----------
   // A slim list under the chapter title: bugs today, crits, cash and focus. A click (or V) opens today's and lifetime
@@ -1109,8 +1117,9 @@
     const rr = world.roomRect(), k = rr.width / W.rooms.find(r => r.id === 'office').width, p = nib.pos();
     return [rr.left + p.x * k, rr.top + (p.y - 10) * k];
   }
+  let posSaved = null; // the last position written (savePos); cleared with it so a wiped save is written afresh
   function wipe(keepNib) {
-    window.Stage3Scope?.reset();
+    window.Stage3Scope?.reset(); posSaved = null;
     try { [KEY, POS, 'first-office-crew-v1'].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
   }
   function restart() {
@@ -1118,7 +1127,7 @@
     if (!confirm('Restart the first job? Your names stay.')) return;
     const keep = { playerName: s.player, nibName: s.nib, facts: s.memories };
     s = E.create(keep, crypto.getRandomValues(new Uint32Array(1))[0]);
-    try { localStorage.removeItem(POS); } catch {}
+    try { localStorage.removeItem(POS); } catch {} posSaved = null;
     leave();
   }
 
@@ -1158,7 +1167,11 @@
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
   window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); render(); if (ui.win) drawWindow(); } catch {} } });
-  setInterval(() => { if (frozen) return; try { localStorage.setItem(POS, JSON.stringify(world.getState())); } catch {} }, 1000);
+  // Where you stand: written only when it changed (not every second while idle), and on leaving or hiding the tab.
+  const savePos = () => { if (frozen) return; const v = JSON.stringify(world.getState()); if (v === posSaved) return; try { localStorage.setItem(POS, v); posSaved = v; } catch {} };
+  let posTimer = setInterval(savePos, 1000); // you can't move in a hidden tab: no timer there
+  addEventListener('pagehide', savePos);
+  document.addEventListener('visibilitychange', () => { clearInterval(posTimer); if (document.hidden) savePos(); else posTimer = setInterval(savePos, 1000); });
 
   // Nib's face on the dock chip: the avatar cropped to its head. When he can't be seen in the office, a payout's happy hop
   // (#1) plays here, on the same held whole-pixel frames, the lift halved so his face stays in the frame.

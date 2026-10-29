@@ -56,7 +56,7 @@
   // dialog or Team is open, at night, or in a hidden tab. One clock for all, so re-renders never restart or stack it.
   const EVERY = 3500, WIGGLE = 650, POP = 260, STAGGER = 50;
   const acked = {}, runs = {}; // key -> count acknowledged; key -> {t, el, badge} of the nudge in flight
-  let next = 0;
+  let next = 0, timer = 0, wasQuiet = false;
   function targets() {
     const out = [], team = document.getElementById('s3-toggle'), need = team && team.querySelector('.need');
     if (need) out.push({ key: 'team', el: team, badge: need, n: parseInt(need.textContent) || 1, seen: document.body.classList.contains('s3-agents-open') });
@@ -88,19 +88,26 @@
     for (const k in runs) { const r = runs[k], t = list.find(t => t.key === k);
       if (quiet || !t || !live.has(k) || now - r.t > WIGGLE + POP + 4 * STAGGER) stop(k);
       else if (t.el !== r.el || t.badge !== r.badge) { stop(k); nudge(t, r.t); } } // re-rendered mid-nudge: carry on in the new button
-    if (quiet) { next = now + 1500; return; } // first nudge 1.5 s after something needs you (or after the window closes)
-    if (now < next) return;
-    next = now + EVERY;
-    list.filter(t => live.has(t.key)).forEach((t, i) => nudge(t, now + i * STAGGER)); // 3 frames apart, never in unison
+    if (quiet) wasQuiet = true;
+    else {
+      if (wasQuiet) { wasQuiet = false; next = now + 1500; } // first nudge 1.5 s after something needs you (or after the window closes)
+      if (now >= next) { next = now + EVERY; list.filter(t => live.has(t.key)).forEach((t, i) => nudge(t, now + i * STAGGER)); } // 3 frames apart, never in unison
+    }
+    // No poll: wake when the next nudge is due or a running one ends. The observers below catch what changes the
+    // targets; a slow check backs them up while the tab is visible, and a hidden tab has no timer at all.
+    let at = document.hidden ? Infinity : now + 2000;
+    if (!quiet) at = Math.min(at, next);
+    for (const k in runs) at = Math.min(at, runs[k].t + WIGGLE + POP + 4 * STAGGER + 1);
+    clearTimeout(timer); timer = at < Infinity ? setTimeout(tick, Math.max(16, at - now)) : 0;
   }
   addEventListener('DOMContentLoaded', () => {
     if (!document.getElementById('dock')) return; // Stage 1 has nothing to nudge
-    setInterval(tick, 250);
-    const mo = new MutationObserver(tick); // a swapped dock button or an opened window is handled on the same frame
-    mo.observe(document.getElementById('dock'), { childList: true });
+    const mo = new MutationObserver(() => tick()); // a swapped dock button, a new badge or an opened window is handled on the same frame
+    mo.observe(document.getElementById('dock'), { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden'] }); // subtree: Team's "N needs you"
+    tick();
     mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     document.querySelectorAll('dialog,#night').forEach(d => mo.observe(d, { attributes: true, attributeFilter: ['open', 'hidden'] }));
-    document.addEventListener('visibilitychange', tick);
+    document.addEventListener('visibilitychange', () => tick());
     addEventListener('pointerdown', e => { const b = e.target.closest?.('.nudge'); if (b) for (const k in runs) if (runs[k].el === b) stop(k); }, true); // pressed: hold still under the finger
   });
 })();
