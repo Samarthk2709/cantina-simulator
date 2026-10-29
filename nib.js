@@ -12,6 +12,14 @@
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches, dust = window.FloorDust;
     const A = { x: 184, y: 104, path: [], walk: 0, mood: 'idle', face: 'idle', facing: 1, windup: 0, onArrive: null, visible: true, lit: false, hop: null };
     let t = 0, last = 0, f = 0, blinkAt = 3, sayTimer = 0, bubbleOpen = false, bubbleSide = 'left', finish = null;
+    // Dirty redraws (PERF_PLAN phase 3): the canvas is redrawn only when what it shows changed, the bubble placed only when
+    // it or Nib moved. poke() marks both dirty and wakes the loop from a microtask, so a call made inside another tick
+    // doesn't wake the loop mid-frame.
+    let dirty = true, placeDirty = true, queued = false;
+    const poke = () => { dirty = placeDirty = true; if (queued) return; queued = true; queueMicrotask(() => { queued = false; window.Loop.wake(); }); };
+    // The bubble's size (content, a window docking it) and a window opening or closing (where it docks) aren't Nib's calls.
+    if (window.ResizeObserver) new ResizeObserver(poke).observe(bubble);
+    new MutationObserver(poke).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
     // Idle life (motion #8): standing still, Nib breathes a pixel; when nothing's going on, a blink may turn into a glance.
     // Draw-only: A.facing is never touched, and the glance ends the moment he walks, talks, changes mood or a scene starts.
     let stillAt = 0, busyAt = 0, wasBlink = false, glance = 0;
@@ -35,7 +43,7 @@
     // A new walk replaces the old one; the old walk's callback still fires so nothing awaits forever.
     function settle() { const cb = A.onArrive; A.onArrive = null; if (cb) cb(); }
     function goTo(x, y, onArrive) {
-      settle();
+      poke(); settle();
       const path = W.findPath(A.x, A.y, x, y, 'office', opts.hidden());
       if (!path.length) { A.x = x; A.y = y; A.path = []; if (onArrive) onArrive(); return; }
       if (reduced) { const end = path[path.length - 1]; A.x = end.x; A.y = end.y; A.path = []; if (onArrive) onArrive(); return; }
@@ -45,7 +53,7 @@
       if (still && A.path.length) { A.windup = 0.1; const w = A.path[0]; if (Math.abs(w.x - A.x) > 0.5) A.facing = w.x < A.x ? -1 : 1; }
       if (!A.path.length && onArrive) { A.onArrive = null; onArrive(); }
     }
-    function place(x, y) { A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
+    function place(x, y) { poke(); A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
     function step(dt) {
       if (A.hop !== null && A.hop < 0.7 && A.hop + dt >= 0.7 && !A.path.length && A.visible) dust.land(A.x, A.y + 2); // #10: lands at 700 ms (Avatars.hop)
       if (A.hop !== null) { A.hop += dt; if (A.path.length || A.hop >= 1) A.hop = null; } // squash & stretch hop: a walk cancels it
@@ -89,32 +97,63 @@
     // The docked strip's height, for style.css (--strip): the window shortens so a tall strip never covers its title bar.
     let stripH = 0;
     function strip(h) { h = Math.round(h); if (h === stripH) return false; stripH = h; document.documentElement.style.setProperty('--strip', h + 'px'); return true; }
-    function draw() {
+    // What was last drawn: the canvas's key, Nib's cleared box (device px; null: nothing of his on it), whether dust was
+    // on it, and the bubble's placement key and spring position.
+    let drawn = '', box = null, dustOn = false, placed = '', trailAt = null, springing = false, bubbleUp = false;
+    function draw(force) {
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
-      if (layer.width !== Math.round(w * dpr) || layer.height !== Math.round(h * dpr)) { layer.width = Math.round(w * dpr); layer.height = Math.round(h * dpr); }
-      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, layer.width, layer.height);
-      if (world.getState().room === 'office') dust.draw(g, world.roomRect(), layer.getBoundingClientRect(), dpr); else dust.clear(); // #10: under every sprite
-      if (!A.visible || world.getState().room !== 'office') { bubble.hidden = true; strip(0); return; }
+      let full = false;
+      if (layer.width !== Math.round(w * dpr) || layer.height !== Math.round(h * dpr)) { layer.width = Math.round(w * dpr); layer.height = Math.round(h * dpr); full = true; box = null; dustOn = false; } // a resize blanks it
+      const office = world.getState().room === 'office', now = performance.now();
+      if (!office) dust.clear();
+      const dusty = office && dust.alive(now); // specks fade every frame; drawn under Nib, so the whole canvas is redrawn
+      if (!A.visible || !office) {
+        if (box || dustOn || dusty) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, layer.width, layer.height); box = null; }
+        dustOn = false; drawn = ''; springing = false;
+        if (dusty) { dust.draw(g, world.roomRect(), layer.getBoundingClientRect(), dpr); dustOn = true; }
+        if (!bubble.hidden) bubble.hidden = true;
+        strip(0); return;
+      }
       const rr = world.roomRect(), lr = layer.getBoundingClientRect(), s = rr.width / 320;
       const px = s; // one art pixel = one world pixel: the avatar is 16×21, like the founder
       const fx = rr.left - lr.left + A.x * s, fy = rr.top - lr.top + A.y * s + 2 * s; // between the feet
       const ox = fx - 8 * px, oy = fy - 21 * px;
-      g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = false;
       // Squash & stretch hop: the pose for this frame; the shadow stays on the floor, shrinking and fading as Nib rises.
       const hp = A.hop === null ? null : window.Avatars.hop(A.hop * 1000), rise = hp ? hp.y / 9 : 0;
-      g.fillStyle = `rgba(0,0,0,${.35 * (1 - rise / 2)})`; g.beginPath(); g.ellipse(fx, fy, 7 * px * (hp ? hp.sx : 1) * (1 - rise * .4), 2 * px, 0, 0, 7); g.fill();
-      if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
       const crouch = A.path.length > 0 && A.windup > 0, moving = A.path.length > 0 && !crouch;
       const stepN = moving ? ((A.walk / 5) | 0) % 4 : 0, bob = crouch ? -px : moving && !reduced ? (stepN % 2) * px : 0;
-      const [lx, ly] = followLean(px); g.translate(lx, ly); // #6: the sprite leans on, its shadow doesn't
-      window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood: hp && A.mood === 'idle' ? 'happy' : A.face, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy, ...(hp ? {} : lifePose()) });
-      g.translate(-lx, -ly);
-      if (A.mood === 'sleep' && !reduced) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - (t * 4 % 6)); }
-      placeBubble(ox + lr.left, oy + lr.top, px, rr);
+      const [lx, ly] = followLean(px); // #6: the sprite leans on, its shadow doesn't
+      const mood = hp && A.mood === 'idle' ? 'happy' : A.face, pose = hp ? {} : lifePose();
+      const zz = A.mood === 'sleep' && !reduced ? (Math.floor(t * 8) / 8) * 4 % 6 : -1; // the z drifts up in half-px steps at 8 Hz
+      const key = [dpr, fx, fy, A.facing, A.lit, A.mood, mood, mood === 'talk' ? f % 2 : 0, crouch, stepN, bob, lx, ly, hp ? [hp.y, hp.sx, hp.sy] : '', pose.breath, pose.look, pose.flip, zz].join();
+      if (force || dirty || key !== drawn || dusty || dustOn) {
+        dirty = false; drawn = key;
+        // Nib's box (CSS px): the lit glow (±30 px, 20 above to 40 below his top), a hop's rise, the z, the lean.
+        const nb = [Math.floor((fx - 32 * px - 4) * dpr), Math.floor((oy - 30 * px - 16) * dpr), Math.ceil((fx + 32 * px + 4) * dpr), Math.ceil((fy + 22 * px + 4) * dpr)];
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        if (full || !box || dusty || dustOn) g.clearRect(0, 0, layer.width, layer.height); // dust is anywhere in the room
+        else { const x0 = Math.min(box[0], nb[0]), y0 = Math.min(box[1], nb[1]); g.clearRect(x0, y0, Math.max(box[2], nb[2]) - x0, Math.max(box[3], nb[3]) - y0); }
+        box = nb; dustOn = dusty;
+        if (dusty) dust.draw(g, rr, lr, dpr); // #10: under every sprite
+        g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = false;
+        g.fillStyle = `rgba(0,0,0,${.35 * (1 - rise / 2)})`; g.beginPath(); g.ellipse(fx, fy, 7 * px * (hp ? hp.sx : 1) * (1 - rise * .4), 2 * px, 0, 0, 7); g.fill();
+        if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
+        g.translate(lx, ly);
+        window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy, ...pose });
+        g.translate(-lx, -ly);
+        if (zz >= 0) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - zz); }
+      }
+      // The bubble: its spring is stepped every frame it's up (cheap); the DOM is read and moved only when something moved.
+      const nx = ox + lr.left, ny = oy + lr.top;
+      if (bubble.hidden) { springing = false; trailAt = null; if (bubbleUp || placeDirty || force) { bubbleUp = false; placeDirty = false; placed = ''; placeBubble(nx, ny, px, rr); } return; }
+      const tr = trailBubble(nx, ny, px), pk = [tr[0], tr[1], nx, ny, px, rr.left, rr.top, rr.width, rr.height, innerWidth, innerHeight].join();
+      springing = !!trailAt && (Math.abs(tr[0] - trailAt[0]) > 0.01 || Math.abs(tr[1] - trailAt[1]) > 0.01) || Math.abs(tr[0] - nx) > 0.01 || Math.abs(tr[1] - ny) > 0.01;
+      trailAt = tr;
+      if (force || placeDirty || !bubbleUp || pk !== placed) { bubbleUp = true; placeDirty = false; placed = pk; placeBubble(nx, ny, px, rr, tr); }
     }
-    function placeBubble(x, y, px, room) {
+    function placeBubble(x, y, px, room, tr) {
       const nx = x, ny = y; // where Nib is: the side is picked from him, not from the bubble's lagging anchor
-      [x, y] = trailBubble(x, y, px); // #6: lags Nib on a spring
+      [x, y] = tr || trailBubble(x, y, px); // #6: lags Nib on a spring (draw() steps it)
       if (bubble.hidden) { strip(0); delete bubble.dataset.side; return; }
       // A window is open: Nib speaks from a strip docked on top of it, never over what you're working on.
       let dock = opts.dock && opts.dock();
@@ -150,9 +189,30 @@
       left = Math.max(margin, Math.min(vw - bw - margin, left));
       bubble.style.left = Math.round(left) + 'px'; bubble.style.top = Math.round(top) + 'px'; bubble.dataset.side = side;
     }
+    // t (blinks, breath, the lean, the z) keeps real time across the loop's sleeps; movement steps at most 50 ms, and the
+    // first step after Nib was idle at most a frame, so a walk asked for after a long sleep doesn't start with a jump.
+    let awake = true, timer = 0, timerAt = 0;
     function frame(now) {
-      const dt = last ? Math.min(0.05, (now - last) / 1000) : 0; last = now; t += dt; f = (t * 7) | 0;
-      step(dt); draw(); return true;
+      const real = last ? (now - last) / 1000 : 0; last = now; t += real; f = (t * 7) | 0;
+      step(Math.min(awake ? 0.05 : 1 / 60, real)); draw();
+      awake = !!(A.path.length || A.hop !== null || dustOn || springing || t - A.followAt < FOLLOW);
+      if (!awake) { // nothing moves now: sleep until his face or breath next changes
+        const due = nextChange();
+        if (due !== timerAt) { clearTimeout(timer); timerAt = due; timer = due < Infinity ? setTimeout(() => { timer = 0; timerAt = 0; window.Loop.wake(); }, (due - t) * 1000 + 4) : 0; }
+      }
+      return awake;
+    }
+    // When (in t) Nib's still pose next changes: a blink starts or ends, a breath turns, his mouth moves, the z rises.
+    function nextChange() {
+      let d = Infinity;
+      if (A.mood === 'idle') d = A.face === 'blink' ? blinkAt + 0.14 : blinkAt;
+      if (A.face === 'talk') d = Math.min(d, (f + 1) / 7);
+      if (A.mood === 'sleep' && !reduced) d = Math.min(d, (Math.floor(t * 8) + 1) / 8);
+      if (!reduced && !A.path.length) {
+        if (t - stillAt < 0.5) d = Math.min(d, stillAt + 0.5);
+        else { const P = A.mood === 'sleep' ? 4.6 : 3, u = (t / P + 0.37) % 1; d = Math.min(d, t + ((u < 0.55 ? 0.55 : 1) - u) * P); }
+      }
+      return Math.max(d, t + 0.02);
     }
     window.Loop.add(frame);
 
@@ -171,7 +231,7 @@
       else if (o.choices) typed.done.then(() => setTimeout(() => { if (id === sayN && A.mood === 'talk') setMood('think'); }, 300));
       return new Promise(resolve => {
         let settled = false;
-        const done = v => { if (settled) return; settled = true; if (finish === done) finish = null; clearTimeout(sayTimer); typed.finish(); bubble.hidden = true; bubbleOpen = false; setMood(o.after || 'idle'); resolve(v); };
+        const done = v => { if (settled) return; settled = true; poke(); if (finish === done) finish = null; clearTimeout(sayTimer); typed.finish(); bubble.hidden = true; bubbleOpen = false; setMood(o.after || 'idle'); resolve(v); };
         finish = done;
         if (o.choices) {
           o.choices.forEach((c, i) => {
@@ -191,10 +251,10 @@
           typed.done.then(() => { if (!settled) sayTimer = setTimeout(() => done(true), o.ms || Math.max(2600, 55 * text.length)); });
         }
         // Place the new line now: a line said after this frame's draw (an arrival callback) would paint once at the old size.
-        draw();
+        poke(); draw(true);
       });
     }
-    function hush() { clearTimeout(sayTimer); if (finish) finish(false); bubble.hidden = true; bubbleOpen = false; }
+    function hush() { poke(); clearTimeout(sayTimer); if (finish) finish(false); bubble.hidden = true; bubbleOpen = false; }
     // Talking text (#11): the line types out (talk.js); choices and Next stay hidden (.typing) until it's done.
     // A click on the bubble, Enter or 1-3 (game.js) finishes it at once.
     let sayN = 0;
@@ -206,15 +266,15 @@
     }
     function skip() { const h = bubble.querySelector('.nib-text').talk; if (!h || !h.typing) return false; h.finish(); return true; }
     bubble.addEventListener('click', e => { if (!bubble.hidden && !e.target.closest('button')) skip(); }); // an answer's click mustn't skip the line it brings
-    function setMood(m) { A.mood = m; A.face = m; }
+    function setMood(m) { A.mood = m; A.face = m; poke(); }
     return {
       // Squash & stretch: one happy hop on the spot (not mid-walk). If he's walking or the office is covered (a window open),
       // nobody would see it, so opts.faceHop plays it where you're looking (game.js: his dock portrait).
-      hop: () => { if (reduced) return; if (!A.path.length) A.hop = 0; if (opts.faceHop && (A.path.length || !A.visible || (opts.covered && opts.covered()))) opts.faceHop(); },
+      hop: () => { if (reduced) return; if (!A.path.length) { A.hop = 0; poke(); } if (opts.faceHop && (A.path.length || !A.visible || (opts.covered && opts.covered()))) opts.faceHop(); },
       goTo, place, say, hush, setMood, skip,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
       get typing() { const h = bubble.querySelector('.nib-text').talk; return bubbleOpen && !!h && h.typing; }, // #11
-      pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; }, show: v => { A.visible = !!v; }
+      pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; poke(); }, show: v => { A.visible = !!v; poke(); }
     };
   }
   // Follow-through (#6): a speech bubble trails its speaker on a spring (the mockup's: stiffness 72/s², damping 12/s,
@@ -246,17 +306,20 @@
   // Nib's canvas under everyone (crew.js feeds the agents' steps). None under reduced motion or in a hidden tab.
   function floorDust() {
     const N = 48, P = [], calm = matchMedia('(prefers-reduced-motion: reduce)');
-    let at = 0;
+    let at = 0, until = 0, queued = false; // until: when the last speck fades
     function add(x, y, dx, rise, size) {
       const p = P[at] || (P[at] = {}); at = (at + 1) % N;
       Object.assign(p, { x, y, dx, rise, size, t0: performance.now(), life: 420 + Math.random() * 160 });
+      until = Math.max(until, p.t0 + p.life);
+      if (!queued) { queued = true; queueMicrotask(() => { queued = false; window.Loop.wake(); }); } // crew.js kicks them up too: Nib's canvas wakes to draw them
     }
     const off = () => calm.matches || document.hidden, j = () => Math.random() - 0.5;
     return {
       step(x, y, facing) { if (off()) return; x -= (facing || 1) * 3; for (let i = 0; i < 2; i++) add(x, y, (i - 0.5) - (facing || 1) * 0.5 + j() * 1.3, 2.3 + Math.random() * 1.7, 1); },
       // Three a side, from the feet's edges outward and low, so they clear the body they're drawn under.
       land(x, y) { if (off()) return; for (let i = 0; i < 6; i++) { const side = i < 3 ? -1 : 1, r = i % 3; add(x + side * (4 + r), y, side * (2 + r * 1.5 + Math.random()), 0.5 + r * 0.8 + Math.random(), r ? 1 : 2); } },
-      clear() { P.length = 0; at = 0; },
+      clear() { P.length = 0; at = 0; until = 0; },
+      alive: now => now < until, // a speck is still fading: redraw every frame
       // rr: the office's screen rect, lr: the canvas's. Positions round to whole art pixels, so specks step like sprites.
       draw(g, rr, lr, dpr) {
         if (!P.length) return;
