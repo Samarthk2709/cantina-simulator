@@ -434,7 +434,15 @@
     if (L >= 7) { r(c, '#c9d2ea', x + 2, top + 2, w - 4, 1); }
     if (L >= 8) for (i = 0; i < 6; i++) r(c, anim && (f + i) % 6 < 3 ? '#ffe28a' : '#e8c14a', x + 8 + i * 16, top + 1, 4, 1); // lit crown
   }
+  // First Office: stations/fx.js may draw a station itself (animated variants); `FX` carries the frame's
+  // clock and the player's nearest station. Without it, or when it declines, the original art draws.
+  var FX = { t: 0, near: null };
   function drawStation(c, s, S, f, anim, V) {
+    var fac = STATION_FACILITY[s.id];
+    if (window.StationFX && !(V && V.fac && fac && V.fac[fac] === 0) && window.StationFX.draw(c, s, { f: f, t: FX.t, anim: anim, L: fac ? levelOf(V, fac) : 0, V: V, S: S, near: FX.near === s.id, T: T, base: function () { drawStationArt(c, s, S, f, anim, V); } })) return;
+    drawStationArt(c, s, S, f, anim, V);
+  }
+  function drawStationArt(c, s, S, f, anim, V) {
     var x = s.tx * T, y = s.ty * T, w = s.tw * T, h = s.th * T, R = ROLE[s.id], i, fac = STATION_FACILITY[s.id], L = fac ? levelOf(V, fac) : 0;
     if (V && V.fac && fac && V.fac[fac] === 0) { drawSite(c, s, f, anim); return; }
     if (s.id === 'hq') { drawHq(c, s, f, anim, L); return; }
@@ -1028,6 +1036,7 @@
       c.setTransform(1, 0, 0, 1, 0, 0); r(c, '#08131a', 0, 0, vw, vh);
       c.setTransform(sc, 0, 0, sc, view.ox, view.oy); c.imageSmoothingEnabled = false; drawHall(c, R, sc, vw, vh); c.drawImage(bgFor(R), 0, 0);
       var items = here(), live = active();
+      FX.t = t; FX.near = nearId;
       if (S) {
         var work = anim && !frozen && S.started && !S.paused;
         drawStaff(c, R, S, V, f, work, anim);
@@ -1126,7 +1135,7 @@
       var dpr = +window.devicePixelRatio; if ((dpr > 0 && isFinite(dpr) ? dpr : 1) !== D) resize();
       var anim = !still(), f = anim ? (t * 8) | 0 : 0, fx = rings.length || floats.length;
       var walkers = S && S.started && !S.paused && !frozen && Object.keys(founders).some(function (id) { return founders[id].path.length; });
-      var want = active() && (held() || route.length > 0) || walkers || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx;
+      var want = active() && (held() || route.length > 0) || walkers || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx || !!(window.StationFX && anim && window.StationFX.busy());
       if (dirty || want || moving !== wasMoving || P.x !== x0 || P.y !== y0 || cam.k !== k0 || pulseT !== p0 || f !== lastF || founderSig() !== f0 || now - lastDraw >= SAFETY) {
         dirty = false; wasMoving = moving; lastF = f; lastDraw = now;
         emitCtx(); draw();

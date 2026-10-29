@@ -302,7 +302,7 @@
     change();
     was.forEach(([t, y]) => { const dy = Math.round(y - t.getBoundingClientRect().top); if (t.isConnected && dy) t.animate([{ translate: `0 ${dy}px` }, { translate: '0 0' }], { duration: 220, easing: SETTLE }); });
   }
-  function floatAt(text, station) { world.float(text, station); }
+  function floatAt(text, station) { world.float(text, station); window.StationFX?.emit(station, 'float', { text }); }
 
   // ---------- wallet motion: rolling counters (#3) and pay chips flying to the wallet (#4) ----------
   // Cash and rep roll to new values instead of jumping: the number dips, bumps and flashes green on a gain, red on a
@@ -367,6 +367,7 @@
   // at most 4 fly at once and the rest wait their turn, their pay still held, so money always lands with a chip.
   let nextPop = 0, lastPop = 0, burst = 0, lastLand = 0, inAir = 0;
   function payChip(r, station, who, key) {
+    if (r.pay) window.StationFX?.emit(station, 'pay', { amount: r.pay, crit: !!r.crit, who: who || 'you' });
     punchFor(r, station, who, key); // #13: a critical or the goal also punches the office in
     if (reduced || document.hidden || !r.pay || $('modal').open || document.body.classList.contains('s3-agents-open')) return false;
     const c = { pay: r.pay, rep: r.rep || 0, crit: !!r.crit, station, who, key }, clear = new Promise(go => c.go = go);
@@ -445,6 +446,7 @@
     if (!ST[id] || !shown(id) || ui.night) return;
     if (id === 'hunt' && !s.target) ui.view = 'board';
     ui.win = id; ui.result = null; ui.traceMsg = null;
+    window.StationFX?.emit(id, 'open');
     const d = $('panel-dialog'), fresh = !d.open || !!winFx?.shut;
     if (!d.open) d.show();
     drawWindow(true);
