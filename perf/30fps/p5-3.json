@@ -1,0 +1,57 @@
+{
+  "idle office": {
+    "scriptMsPerSec": 4.7,
+    "taskMsPerSec": 11.5,
+    "styleRecalcsPerSec": 0,
+    "layoutsPerSec": 0,
+    "paintFramesPerSec": 8.5,
+    "framesPerSec": 30,
+    "rafPerSec": 8.5,
+    "longestTaskMs": 0,
+    "heapMB": 3.6
+  },
+  "walking": {
+    "scriptMsPerSec": 17,
+    "taskMsPerSec": 46,
+    "styleRecalcsPerSec": 29.2,
+    "layoutsPerSec": 23.6,
+    "paintFramesPerSec": 29.8,
+    "framesPerSec": 29.9,
+    "rafPerSec": 29.9,
+    "longestTaskMs": 0,
+    "heapMB": 3.6
+  },
+  "ch3 team idle": {
+    "scriptMsPerSec": 10.7,
+    "taskMsPerSec": 26.3,
+    "styleRecalcsPerSec": 7.1,
+    "layoutsPerSec": 5,
+    "paintFramesPerSec": 9.2,
+    "framesPerSec": 30.1,
+    "rafPerSec": 10.2,
+    "longestTaskMs": 0,
+    "heapMB": 3.7
+  },
+  "ch3 team working": {
+    "scriptMsPerSec": 14.4,
+    "taskMsPerSec": 45.3,
+    "styleRecalcsPerSec": 44.6,
+    "layoutsPerSec": 6.9,
+    "paintFramesPerSec": 16.7,
+    "framesPerSec": 30,
+    "rafPerSec": 21,
+    "longestTaskMs": 0,
+    "heapMB": 3.8
+  },
+  "ch3 team view open": {
+    "scriptMsPerSec": 12.9,
+    "taskMsPerSec": 39.2,
+    "styleRecalcsPerSec": 34.4,
+    "layoutsPerSec": 6.1,
+    "paintFramesPerSec": 8.7,
+    "framesPerSec": 30,
+    "rafPerSec": 25.1,
+    "longestTaskMs": 0,
+    "heapMB": 4
+  }
+}

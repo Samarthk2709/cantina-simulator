@@ -110,7 +110,7 @@ NODE_PATH=<dir with playwright> node outputs/first-office/tests/browser.cjs   # 
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/flow.cjs      # Stage 1 → office → chapter 3 agents (model blocked)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs   # plays chapter 3 to Elite at 10× (model blocked)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
-node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/baseline.json   # median and % vs baseline
+node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/60fps/baseline.json   # median and % vs baseline
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
 ```
 

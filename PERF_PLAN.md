@@ -84,7 +84,7 @@ Main risk: a dirty flag that misses a trigger leaves something frozen on screen.
 
 ## Results (2026-10-28)
 
-All phases are done and merged. Every test passes (`engine`, `pacing`, `browser`, `flow`, `stage3-play`), and an independent code review found no stalls or visual regressions; its two small timing findings were fixed. Method: `tests/perf.cjs`, headless Chrome at 1440×900, median of 3 runs (baseline: 2), 8 s per case. Raw data is in `perf/`.
+All phases are done and merged. Every test passes (`engine`, `pacing`, `browser`, `flow`, `stage3-play`), and an independent code review found no stalls or visual regressions; its two small timing findings were fixed. Method: `tests/perf.cjs`, headless Chrome at 1440×900, median of 3 runs (baseline: 2), 8 s per case. Raw data is in `perf/30fps/` (per-phase runs) and `perf/60fps/` (final vs baseline).
 
 Units: task = main-thread ms per second, restyle and layout = per second, paint = frames per second with any canvas drawn, rAF = animation-frame callbacks per second.
 
