@@ -6,19 +6,21 @@
 (function () {
   'use strict';
   const subs = [], GAP = 12;
-  let raf = 0, last = 0;
+  let raf = 0, last = 0, ticking = false, woken = false;
   function frame(now) {
     raf = 0;
     if (last && now - last < GAP) { raf = requestAnimationFrame(frame); return; }
     last = now;
-    let more = false;
+    let more = false; ticking = true; woken = false;
     for (const s of subs.slice()) {
       if (s.off) continue;
       try { if (s.fn(now)) more = true; } catch (e) { console.error('loop:', e); more = true; }
     }
-    if (more) raf = requestAnimationFrame(frame);
+    ticking = false;
+    if (more || woken) raf = requestAnimationFrame(frame);
   }
-  function wake() { if (!raf) raf = requestAnimationFrame(frame); }
+  // A wake from inside a tick asks for the next frame once the tick is done, so it never starts a second chain.
+  function wake() { if (ticking) woken = true; else if (!raf) raf = requestAnimationFrame(frame); }
   window.Loop = {
     // Returns a function that removes the tick.
     add(fn) { const s = { fn }; subs.push(s); wake(); return () => { s.off = true; subs.splice(subs.indexOf(s), 1); }; },
