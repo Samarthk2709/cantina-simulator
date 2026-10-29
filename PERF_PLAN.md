@@ -81,3 +81,43 @@ Root cause: six independent loops all run at the screen's refresh rate forever, 
 3. Phase 7, then verification, after the merge.
 
 Main risk: a dirty flag that misses a trigger leaves something frozen on screen. The 250 ms forced redraw and the screenshot diffs cover that.
+
+## Results (2026-10-28)
+
+All phases are done and merged. Every test passes (`engine`, `pacing`, `browser`, `flow`, `stage3-play`), and an independent code review found no stalls or visual regressions; its two small timing findings were fixed. Method: `tests/perf.cjs`, headless Chrome at 1440×900, median of 3 runs (baseline: 2), 8 s per case. Raw data is in `perf/`.
+
+Units: task = main-thread ms per second, restyle and layout = per second, paint = frames per second with any canvas drawn, rAF = animation-frame callbacks per second.
+
+### Per phase, cumulative (each row adds that phase to the ones above; % vs baseline)
+
+These runs were at a 30 fps frame cap (laptop on battery), so they understate the gains on a real 60–120 Hz screen.
+
+| After | Idle office: task · paint · rAF | Walking: task · layout | Ch3 team idle: task · restyle · rAF | Ch3 working: task · restyle · layout | Team view: task · restyle |
+|---|---|---|---|---|---|
+| Baseline | 26.9 · 30 · 90 | 48.3 · 23.6 | 53 · 34 · 181 | 71 · 66.5 · 18.4 | 55.3 · 63.3 |
+| 1 One loop | −6% · 0% · −67% | −14% · 0% | −2% · +2% · −83% | +3% · +5% · +17% | +2% · 0% |
+| 2 World redraws | −25% · 0% · −67% | −8% · 0% | −29% · +2% · −83% | −18% · −6% · −14% | −21% · −1% |
+| 3 Nib layer | −45% · −70% · −67% | −24% · 0% | −28% · +3% · −83% | −15% · +4% · +17% | −27% · −1% |
+| 4 Crew + harness | −42% · −70% · −67% | −4% · 0% | −40% · −79% · −83% | −30% · −33% · −62% | −34% · −46% |
+| 5 Timers | −57% · −71% · −90% | −2% · 0% | −51% · −79% · −94% | −36% · −33% · −62% | −29% · −46% |
+| 6 CSS | −58% · −70% · −90% | −5% · 0% | −52% · −80% · −94% | −37% · −32% · −61% | −31% · −46% |
+
+Phases 1–3 show little on their own because the page only goes idle when every system can sleep. The big drops land when the last always-on loop stops (Phase 5's camera tick). Task time varies about ±20% between runs; the counts (paint, rAF, restyle, layout) are stable.
+
+### Final vs baseline at 60 fps (same session, runs alternated)
+
+After the phases, two follow-up fixes went in: the lamp layer moves by `transform` (walking with the follow camera no longer forces a layout every frame), and the review's two timing fixes.
+
+| Case | Task ms/s | Script ms/s | Restyles/s | Layouts/s | Paint fps | rAF/s |
+|---|---|---|---|---|---|---|
+| Idle office | 58.6 → 16.3 (−72%) | 30.8 → 5.4 (−82%) | 0 → 0 | 0 → 0 | 60 → 9.1 (−85%) | 180 → 9.1 (−95%) |
+| Walking | 83.8 → 60 (−28%) | 30.8 → 27.8 (−10%) | 53 → 52.9 | 47.2 → 0 (−100%) | 60 → 59.8 | 180 → 60 (−67%) |
+| Ch3 team idle | 103 → 30.5 (−70%) | 54 → 10.4 (−81%) | 64.7 → 6.7 (−90%) | 5 → 4.7 | 60 → 10 (−83%) | 361 → 11 (−97%) |
+| Ch3 team working | 139.5 → 80.2 (−43%) | 56.6 → 24.6 (−57%) | 124.2 → 111.6 (−10%) | 23.9 → 8 (−67%) | 60 → 38.3 (−36%) | 362 → 60.6 (−83%) |
+| Team view open | 117 → 56.1 (−52%) | 50.3 → 15.2 (−70%) | 123.3 → 64.6 (−48%) | 14.5 → 9.5 (−34%) | 60 → 14.1 (−77%) | 372 → 40.6 (−89%) |
+
+Walking and agents working still draw every frame, because something really is moving. Most of what's left while agents work is the CSS bob/sway/hop animations restyling each frame.
+
+### Memory (Phase 7)
+
+`tests/memory.cjs`: 10 minutes of chapter 3 at 10× (about 1.5 hours of game time). The JS heap after GC stays flat: 4.1 → 5.2 MB, the same as main (4.3 → 5.2 MB), and a heap snapshot shows no detached DOM. Blink's node counter grows by about 19 nodes/s and listeners by about one per 8 s, **on main too** (main 10,757 nodes vs 10,915 here after 10 min). So that's an existing issue, not one this work added. Nodes actually in the page stay around 700. The source isn't found yet: it isn't the team view or the shared loop sleeping. It's a follow-up.

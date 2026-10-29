@@ -84,6 +84,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), quotas, same-origin and localhost checks |
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
+| `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. Capped at ~60 fps. See **Performance** below |
 | `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
 | `index.html`, `game.js`, `nib.js`, `style.css`, `original/` | The office (Stage 2 rebuild), with Stage 3 hooks |
 | `data.js`, `engine.js` | Rules. `stage`, `won3`, agent finds (`guess(…, by)`), `penalize` |
@@ -96,6 +97,8 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 
 **Vitals box** (top left, or V): bugs today, crits, cash and focus; click for today's and lifetime totals and per-day charts. On screens 900px and wider the room keeps a left margin clear for it (`world.setInsets({left})`); open, it floats over the room only if the margin is too narrow. "Today" is the current game day, measured against the end-of-day snapshot `engine.sleep()` adds to `s.days` (last 60 days).
 
+**Performance**: nothing redraws unless it changed. The world canvas redraws on movement, camera easing, its 8 fps sprite frame or an API call, with a 250 ms safety redraw. Nib's layer redraws on his own changes, and agent sprites write styles only when values change. Idle systems sleep on timers set to their next visible change (a blink, a sprite frame, a tool timer). Any new code that changes what a system shows must go through its API or call `Loop.wake()`. Numbers and method: `PERF_PLAN.md`.
+
 Saves (localStorage on this address): `first-office-nib-v1` (Stage 1 memory), `first-office-game-v1` (office), `first-office-crew-v1` (agents and rules).
 
 ## Verify
@@ -106,6 +109,9 @@ node outputs/first-office/tests/pacing.cjs             # Stage 2 balance
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/browser.cjs   # Stage 2 playthrough → chapter 3 button (server running)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/flow.cjs      # Stage 1 → office → chapter 3 agents (model blocked)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs   # plays chapter 3 to Elite at 10× (model blocked)
+NODE_PATH=<dir with playwright> node outputs/first-office/tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
+node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/baseline.json   # median and % vs baseline
+NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
 ```
 
 `stage3-play` reached Elite on day 9–10 in six of six runs after Parcelly was added (earlier: day 8–10 in four runs): 30–60 s at 10×, about 5–10 minutes at normal speed. Each run had 2–5 penalties before the rules went on.
