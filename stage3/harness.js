@@ -642,6 +642,13 @@
     if (soon < Infinity) { nap = true; napT = setTimeout(window.Loop.wake, Math.max(0, soon / speed * 1000)); }
     return false;
   }
+  // A speed change mid-nap: the time napped so far counts at the old speed, so no tool's timer jumps.
+  function settleNap() {
+    if (!nap) return;
+    const now = performance.now(), real = Math.min((now - last) / 1000, 10);
+    for (const a of Object.values(agents)) if (a.status === 'working') a.timer -= real * speed;
+    last = now;
+  }
   // A hidden tab gets no frames, so its timers stand still as before; it starts counting again when shown.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) last = performance.now(); });
   function secondTick() {
@@ -736,7 +743,7 @@
     list: () => hired().map(id => agents[id]), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),
     send, answer, stop, hire, setRule, addRule, rule, ruleList, RULES, TOOLS, parseLocal, isQuestion, lint, label, stopLabel, live,
     resetAll: () => G.restart3(), slots, busy, phrase, gistOf, model: () => model,
-    speed: v => { if (v) { speed = v; window.Loop.wake(); } return speed; }, pause: v => { if (v !== undefined) { paused = v; window.Loop.wake(); } return paused; },
+    speed: v => { if (v) { settleNap(); speed = v; window.Loop.wake(); } return speed; }, pause: v => { if (v !== undefined) { paused = v; window.Loop.wake(); } return paused; },
     onChange: fn => listeners.push(fn), crew,
   };
 });

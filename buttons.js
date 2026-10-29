@@ -103,7 +103,9 @@
   addEventListener('DOMContentLoaded', () => {
     if (!document.getElementById('dock')) return; // Stage 1 has nothing to nudge
     const mo = new MutationObserver(() => tick()); // a swapped dock button, a new badge or an opened window is handled on the same frame
-    mo.observe(document.getElementById('dock'), { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden'] }); // subtree: Team's "N needs you"
+    mo.observe(document.getElementById('dock'), { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden'] }); // subtree: badges inside dock buttons
+    const hud = document.querySelector('.hud'); // Team's toggle and its "N needs you" badge live in the HUD (crew.js)
+    if (hud) mo.observe(hud, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
     tick();
     mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     document.querySelectorAll('dialog,#night').forEach(d => mo.observe(d, { attributes: true, attributeFilter: ['open', 'hidden'] }));
