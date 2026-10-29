@@ -132,6 +132,7 @@ A leftover draft, for example one an agent gave up on, is one **File** click on 
 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
 - **Nib docks to the window:** while a window is open, Nib speaks from one strip docked on top of it, with choices and Next inline, instead of a bubble over your work. Opening a window puts keyboard focus on Nib's waiting line or the window, never the × button.
+- **Redraws patch in place:** a window or dock redraw keeps every node still there and only patches what changed (`morph` in `game.js`), so the button under a resting cursor keeps its hover instead of blinking when agents or Nib change the save.
 - **Dock groups:** Desk stands alone; Ops + HQ are **Jobs**, Tools + Rig are **Gear**, Nib + Ledger are **Books** (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
 - **Toasts:** they sit just above the dock and slide as the stack changes. On phones with a window open, they sit at the top instead, clear of the window's buttons.
 - **Less text:**

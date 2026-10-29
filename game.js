@@ -169,6 +169,26 @@
     return busy + ' working · ' + s.rep + '/60 rep. Hunt too, or sleep and I\'ll fill the tray.';
   }
 
+  // Windows and the dock redraw by patching: a redraw (agents, Nib, a payment) keeps every node that's still there and only patches what changed. Replacing them
+  // all put a fresh, un-hovered button under a resting cursor: it faded back to its hover colour each time, a blink, and
+  // in some browsers stayed un-hovered until the mouse moved. Nodes match by tag and key (id, data-act, data-id).
+  const morphTpl = document.createElement('template');
+  const morphKey = n => n.nodeType === 1 ? [n.tagName, n.id, n.dataset.act, n.dataset.id, n.dataset.stamp, n.dataset.station, n.dataset.group, n.dataset.menu].join('|') : n.nodeType;
+  const KEEP = ['pressing', 'nudge']; // buttons.js's classes: a press in progress and a waiting nudge stay on the button
+  function morph(cur, html) { morphTpl.innerHTML = html; patch(cur, morphTpl.content); }
+  function patchNode(o, n) {
+    if (n.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return; }
+    const kept = KEEP.filter(c => o.classList.contains(c));
+    for (const at of [...o.attributes]) if (!n.hasAttribute(at.name)) o.removeAttribute(at.name);
+    for (const at of [...n.attributes]) if (o.getAttribute(at.name) !== at.value) o.setAttribute(at.name, at.value);
+    kept.forEach(c => o.classList.add(c));
+    patch(o, n);
+  }
+  function patch(cur, next) {
+    const a = [...cur.childNodes], b = [...next.childNodes];
+    b.forEach((n, i) => { const o = a[i]; if (o && morphKey(o) === morphKey(n)) patchNode(o, n); else if (o) cur.replaceChild(n, o); else cur.appendChild(n); });
+    for (let i = b.length; i < a.length; i++) a[i].remove();
+  }
   // ---------- HUD + dock ----------
   // dockNew: a new button's [order, animation-clock time it arrived]. It stays `fresh` until its entrance has played, so a
   // second render in the same task (or any rebuild mid-entrance) keeps it, and the entrance carries on from its start.
@@ -250,7 +270,13 @@
     }).join('');
     const dock = $('dock');
     if (dock.dataset.html !== btns) {
-      dock.querySelectorAll('[data-station],[data-group],.dock-menu').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns;
+      // Same slots as before (a badge or pressed state changed): patch them in place, so the button under the cursor keeps
+      // its hover (see morph). New or removed slots rebuild the row.
+      const olds = [...dock.querySelectorAll(':scope>[data-station],:scope>[data-group],:scope>.dock-menu')];
+      morphTpl.innerHTML = btns; const news = [...morphTpl.content.children];
+      if (olds.length === news.length && olds.every((o, i) => morphKey(o) === morphKey(news[i]))) olds.forEach((o, i) => patchNode(o, news[i]));
+      else { olds.forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); }
+      dock.dataset.html = btns;
       dock.querySelectorAll('.fresh').forEach(b => b.getAnimations().forEach(a => { a.startTime = dockNew.get(b.dataset.station || b.dataset.group)[1]; }));
       if (dockOpen) placeMenu(dock.querySelector(`[data-group="${dockOpen}"]`));
     }
@@ -433,7 +459,7 @@
     if (!ui.win) return;
     const body = $('panel-body'), y = body.scrollTop;
     const html = { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
-    body.innerHTML = html;
+    if (top) body.innerHTML = html; else morph(body, html); // a new view starts fresh; a redraw of the same view patches it in place
     stampFx(body);
     $('panel-title').textContent = crumbs();
     $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'map'));
