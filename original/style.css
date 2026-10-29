@@ -91,7 +91,7 @@ kbd{display:inline-block;min-width:1.6em;padding:0 5px;margin-right:6px;border:0
 /* Windows */
 dialog{padding:0;border:0;border-radius:20px;background:var(--paper);color:var(--ink);width:calc(100% - 24px);max-width:580px;max-height:calc(100dvh - 24px);overflow:auto;box-shadow:0 2px 0 rgba(47,49,54,.04),0 32px 64px -32px rgba(47,49,54,.55);font:15px/1.5 var(--sans)}
 dialog.wide-window{max-width:800px}
-dialog::backdrop{background:rgba(24,27,34,.24);backdrop-filter:blur(6px)}
+dialog::backdrop{background:rgba(24,27,34,.24)}
 /* Quiet window chrome; headings and open sections carry the hierarchy. */
 .bar{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:64px;padding:12px 18px 8px 32px;background:var(--paper);font:600 14px/1.3 var(--sans);letter-spacing:0;color:var(--muted);text-transform:capitalize}
 
@@ -484,7 +484,7 @@ button[aria-pressed=true]{background:var(--paper-2);color:var(--ink);border-colo
    cannot hold both (they pass clicks through). An open window is a top-level dialog the game layer cannot draw over, so
    beside it the stack takes the wider free side, else only its newest toast shows, just below the window. */
 .playfield>.toasts{bottom:var(--chrome-bottom,96px)!important;z-index:15}.playfield>.toasts[data-side]{max-width:var(--toast-w,320px)}.playfield>.toasts[data-side=left]{left:16px;right:auto;align-items:flex-start}.playfield>.toasts[data-side=over]{bottom:var(--toast-bottom,96px)!important}.playfield>.toasts[data-side=over] .toast:not(:last-child){visibility:hidden}
-dialog{background:var(--paper);color:var(--ink);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow)}dialog::backdrop{background:rgba(8,19,26,.7);backdrop-filter:none}
+dialog{background:var(--paper);color:var(--ink);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow)}dialog::backdrop{background:rgba(8,19,26,.7)}
 #panel-dialog,#agent-dialog{position:fixed;inset:auto;margin:0;top:auto!important;transform:none;z-index:12;width:420px;max-width:calc(100% - 24px);max-height:calc(100dvh - 116px);overflow:auto;border-radius:8px}
 #panel-dialog{left:calc(50% + 70px);bottom:92px}#agent-dialog{left:max(12px,calc(50% - 330px));bottom:92px}
 #panel-dialog .bar,#agent-dialog .bar{min-height:44px;padding:0 4px 0 12px;font:600 12px/1.2 var(--mono);letter-spacing:.13em;background:var(--paper);border-bottom:1px solid var(--line)}.bar .close{min-width:32px;min-height:32px;color:var(--muted);background:transparent}.bar-wallet{display:none}#panel-dialog{overflow-x:hidden}#panel-dialog .bar .close:focus-visible,#agent-dialog .bar .close:focus-visible{outline-offset:-2px}
