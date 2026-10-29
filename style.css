@@ -410,7 +410,7 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
    bars grow and lines draw. Numbers count up and glow when they rise. */
 .vitals{position:absolute;left:18px;top:64px;z-index:6;width:var(--vw,168px);padding:12px 14px 13px;box-sizing:border-box;
   background:linear-gradient(180deg,rgba(24,48,58,.92),rgba(14,30,38,.92));border:1px solid var(--line-2);border-radius:12px;color:var(--ink-2);font-size:12px;cursor:pointer;
-  box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);backdrop-filter:blur(6px);
+  box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);
   transition:width .32s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s,transform .12s ease-out}
 .vitals:not(.open):hover{border-color:rgba(127,240,216,.55);box-shadow:0 12px 30px rgba(0,0,0,.32),0 0 0 3px rgba(127,240,216,.07)}
 .vitals:not(.open):active{transform:scale(.98)}
@@ -471,9 +471,16 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 /* Zoom toggle (game.js setFollow): bottom right, above the dock. Following you shows "Whole office" (zoom out); zoomed out shows "Follow me". */
 .view-toggle{position:absolute;right:18px;bottom:calc(var(--dock-top,90px) + 14px);z-index:6;display:flex;align-items:center;gap:8px;height:38px;padding:0 14px 0 11px;
   background:linear-gradient(180deg,rgba(24,48,58,.94),rgba(14,30,38,.94));border:1px solid var(--line-2);border-radius:999px;color:var(--ink-2);font:500 12.5px var(--sans);
-  box-shadow:0 8px 22px rgba(0,0,0,.3);backdrop-filter:blur(6px);cursor:pointer;transition:border-color .2s,color .2s,transform .12s ease-out}
+  box-shadow:0 8px 22px rgba(0,0,0,.3);cursor:pointer;transition:border-color .2s,color .2s,transform .12s ease-out}
 .view-toggle:hover{border-color:rgba(127,240,216,.55);color:var(--ink)}
 .view-toggle:active{transform:scale(.96)}
 .view-toggle svg{width:17px;height:17px;fill:none;stroke:var(--nib);stroke-width:1.7;stroke-linecap:round}
 .view-toggle .plus{transition:opacity .2s;opacity:0}.view-toggle.out .plus{opacity:1}
 @media (max-width:700px){.view-toggle span{display:none}.view-toggle{padding:0 10px;right:12px}}
+
+/* Compositing cost (PERF_PLAN phase 6). No backdrop blur on the vitals box or zoom toggle: at 92-94% opaque it was
+   invisible, but it re-blurred the world under them on every redraw. Containment keeps a change inside a box (a number
+   ticking, a toast arriving) from re-laying out the page. Paint containment clips, so only boxes with nothing that
+   sticks out get it; the HUD, dock and toasts carry shadows, focus rings and badges past their edges. */
+.hud,.dock-shell,.stage-toasts{contain:layout style}
+#vitals,.nib-bubble{contain:layout paint style}
