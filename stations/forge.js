@@ -29,6 +29,9 @@
     let h = 0; const s = String(a.id || a.name || ''); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return AG[Math.abs(h) % AG.length];
   }
+  // Colour of an agent known only by id (agent-done events carry { who }).
+  const colOf = id => agentCol({ id, color: window.Stage3Agents?.roster?.[id]?.color || null });
+  function lastDone(k) { const e = k.events || []; for (let i = e.length - 1; i >= 0; i--) if (e[i].kind === 'agent-done') return (e[i].data || {}).who; return null; }
   function crew(k) {
     let work = null, work2 = null, walk = null;
     const list = k.agents || [];
@@ -85,40 +88,50 @@
   }
   const gantry = {
     name: 'Gantry welder',
-    busy: k => k.since('pay') < 1.6 || k.since('agent-done') < 1.2,
+    busy: k => k.since('pay') < 1.6 || k.since('agent-done') < 1.2 || k.since('near') < 0.5 || k.since('leave') < 0.5,
     draw(c, k) {
       const { x, y, L } = k, f = k.anim ? k.f : 0, r = k.r, cr = crew(k);
       // Frame: posts and the overhead rail (rises one tile above the footprint).
       r(c, '#39445c', x + 1, y - 12, 2, 13); r(c, '#39445c', x + 29, y - 12, 2, 13);
       r(c, '#2e3547', x + 1, y - 14, 30, 2); r(c, '#9aa9ab', x + 1, y - 14, 30, 1);
-      // Beacons on the post tops: amber when an agent is on the way, green while the window is open.
-      const bA = cr.walk ? (f % 4 < 2 ? AMBER : '#6a4a20') : k.open ? LIT : '#1b1f2b', bB = cr.walk ? (f % 4 < 2 ? '#6a4a20' : AMBER) : bA;
+      // Beacons on the post tops: alternate amber when an agent is on the way, blink together while the founder
+      // stands here, green while the window is open (and briefly after it closes), white-hot on pay.
+      const pay = age(k, 'pay'), linger = !k.open && age(k, 'open') < 2.5;
+      let bA = '#1b1f2b', bB = bA;
+      if (pay < 0.6) bA = bB = f % 2 ? GOLD : HOT;
+      else if (k.near) bA = bB = f % 4 < 2 ? AMBER : HOT;
+      else if (cr.walk) { bA = f % 4 < 2 ? AMBER : '#6a4a20'; bB = f % 4 < 2 ? '#6a4a20' : AMBER; }
+      else if (k.open || linger) bA = bB = LIT;
       r(c, bA, x + 1, y - 16, 2, 2); r(c, bB, x + 29, y - 16, 2, 2);
-      // Conveyor on the cabinet top; it runs faster while the window is open or an agent works.
+      // Conveyor on the cabinet top; it runs faster while the founder is here, the window is open or an agent works,
+      // and its rollers light up while the founder is here.
       cabinet(k, c, x, y);
-      r(c, '#11141c', x + 1, y - 2, 30, 2); r(c, '#39445c', x + 1, y - 2, 30, 1);
-      const pay = age(k, 'pay'), belt = k.open || cr.work ? f : f >> 1;
-      for (let i = 0; i < 8; i++) r(c, '#2e3547', x + 2 + ((i * 4 + belt) % 28), y - 1, 2, 1);
+      const hot = k.near || k.open || !!cr.work || pay < 1.6;
+      r(c, '#11141c', x + 1, y - 2, 30, 2); r(c, hot ? '#6fd6a6' : '#39445c', x + 1, y - 2, 30, 1);
+      const belt = hot ? f : f >> 1;
+      for (let i = 0; i < 8; i++) r(c, hot && i % 2 ? '#4a6a5a' : '#2e3547', x + 2 + ((i * 4 + belt) % 28), y - 1, 2, 1);
       // Lamp strip and two bays: bay 1 always runs; bay 2 wakes at level 2. A working agent fills a bay with its colour.
       r(c, '#2e3547', x + 2, y + 5, 28, 4);
       for (let i = 0; i < 6; i++) r(c, lampAt(k, i), x + 4 + i * 4, y + 6, 2, 2);
       const prog = k.anim ? (f % 16) / 15 : 0.6;
+      // The first working agent takes the right bay (the left half sits under the agent's own sprite and bubble).
       for (let b = 0; b < 2; b++) {
-        const bx = x + 4 + b * 14, on = b === 0 || L >= 2, ag = b === 0 ? cr.work : cr.work2;
+        const bx = x + 4 + b * 14, on = b === 0 || L >= 2, ag = b === 1 ? cr.work : cr.work2;
         r(c, '#0f1630', bx, y + 10, 10, 4);
         if (ag) { r(c, '#1d2742', bx + 1, y + 11, 8, 2); r(c, agentCol(ag), bx + 1, y + 11, Math.max(1, R(8 * prog)), 2); }
-        else if (k.open && on) { for (let j = 0; j < 3; j++) r(c, j === (f >> 1) % 3 ? HOT : '#6fd6a6', bx + 1 + j * 3, y + 11, 2, 2); }
+        else if ((k.open || k.near) && on) { for (let j = 0; j < 3; j++) r(c, j === (f >> 1) % 3 ? HOT : '#6fd6a6', bx + 1 + j * 3, y + 11, 2, 2); }
         else r(c, !on ? '#6a4a20' : b === 0 ? (f % 12 < 6 ? '#b09ae0' : '#6fd6a6') : '#f2c230', bx + 1, y + 11 + (b && on && k.anim ? f % 2 : 0), 8, b === 0 ? 2 : 1);
       }
-      // Carriage position: idle path, pulled to the centre while the founder stands here, or to a working agent's bay.
-      const idle = gantryIdle(f, L);
+      // Carriage position: idle path, pulled to the right bay while the founder stands here (the prompt and name tag
+      // cover the left and centre), or to a working agent's bay (first agent right, second left).
+      const idle = gantryIdle(f, L), PARK = 24;
       let cx = idle.x, len = idle.len, weld = idle.weld, eye = '#6a4a20';
-      if (cr.work) { cx = cr.work2 && f % 32 >= 16 ? 23 : 9; len = 7; weld = true; }
+      if (cr.work) { cx = cr.work2 && f % 32 >= 16 ? 9 : 23; len = 7; weld = true; }
       const nearIn = k.near ? (k.anim ? clamp(age(k, 'near') / 0.4) : 1) : 0;
       const nearOut = !k.near && k.anim ? 1 - clamp(age(k, 'leave') / 0.4) : 0;
       if (!cr.work && (k.near || nearOut > 0)) {
         const w = k.near ? outBack(nearIn) : nearOut;
-        cx = lerp(cx, 16, w); len = lerp(len, 5, clamp(w));
+        cx = lerp(cx, PARK, w); len = lerp(len, 5, clamp(w));
         if (k.near) { weld = false; eye = f % 8 < 6 ? AMBER : HOT; }
         if (k.near && age(k, 'near') < 0.1) len = 1; // wind-up: the arm flinches up before it swings over
       }
@@ -126,13 +139,14 @@
       let crateX = null, crateY = 0, streak = 0;
       const crit = !!lastPay(k).crit;
       if (pay < 1.6) {
+        if (!cr.work) cx = lerp(cx, PARK, outCubic(clamp(pay / 0.1)));
         if (pay < 0.1) len = 1;
         else if (pay < 0.18) { len = lerp(1, 7, inQuad((pay - 0.1) / 0.08)); streak = 1; }
         else { len = lerp(7, 3, clamp((pay - 0.3) / 0.5)); eye = HOT; }
         if (pay >= 0.18) {
           const d = pay - 0.18, sx = R(x + cx) - 2;
           crateY = R(lerp(y - 8, y - 5, outBack(clamp(d / 0.25))));
-          crateX = d < 0.5 ? sx : R(sx + (d - 0.5) * 22);
+          crateX = d < 0.8 ? sx : R(sx + (d - 0.8) * 10);
         }
       }
       cx = R(x + cx); len = Math.max(1, Math.min(7, R(len)));
@@ -155,14 +169,15 @@
       const done = age(k, 'agent-done');
       if (done < 1.2) {
         const p = outBack(clamp(done / 0.35)), ty = R(y - 3 - 7 * p);
-        r(c, '#cfd4de', x + 14, ty, 5, 1); r(c, '#cfd4de', x + 13, ty - 1, 1, 1); r(c, '#cfd4de', x + 13, ty + 1, 1, 1); r(c, '#cfd4de', x + 19, ty - 1, 1, 3);
-        if (done < 0.5 && f % 2 === 0) r(c, HOT, x + 20, ty - 2, 1, 1);
+        r(c, '#cfd4de', x + 22, ty, 5, 1); r(c, '#cfd4de', x + 21, ty - 1, 1, 1); r(c, '#cfd4de', x + 21, ty + 1, 1, 1); r(c, '#cfd4de', x + 27, ty - 1, 1, 3);
+        if (done < 0.5 && f % 2 === 0) r(c, HOT, x + 28, ty - 2, 1, 1);
       }
     }
   };
 
   // ---------- B: Spin-up pods ----------
-  const POD = [{ dx: 2, liq: '#2f7a52', top: LIT, bub: '#6fd6a6' }, { dx: 20, liq: '#584a8a', top: '#b09ae0', bub: '#c9b8ff' }];
+  const POD = [{ dx: 2, liq: '#3d9a68', top: '#9ff0c8', bub: '#c8ffe0', rim: '#6fd6a6' }, { dx: 20, liq: '#6e5cae', top: '#d6c8ff', bub: '#e6dcff', rim: '#b09ae0' }];
+  const podMem = { col: null }; // colour of the last agent printed in the left pod (kept after it walks off)
   const GT = -12, GB = -1, GH = 12; // glass rows (relative to y): top, bottom, height
   const pods = {
     name: 'Spin-up pods',
@@ -175,7 +190,8 @@
       cabinet(k, c, x, y);
       for (let i = 0; i < 9; i++) r(c, '#2e3547', x + 3 + i * 3, y + 5, 2, 1);
       r(c, '#1b1f2b', x + 13, y - 13, 6, 13); r(c, '#2e3547', x + 14, y - 12, 4, 11);
-      for (let i = 0; i < 6; i++) r(c, lampAt(k, i), x + 15, y - 2 - i * 2, 2, 1);
+      for (let i = 0; i < 6; i++) r(c, lampAt(k, i), x + 14, y - 2 - i * 2, 4, 1);
+      if (cr.work) podMem.col = agentCol(cr.work);
       for (let p = 0; p < 2; p++) {
         const P = POD[p], px = x + P.dx, on = p === 0 || L >= 2, ag = p === 0 ? cr.work : cr.work2;
         const pp = pay - p * 0.05; // second pod 50 ms behind
@@ -206,18 +222,25 @@
           let dip = 0;
           if (k.near && k.anim) { const a = age(k, 'near') - p * 0.05; dip = a >= 0 && a < 0.1 ? 1 : a < 0.45 ? -R(outBack(clamp((a - 0.1) / 0.35))) : 0; }
           const headTop = y - 9 + dip, bodyTop = y - 6 + dip;
-          const shown = ag || (p === 0 && done < 1 ? (cr.walk || { id: 'done' }) : null);
-          if (shown) {
-            const col = agentCol(shown), prog = ag ? (k.anim ? (f % 24) / 23 : 0.6) : 1, scan = R(y - 1 - 10 * prog);
+          const who = !ag && p === 0 && done < 2 ? lastDone(k) : null;
+          const doneCol = who ? (window.Stage3Agents?.roster?.[who]?.color ? colOf(who) : podMem.col || colOf(who)) : null;
+          if (ag || doneCol) {
+            const col = ag ? agentCol(ag) : doneCol, prog = ag ? (k.anim ? (f % 24) / 23 : 0.6) : 1, scan = R(y - 1 - 10 * prog);
             r(c, '#39445c', px + 3, headTop, 4, 1); r(c, '#39445c', px + 2, bodyTop, 1, 6); r(c, '#39445c', px + 7, bodyTop, 1, 6);
             if (scan < bodyTop + 6) r(c, col, px + 2, Math.max(scan, bodyTop), 6, bodyTop + 6 - Math.max(scan, bodyTop));
             if (scan < headTop + 3) r(c, col, px + 3, Math.max(scan, headTop), 4, headTop + 3 - Math.max(scan, headTop));
             if (prog >= 1) { r(c, '#1b1f2b', px + 4, headTop + 1, 1, 1); r(c, '#1b1f2b', px + 6, headTop + 1, 1, 1); }
             if (ag && k.anim) { r(c, HOT, px + 1, scan, 8, 1); r(c, col, px + 1 + pr(f, p, 8), scan - 1, 1, 1); }
           } else {
-            const body = k.near ? '#1f2a4a' : '#11141c';
-            r(c, body, px + 3 + sway, headTop, 4, 3); r(c, body, px + 2 + sway, bodyTop, 6, 6);
-            if (k.near) { const blink = f % 24 === 5, lx = px + 4 + sway; r(c, blink ? body : HOT, lx, headTop + 1, 1, 1); r(c, blink ? body : HOT, lx + 2, headTop + 1, 1, 1); }
+            // Dark figure with a lit rim on its right edge so it still reads under the night overlay.
+            const body = k.near ? '#1f2a4a' : '#11141c', sx = px + sway;
+            r(c, body, sx + 3, headTop, 4, 3); r(c, body, sx + 2, bodyTop, 6, 6);
+            r(c, P.rim, sx + 6, headTop, 1, 3); r(c, P.rim, sx + 7, bodyTop, 1, 6);
+            if (k.near) {
+              const blink = f % 24 === 5, lx = sx + 4; r(c, blink ? body : HOT, lx, headTop + 1, 1, 1); r(c, blink ? body : HOT, lx + 2, headTop + 1, 1, 1);
+              // The right pod (clear of the founder's name tag) also waves.
+              if (p === 1) { const up = k.anim ? (f >> 1) % 2 : 0; r(c, HOT, sx + 1, bodyTop - 2 - up, 1, 3); }
+            }
           }
         }
         // Scan ring sweeping down every 4 s while idle.
@@ -234,7 +257,11 @@
           : flt < 0.3 || (pp >= 0 && pp < 0.3) ? HOT : ag ? agentCol(ag) : k.near ? AMBER : P.top;
         r(c, capLamp, px + 4, capY - 1, 2, 1);
         // Crit pay: gold sparkles over the caps.
-        if (crit && pp >= 0.1 && pp < 1) { const s = R((pp - 0.1) * 8) % 3; r(c, GOLD, px + 4, capY - 4 - s, 1, 3); r(c, GOLD, px + 3, capY - 3 - s, 3, 1); }
+        // Twinkles beside the caps, alternating sides, never more than one tile above the footprint.
+        if (crit && pp >= 0.1 && pp < 1) {
+          const s = R((pp - 0.1) * 8), sx = px + (s % 2 ? 10 : -1), sy = Math.max(y - 16, capY - 1 - (s % 3));
+          r(c, GOLD, sx, sy - 1, 1, 3); r(c, GOLD, sx - 1, sy, 3, 1);
+        }
       }
     }
   };
@@ -257,7 +284,7 @@
       // Furnace: brick body, chimney, fire mouth.
       r(c, '#8a3516', x + 1, y - 10, 13, 10); r(c, '#a44a2a', x + 1, y - 10, 13, 1);
       for (let j = 0; j < 2; j++) { r(c, '#5a3a22', x + 1, y - 7 + j * 4, 13, 1); r(c, '#5a3a22', x + 3 + j * 3, y - 10 + j * 4, 1, 3); r(c, '#5a3a22', x + 11 - j * 2, y - 10 + j * 4, 1, 3); }
-      r(c, '#5a3a22', x + 5, y - 14, 5, 4); r(c, '#39445c', x + 4, y - 15, 7, 1);
+      r(c, '#5a3a22', x + 5, y - 12, 5, 2); r(c, '#39445c', x + 4, y - 13, 7, 1);
       r(c, '#1b1f2b', x + 4, y - 7, 7, 6);
       for (let i = 0; i < 5; i++) { const hg = 2 + pr(f, i, stoked ? 4 : 3) + (roar ? 1 : 0); r(c, FIRE[pr(f, i + 2, 5)], x + 5 + i, y - 1 - Math.min(5, hg), 1, Math.min(5, hg)); }
       if (roar) r(c, HOT, x + 6 + (k.anim ? f % 2 : 0), y - 3, 3, 1);
@@ -274,11 +301,11 @@
         for (let j = 0; j < 2; j++) { const sy = dTop + 2 + j * 2; if (sy > y - 7 && sy < y - 1) r(c, FIRE[pr(f, j, 5)], x + 5, sy, 5, 1); }
       }
       if (lift > 0) r(c, '#39445c', x + 4, y - 8, 7, 1); // door tucked up under the arch
-      // Embers from the chimney; more when stoked; at most a few px above the tile.
+      // Embers from the chimney; more when stoked; never above y-16 (one tile over the footprint).
       if (k.anim) {
         const n = roar ? 5 : stoked ? 3 : 2;
         for (let i = 0; i < n; i++) {
-          const life = (f + i * 3) % 8, ey = y - 16 - (life >> 1);
+          const life = (f + i * 3) % 8, ey = y - 14 - ((life * 3) >> 3);
           r(c, life < 3 ? AMBER : life < 6 ? '#c4572b' : '#5a3a22', x + 6 + ((f >> 2) + i * 2) % 3, ey, 1, 1);
         }
       }
@@ -299,8 +326,11 @@
       }
       const sinceHit = pay < 1.5 && pay >= 0.18 ? pay - 0.18 : Infinity;
       let ingot = sinceHit < 0.3 ? HOT : sinceHit < 0.8 ? GOLD : sinceHit < 1.3 ? AMBER : '#8a3516';
+      // Founder walks up: the ingot is pulled from the fire white-hot and cools on the anvil (right half, clear of tags).
+      const nr = k.near ? age(k, 'near') : Infinity;
       if (cr.work) ingot = pound === 1 || pound === 2 ? HOT : agentCol(cr.work);
       else if (hit) ingot = AMBER;
+      else if (nr >= 0.1 && nr < 1.4 && sinceHit === Infinity) ingot = nr < 0.5 ? HOT : nr < 0.9 ? GOLD : AMBER;
       r(c, ingot, x + 21, y - 5, 5, 1);
       r(c, '#5a3a22', x + 29, y - 15, 2, 15); r(c, '#5a3a22', x + 21, y - 16, 10, 2); r(c, '#8a5e3a', x + 21, y - 16, 10, 1);
       if (streak) r(c, 'rgba(207,212,222,.4)', x + 20, hy - 3, 7, 3);
@@ -309,6 +339,7 @@
       // Sparks: small pops on taps and agent strikes, a shower on pay.
       if (hit) { const col = cr.work ? agentCol(cr.work) : GOLD; for (let i = 0; i < (cr.work ? 4 : 2); i++) r(c, i % 2 ? col : HOT, x + 17 + pr(f, i, 12), y - 6 - pr(f, i + 5, 3), 1, 1); }
       if (pay >= 0.18) sparks(k, c, x + 23, y - 6, pay - 0.18, crit ? 20 : 12, crit ? GOLD : AMBER, HOT, 0.75);
+      if (nr >= 0.1 && nr < 0.6 && !(pay < 1.5)) sparks(k, c, x + 24, y - 6, nr - 0.1, 6, AMBER, HOT, 0.5);
       // Finished agent job: a forged wrench pops up off the anvil, then a quench puff of steam over the trough.
       if (done < 1.3) {
         const p = outBack(clamp(done / 0.35)), ty = R(y - 6 - 7 * p), col = '#cfd4de';
