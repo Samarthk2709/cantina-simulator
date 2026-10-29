@@ -991,7 +991,10 @@
     L.hidden = world.getState().room !== 'office'; if (L.hidden) return L;
     // In the wrap's own px: mid-punch (#13) its on-screen rect is zoomed by k, and L sits inside that zoom.
     const wr = wrap.getBoundingClientRect(), k = wr.width / wrap.offsetWidth || 1, rr = world.roomRect(), room = W.rooms.find(r => r.id === 'office');
-    Object.assign(L.style, { left: (rr.left - wr.left) / k + 'px', top: (rr.top - wr.top) / k + 'px', width: rr.width / k + 'px', height: rr.height / k + 'px' });
+    // Moved by transform (the follow camera moves it every frame while you walk): no layout; size is written only when it changes.
+    const x = (rr.left - wr.left) / k, y = (rr.top - wr.top) / k, size = rr.width / k + 'px ' + rr.height / k + 'px', at = `translate(${x}px, ${y}px)`;
+    if (L.dataset.size !== size) { L.dataset.size = size; Object.assign(L.style, { left: '0', top: '0', width: rr.width / k + 'px', height: rr.height / k + 'px' }); }
+    if (L.style.transform !== at) L.style.transform = at;
     const ids = ORDER.filter(shown).join();
     if (L.dataset.ids !== ids) {
       L.dataset.ids = ids;
