@@ -73,6 +73,17 @@
     const e = lastEv(k, 'agent-done'); if (!e) return { i: -1, s: Infinity };
     return { i: cabOf(e.data.who, lit(k)), s: k.since('agent-done') };
   }
+  // Remember agents' colours (the done event only carries an id) and find the cabinet of a recent agent event.
+  const colours = {};
+  let cueCol = null;
+  function cueAt(k) {
+    for (let n = 0; n < k.agents.length; n++) if (k.agents[n].color) colours[k.agents[n].id] = k.agents[n].color;
+    let e = null;
+    for (let n = k.events.length - 1; n >= 0; n--) { const v = k.events[n]; if (v.kind === 'agent-arrive' || v.kind === 'agent-start' || v.kind === 'agent-done') { e = v; break; } }
+    if (!e || Math.min(k.since('agent-arrive'), k.since('agent-start'), k.since('agent-done')) > 1.5) return -1;
+    cueCol = colours[e.data && e.data.who] || null;
+    return cabOf(e.data && e.data.who, lit(k));
+  }
   function check(c, x, y, col) { R(c, col, x, y + 1, 1, 1); R(c, col, x + 1, y + 2, 1, 1); R(c, col, x + 2, y + 1, 1, 1); R(c, col, x + 3, y, 1, 1); R(c, col, x + 4, y - 1, 1, 1); }
 
   // ---------------------------------------------------------------- a: fan wall
@@ -95,6 +106,8 @@
         const p = bootP(st, k, i); if (p < 1) { drawBoot(c, k, i, p); continue; }
         const x = cabX(k, i), y = k.y + 1, ag = crew[i], col = ag && ag.color || C.agent;
         const working = ag && ag.status === 'working', walking = ag && !working;
+        // Agent cue that outlasts a short job: vents and status lamp glow in its colour ~1.5 s after it arrives/starts/finishes.
+        const cue = cueAt(k) === i ? cueCol || C.agent : null;
         // Fan speed (quarter-turns per second): idle, spooled for you, flat out for an agent's job or a payout.
         let tgt = 2.5;
         if (k.near) tgt = 7; if (k.open) tgt = 9; if (k.night) tgt = 18; if (walking) tgt = Math.max(tgt, 8);
@@ -102,19 +115,20 @@
         if (sNear < 0.1 + i * 0.05) tgt = -5; // anticipation: a small back-tick before spooling up
         st.sp[i] += (tgt - st.sp[i]) * Math.min(1, dt * (tgt > st.sp[i] ? 3 : 1.1));
         st.ph[i] = (st.ph[i] + st.sp[i] * dt) % 4; if (st.ph[i] < 0) st.ph[i] += 4;
-        const sp = k.anim ? st.sp[i] : 0, ph = k.anim ? Math.floor(st.ph[i]) : 0;
+        // Mid speeds step exactly one blade phase per 8 fps frame (never aliases to still/backward); fast ones blur.
+        const sp = k.anim ? st.sp[i] : 0, ph = !k.anim ? 0 : sp > 4.5 && sp <= 12 ? (k.f + i) % 4 : Math.floor(st.ph[i]);
         R(c, C.case, x, y, 14, 14); R(c, C.inner, x + 1, y + 1, 12, 12);
         // Top vent slits.
-        for (let v = 0; v < 4; v++) R(c, C.slot, x + 3 + v * 2, y, 1, 1);
+        for (let v = 0; v < 4; v++) R(c, cue || C.slot, x + 3 + v * 2, y, 1, 1);
         // Fan bay with rounded corners.
         R(c, C.slot, x + 3, y + 2, 9, 7);
         R(c, C.inner, x + 3, y + 2, 1, 1); R(c, C.inner, x + 11, y + 2, 1, 1); R(c, C.inner, x + 3, y + 8, 1, 1); R(c, C.inner, x + 11, y + 8, 1, 1);
         const fx = x + 7, fy = y + 5;
-        if (sp > 15) { // blur: the blades smear into a disc
+        if (sp > 12) { // blur: the blades smear into a disc
           for (let q = 0; q < 4; q++) BL[q].forEach(pt => R(c, '#4f535b', fx + pt[0], fy + pt[1], 1, 1));
           if (k.anim && (k.f + i) % 2) BL[(k.f + i) % 4].forEach(pt => R(c, '#6a6e76', fx + pt[0], fy + pt[1], 1, 1));
         } else BL[ph].forEach(pt => R(c, '#9a9ea6', fx + pt[0], fy + pt[1], 1, 1));
-        R(c, working || walking ? col : sp > 15 ? C.a : '#c9ccd2', fx, fy, 1, 1);
+        R(c, working || walking ? col : sp > 12 ? C.a : '#c9ccd2', fx, fy, 1, 1);
         // Drive row: two LEDs (as the original) and a status lamp; an agent's job races its colour along it.
         R(c, C.slot, x + 2, y + 10, 10, 2);
         if (working && k.anim) { for (let s = 0; s < 4; s++) R(c, (k.f + s) % 4 === 0 ? C.ivory : col, x + 3 + s * 2, y + 10, 1, 1); }
@@ -124,7 +138,8 @@
           R(c, sPay < 1 || (k.anim && (k.f + i) % 5 < 2) ? C.a : C.ad, x + 6, y + 10, 2, 1);
         }
         const greet = k.near && (!k.anim || sNear > 0.15 + i * 0.05);
-        R(c, walking ? (!k.anim || k.f % 4 < 2 ? col : C.slot) : greet || working ? C.g : C.ad, x + 10, y + 10, 1, 1);
+        R(c, walking ? (!k.anim || k.f % 4 < 2 ? col : C.slot) : cue || (greet || working ? C.g : C.ad), x + 10, y + 10, 1, 1);
+        if (cue) R(c, cue, x + 10, y + 11, 1, 1);
         if (done.i === i && done.s < 1.1 && !working) { R(c, C.slot, x + 4, y + 3, 7, 5); check(c, x + 5, y + 4, C.g); }
         if (!k.anim) continue;
         // Warm exhaust rising out of the vent; more of it the harder the fan works.
@@ -134,7 +149,7 @@
           const show = q > 0.2 ? n < 1 + q * 2.2 : n === 0 && h01(Math.floor(cyc), i) < 0.45;
           if (!show) continue;
           const yy = y - 1 - Math.floor(age * (5 + q * 4)), xx = x + 4 + n * 3 + (age > 0.5 ? ((n + i) % 2 ? 1 : -1) : 0);
-          R(c, age < 0.45 ? (working ? col : '#c9a87c') : '#d6c6aa', xx, yy, 1, 1);
+          R(c, age < 0.45 ? (working ? col : cue || '#c9a87c') : '#d6c6aa', xx, yy, 1, 1);
         }
         // Payout: a puff of sparks blows out of the vents, 50 ms apart per cabinet and per spark.
         if (sPay < 1.1) {
@@ -154,6 +169,7 @@
   // ---------------------------------------------------------------- b: load meter
   const meter = (() => {
     const st = tracker(); st.v = new Float32Array(9); st.vv = new Float32Array(9); st.pk = new Float32Array(9); st.pkT = new Float32Array(9);
+    const STILL = [2, 3, 2, 3, 2, 3, 2, 3, 2]; // reduced motion: a fixed, varied live-looking level per column
     const SEG = [C.g, C.g, C.g, C.a, C.red], DIM = ['#2f3a33', '#2f3a33', '#2f3a33', '#3d3426', '#3d2f2c'];
     function draw(c, k) {
       const dt = track(st, k), L = lit(k), crew = crewMap(k), done = doneAt(k);
@@ -167,7 +183,7 @@
         for (let cI = 0; cI < 3; cI++) {
           const g = i * 3 + cI, d = g * 0.05;
           const nz = k.anim ? h01(working ? k.f : k.f >> 1, g * 7 + i) : 0.5;
-          let tgt = 0.6 + nz * 1.4;
+          let tgt = k.anim ? 0.6 + nz * 1.4 : STILL[g];
           if (k.night) tgt = 2.4 + nz * 1.8;
           if (k.near) tgt = 2.2 + nz * 1.2;
           if (k.open) tgt = 3.2;
@@ -181,7 +197,7 @@
             for (let t = dt; t > 1e-6; t -= 1 / 60) { const h = Math.min(1 / 60, t); vv += (256 * (tgt - v) - 11 * vv) * h; v += vv * h; }
             st.v[g] = v; st.vv[g] = vv;
             if (v > st.pk[g]) { st.pk[g] = v; st.pkT[g] = k.t; } else if (k.t - st.pkT[g] > 0.35) st.pk[g] = Math.max(v, st.pk[g] - 4 * dt);
-          } else { st.v[g] = tgt; st.pk[g] = tgt; }
+          } else { st.v[g] = tgt; st.pk[g] = Math.round(tgt) + 1; }
           const n = cl(Math.round(st.v[g]), 0, 5), bx = x + 2 + cI * 4;
           const scan = k.open && k.anim ? Math.floor(sOpen * 6) % 6 : -1;
           for (let s = 0; s < 5; s++) {
@@ -194,7 +210,7 @@
             R(c, colS, bx, yy, 3, 1);
           }
           const pk = Math.min(4, Math.floor(st.pk[g]));
-          if (k.anim && st.pk[g] > 1 && pk >= n) R(c, crit && sPay < 2 ? C.gold2 : C.ivory, bx, y + 10 - pk * 2, 3, 1);
+          if (st.pk[g] > 1 && pk >= n) R(c, crit && sPay < 2 ? C.gold2 : C.ivory, bx, y + 10 - pk * 2, 3, 1);
         }
         // Bottom lip: the cabinet's status lamp (amber idle, green when you're here or it's in use).
         R(c, k.near || working || k.open ? C.g : (k.anim && (k.f + i * 3) % 12 < 1 ? C.a : C.ad), x + 11, y + 12, 1, 1);
@@ -207,7 +223,12 @@
 
   // ---------------------------------------------------------------- c: rack robot
   const robot = (() => {
-    const st = tracker(); Object.assign(st, { cx: null, cv: 0, arm: 0, av: 0, tx: null, windT: -9, dir: 0 });
+    const st = tracker(); Object.assign(st, { cx: null, cv: 0, arm: 0, av: 0, tx: null, windT: -9, dir: 0, lf: null });
+    // Smooth spring motion only for short event reactions; everything else steps on the world's 8 fps frame.
+    const evMove = k => k.since('near') < 1.2 || k.since('leave') < 1.2 || k.since('open') < 1.2 || k.since('pay') < 1.6 ||
+      k.since('agent-arrive') < 1.5 || k.since('agent-start') < 1.5 || k.since('agent-done') < 1.5;
+    // Ease-out step table: pixels moved per 8 fps frame by remaining distance (big first, then 1 px to settle).
+    const stepPx = d => d > 16 ? 6 : d > 8 ? 4 : d > 3 ? 2 : d;
     function draw(c, k) {
       const dt = track(st, k), L = lit(k), crew = crewMap(k), done = doneAt(k);
       const sNear = k.since('near'), sPay = k.since('pay'), pay = lastEv(k, 'pay'), crit = !!(pay && pay.data.crit);
@@ -237,12 +258,21 @@
       if (st.tx != null && Math.abs(tx - st.tx) > 6) { st.windT = k.t; st.dir = Math.sign(tx - (st.cx == null ? tx : st.cx)); }
       st.tx = tx;
       const wind = k.anim && k.t - st.windT < 0.1;
+      const ev = evMove(k);
       if (!k.anim || st.cx == null) { st.cx = tx; st.cv = 0; st.arm = tArm; st.av = 0; }
-      else {
+      else if (ev) {
         const fast = k.near && sNear < 1.2;
         if (!wind) spring(st, 'cx', 'cv', tx, dt, fast ? 22 : 12, fast ? 0.5 : 0.62);
         spring(st, 'arm', 'av', tArm, dt, 24, 0.55);
+      } else if (st.lf !== k.f) { // idle: whole pixels per frame, no smooth frames needed
+        st.cv = 0; st.av = 0; st.cx = Math.round(st.cx); st.arm = Math.round(st.arm);
+        const steps = st.lf == null ? 1 : cl(k.f - st.lf, 1, 3);
+        for (let n = 0; n < steps; n++) {
+          if (!wind) { const d = tx - st.cx; st.cx += Math.sign(d) * stepPx(Math.abs(d)); }
+          const da = tArm - st.arm; st.arm += Math.sign(da) * Math.min(Math.abs(da), 3);
+        }
       }
+      st.lf = k.f;
       const cxp = Math.round(st.cx), arm = Math.max(0, Math.round(st.arm));
       // Cabinets, as the original: three blades each with a green and an amber LED.
       const raceCab = busyAg && busyAg.status === 'working' ? cabOf(busyAg.id, L) : -1;
@@ -257,13 +287,14 @@
           let gC = !k.anim || (k.f + j * 3 + i * 5) % 7 < 4 ? C.g : C.gd, aC = k.anim && (k.f + j + i) % 5 < 2 ? C.a : C.ad;
           if (i === raceCab || (ag && ag.status === 'working')) { gC = (k.f + j) % 3 === 0 ? C.ivory : col; aC = (k.f + j) % 3 === 1 ? C.a : C.ad; }
           if (k.anim && i === under && sPay > 0.55 + j * 0.05 && sPay < 1.05 + j * 0.05) { gC = crit ? C.gold : C.g; aC = crit ? C.gold : C.g; R(c, crit ? C.gold2 : C.g, x + 9, y + 3 + j * 4, 2, 1); }
+          if (beam && i === under) { gC = C.ivory; aC = C.a; } // the lamp lights up the blades under it
           R(c, gC, x + 3, y + 3 + j * 4, 2, 1); R(c, aC, x + 6, y + 3 + j * 4, 2, 1);
           if (poke === j && i === under && Math.abs(st.arm - tArm) < 0.8) R(c, k.f % 2 ? C.ivory : '#c9ccd2', x + 9, y + 3 + j * 4, 2, 1);
         }
         if (done.i === i && done.s < 1 && !(ag && ag.status === 'working')) check(c, x + 9, y + 9, C.g);
       }
-      // Lamp beam while the window is open (flat translucent rows, no gradient).
-      if (beam) { c.fillStyle = 'rgba(243,236,220,.18)'; for (let r = 0; r < 14; r++) { const w = 3 + r; c.fillRect(cxp - (w >> 1), k.y + r, w, 1); } }
+      // Lamp beam while the window is open: an opaque dithered cone edge in pale amber plus the lit blades above.
+      if (beam) { for (let r = 0; r < 13; r += 2) { const h = 1 + (r >> 1); R(c, C.accentL, cxp - h, k.y + r, 1, 1); R(c, C.accentL, cxp + h, k.y + r, 1, 1); } R(c, C.ivory, cxp, k.y, 1, 1); }
       // Arm: a cable down from the carriage with a gripper at the tip; an agent's job runs data up it.
       if (arm > 0) {
         R(c, cable || C.ink, cxp, k.y - 1, 1, arm + 1);
@@ -282,7 +313,6 @@
       R(c, C.accentD, bx, by, 7, 4); R(c, C.accent, bx, by, 7, 3); R(c, C.accentL, bx + 1, by, 5, 1);
       R(c, C.slot, bx + 2, by + 1, 3, 1); R(c, eye, bx + 3 + look, by + 1, 1, 1);
       R(c, C.slot, bx + 1, by + 4, 1, 1); R(c, C.slot, bx + 5, by + 4, 1, 1);
-      if (done.s < 1 && !busyAg) check(c, cxp - 2, by - 4, C.g);
       // Payout: coins drop from the carriage into the cabinet under it, 50 ms apart (three and gold on a critical).
       if (k.anim && sPay < 0.9) {
         for (let n = 0; n < (crit ? 3 : 1); n++) {
@@ -292,7 +322,7 @@
       }
     }
     return { name: 'Rack robot: a gantry carriage tends the blades, greets you, drops in payouts and plugs in for agents', draw,
-      busy: k => now() - st.upWall < BOOT + 0.1 || Math.abs(st.cv) > 4 || Math.abs(st.av) > 4 };
+      busy: k => now() - st.upWall < BOOT + 0.1 || (evMove(k) && (Math.abs(st.cv) > 4 || Math.abs(st.av) > 4)) };
   })();
 
   window.StationFX?.add('rig', { a: fan, b: meter, c: robot });
