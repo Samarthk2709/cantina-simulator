@@ -761,6 +761,7 @@
     // with the founder held at the centre of the free band. Everything that reads fitView (drawing, taps, anchors,
     // roomRect and the page's layers on it) follows.
     var cam = { follow: false, zoom: 1.75, k: 0 };
+    function edge(f, half, size) { return size <= 2 * half ? size / 2 : Math.max(half, Math.min(size - half, f)); }
     function fitView(R) {
       var rc = canvas.getBoundingClientRect(), cw = canvas.width / D, ch = canvas.height / D, k = rc.width ? cw / rc.width : 1, i = insets;
       var v = roomView(cw, ch, R.id, i && { top: i.top * k, bottom: i.bottom * k, left: i.left * k, hud: i.hud && { left: i.hud.left * k, bottom: i.hud.bottom * k } });
@@ -769,6 +770,10 @@
         var fx0 = (cx - v.ox) / v.s, fy0 = (cy - v.oy) / v.s, fx = fx0 + (P.x - fx0) * e, fy = fy0 + (P.y - 10 - fy0) * e;
         var sv = v.s * Math.pow(cam.zoom, e) * D, sn = Math.floor(sv);
         if (e === 1 && sn >= 1 && sn / sv >= 0.9) sv = sn; // whole device pixels per art pixel once settled
+        // Stop at the walls: the room covers the band (full width; between the HUD and the dock), and a room smaller
+        // than the band is centred in it. Eased in with the zoom, so leaving the fit stays smooth.
+        var a = sv / D, b0 = i ? i.top * k : 0, b1 = i ? ch - i.bottom * k : ch;
+        fx += (edge(fx, cw / 2 / a, R.width) - fx) * e; fy += (edge(fy, (b1 - b0) / 2 / a, R.height) - fy) * e;
         return { s: sv, ox: Math.round(cx * D - fx * sv), oy: Math.round(cy * D - fy * sv) };
       }
       if (D === 1) return v;
@@ -813,6 +818,27 @@
     }
     function still() { return !!(mq && mq.matches); }
     // Static backgrounds are cached per room and per Headquarters tier (the office floor matures with HQ).
+    // Outside the room: the building's hallway, a dim slate floor in the office's 16 px grid that pans with the room,
+    // a soft shadow where the room meets it, and a fade into the dark away from the room.
+    var hall = null;
+    function drawHall(c, R, sc, vw, vh) {
+      if (!hall) {
+        var g = document.createElement('canvas'); g.width = 32; g.height = 32; var x = g.getContext('2d');
+        r(x, '#0f1c23', 0, 0, 32, 32); r(x, '#112129', 1, 1, 14, 1); r(x, '#112129', 17, 17, 14, 1); // tiles in a running bond, lit top edge
+        r(x, '#0a151b', 0, 15, 32, 1); r(x, '#0a151b', 0, 31, 32, 1); r(x, '#0a151b', 15, 0, 1, 15); r(x, '#0a151b', 31, 16, 1, 15);
+        r(x, '#142630', 6, 8, 1, 1); r(x, '#142630', 24, 22, 1, 1); r(x, '#0c181e', 10, 4, 2, 1); r(x, '#0c181e', 20, 27, 2, 1);
+        hall = c.createPattern(g, 'repeat');
+      }
+      var x0 = Math.floor(-view.ox / sc / 32) * 32 - 32, y0 = Math.floor(-view.oy / sc / 32) * 32 - 32;
+      c.fillStyle = hall; c.fillRect(x0, y0, vw / sc + 64, vh / sc + 64);
+      c.fillStyle = 'rgba(2,8,12,.22)'; for (var n = 3; n >= 1; n--) c.fillRect(-n * 2, -n * 2 + 3, R.width + n * 4, R.height + n * 4);
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      var cx = view.ox + R.width * sc / 2, cy = view.oy + R.height * sc / 2, rad = Math.max(R.width, R.height) * sc / 2;
+      var fade = c.createRadialGradient(cx, cy, rad * 0.95, cx, cy, rad * 1.7);
+      fade.addColorStop(0, 'rgba(8,19,26,0)'); fade.addColorStop(1, 'rgba(8,19,26,.9)');
+      c.fillStyle = fade; c.fillRect(0, 0, vw, vh);
+      c.setTransform(sc, 0, 0, sc, view.ox, view.oy);
+    }
     function bgFor(R) {
       var tier = R.tier && V && V.hq != null ? R.tier(V.hq) : 0, key = R.id + ':' + tier;
       if (!bgs[key]) { var b = document.createElement('canvas'); b.width = R.width; b.height = R.height; drawStatic(b.getContext('2d'), R, tier); bgs[key] = b; }
@@ -1000,7 +1026,7 @@
       var v = fitView(R), sc = v.s;
       view.s = sc; view.ox = v.ox; view.oy = v.oy;
       c.setTransform(1, 0, 0, 1, 0, 0); r(c, '#08131a', 0, 0, vw, vh);
-      c.setTransform(sc, 0, 0, sc, view.ox, view.oy); c.imageSmoothingEnabled = false; c.drawImage(bgFor(R), 0, 0);
+      c.setTransform(sc, 0, 0, sc, view.ox, view.oy); c.imageSmoothingEnabled = false; drawHall(c, R, sc, vw, vh); c.drawImage(bgFor(R), 0, 0);
       var items = here(), live = active();
       if (S) {
         var work = anim && !frozen && S.started && !S.paused;

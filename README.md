@@ -93,7 +93,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `stage3/harness.js` | Agents: brief parsing, sanitize/preflight, job routines, tools, stop conditions, movement, narration |
 | `stage3/crew.js`, `stage3/crew.css` | Agent sprites, the Office/Agents switch, the Codex-style Agents view, AGENTS.md |
 
-**Camera**: by default the view is zoomed in 1.75× and follows you, holding you at the centre (`world.setCamera({follow})`, eased over 450 ms). The button at the bottom right (or Z) zooms out to the whole office; the choice is saved as `first-office-view-v1`.
+**Camera**: by default the view is zoomed in 1.75× and follows you, holding you at the centre until it reaches a wall, where it stops so the room keeps filling the screen (a room smaller than the screen is centred) (`world.setCamera({follow})`, eased over 450 ms). Outside the room, `drawHall` paints the building's hallway: a dim slate floor that pans with the room, a soft shadow at the walls, and a fade to dark. The button at the bottom right (or Z) zooms out to the whole office; the choice is saved as `first-office-view-v1`.
 
 **Vitals box** (top left, or V): bugs today, crits, cash and focus; click for today's and lifetime totals and per-day charts. On screens 900px and wider the room keeps a left margin clear for it (`world.setInsets({left})`); open, it floats over the room only if the margin is too narrow. "Today" is the current game day, measured against the end-of-day snapshot `engine.sleep()` adds to `s.days` (last 60 days).
 
@@ -132,6 +132,7 @@ A leftover draft, for example one an agent gave up on, is one **File** click on 
 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
 - **Nib docks to the window:** while a window is open, Nib speaks from one strip docked on top of it, with choices and Next inline, instead of a bubble over your work. Opening a window puts keyboard focus on Nib's waiting line or the window, never the × button.
+- **Dock groups:** Desk stands alone; Ops + HQ are **Jobs**, Tools + Rig are **Gear**, Nib + Ledger are **Books** (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
 - **Toasts:** they sit just above the dock and slide as the stack changes. On phones with a window open, they sit at the top instead, clear of the window's buttons.
 - **Less text:**
   - Intro paragraphs, legends and fine print are cut down to a few words.

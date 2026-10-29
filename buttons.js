@@ -51,7 +51,7 @@
   };
 
   // ---------- #15 Attention nudges ----------
-  // Who needs you: the Team button ("N needs you") and dock badges (Ops tray count, HQ "!"). Opening it acknowledges the
+  // Who needs you: the Team button ("N needs you") and dock badges (Ops tray count, HQ "!", or their Jobs group). Opening it acknowledges the
   // count it showed; only a higher count nudges again, and a cleared badge forgets. Nothing nudges while a window, a
   // dialog or Team is open, at night, or in a hidden tab. One clock for all, so re-renders never restart or stack it.
   const EVERY = 3500, WIGGLE = 650, POP = 260, STAGGER = 50;
@@ -60,7 +60,8 @@
   function targets() {
     const out = [], team = document.getElementById('s3-toggle'), need = team && team.querySelector('.need');
     if (need) out.push({ key: 'team', el: team, badge: need, n: parseInt(need.textContent) || 1, seen: document.body.classList.contains('s3-agents-open') });
-    document.querySelectorAll('#dock [data-station]').forEach(el => { const b = el.querySelector('.badge'); if (b) out.push({ key: el.dataset.station, el, badge: b, n: parseInt(b.textContent) || 1, seen: el.getAttribute('aria-pressed') === 'true' }); });
+    // Dock buttons and group buttons (a group's badge adds up its stations'); stations inside a group's menu don't nudge.
+    document.querySelectorAll('#dock>[data-station],#dock>[data-group]').forEach(el => { const b = el.querySelector('.badge'); if (b) out.push({ key: el.dataset.station || 'group:' + el.dataset.group, el, badge: b, n: parseInt(b.textContent) || 1, seen: el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-expanded') === 'true' }); });
     return out.filter(t => t.el.getClientRects().length);
   }
   const blocked = () => document.hidden || document.body.classList.contains('s3-agents-open') || !!document.querySelector('dialog[open]') || !!document.querySelector('#night:not([hidden])');

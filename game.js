@@ -39,6 +39,14 @@
     hq: { name: 'HQ', title: 'HQ · CRITICALS', icon: 'shield', key: 'c', seen: 'hq' }
   };
   const ORDER = ['hunt', 'training', 'contract', 'forge', 'rig', 'stats', 'hq'];
+  // The dock groups stations so it stays short: Desk on its own, the rest in pop-up groups (hover, focus or tap).
+  // A group with one station unlocked shows that station as a plain button; it becomes a group once a second arrives.
+  const GROUPS = {
+    jobs: { name: 'Jobs', icon: 'briefcase', ids: ['contract', 'hq'] },
+    gear: { name: 'Gear', icon: 'build', ids: ['forge', 'rig'] },
+    books: { name: 'Books', icon: 'book', ids: ['training', 'stats'] }
+  };
+  const SLOTS = ['hunt', 'jobs', 'gear', 'books'];
   const shown = id => !ST[id].seen || !!s.seen[ST[id].seen];
   const hidden = () => { const h = { terminals: true }; ORDER.forEach(id => { if (!shown(id)) h[id] = true; }); return h; };
   const SPOT = { // where Nib stands, in office world px
@@ -165,6 +173,39 @@
   // dockNew: a new button's [order, animation-clock time it arrived]. It stays `fresh` until its entrance has played, so a
   // second render in the same task (or any rebuild mid-entrance) keeps it, and the entrance carries on from its start.
   let dockSeen = null; const dockNew = new Map();
+  let dockOpen = null, dockHush = null; // the group whose menu a click or tap opened (hover and focus need no state); the one a pick just hid
+  // Each dock slot: a lone station, or a group once two or more of its stations are unlocked. key names it for entrances.
+  function slots() {
+    return SLOTS.map(k => {
+      const ids = GROUPS[k] ? GROUPS[k].ids.filter(shown) : shown(k) ? [k] : [];
+      return ids.length > 1 ? { key: k, ids, g: k } : ids.length ? { key: ids[0], ids } : null;
+    }).filter(Boolean);
+  }
+  // The menu is centred over its button, kept inside the dock.
+  function placeMenu(btn) {
+    const m = btn && btn.nextElementSibling; if (!m || !m.classList.contains('dock-menu')) return;
+    const d = $('dock'), half = m.offsetWidth / 2, c = btn.offsetLeft + btn.offsetWidth / 2;
+    const x = Math.round(Math.max(half + 4, Math.min(d.clientWidth - half - 4, c)));
+    m.style.left = x + 'px'; m.style.setProperty('--notch', Math.round(c - x) + 'px'); // the notch still points at the button
+    if (btn.offsetTop > 20) m.style.bottom = `${d.clientHeight - btn.offsetTop + 8}px`; else m.style.bottom = '';
+  }
+  function setMenu(g) {
+    dockOpen = g || null;
+    document.querySelectorAll('#dock [data-group]').forEach(b => { const on = b.dataset.group === dockOpen; b.setAttribute('aria-expanded', on); b.nextElementSibling.classList.toggle('open', on); if (on) placeMenu(b); });
+    // keep the render cache honest, so the next render doesn't think nothing changed
+    $('dock').dataset.html = '';
+  }
+  // Hover and focus show a menu by CSS; place it as it shows. A pick hides it until the pointer leaves.
+  $('dock').addEventListener('pointerover', e => { const b = e.target.closest('[data-group]'); if (b) placeMenu(b); });
+  $('dock').addEventListener('focusin', e => { const b = e.target.closest('[data-group]'); if (b) placeMenu(b); });
+  // The hush lasts until the pointer is off both the group's button and where its menu was (a hidden menu takes no hover).
+  document.addEventListener('pointermove', e => {
+    if (!dockHush || e.target.closest?.(`#dock [data-group="${dockHush}"]`)) return;
+    const m = document.querySelector(`#dock [data-menu="${dockHush}"]`), r = m && m.getBoundingClientRect();
+    if (r && e.clientX >= r.left - 4 && e.clientX <= r.right + 4 && e.clientY >= r.top - 4 && e.clientY <= r.bottom + 16) return;
+    dockHush = null; document.querySelectorAll('.dock-menu.hush').forEach(m => m.classList.remove('hush')); $('dock').dataset.html = '';
+  }, { passive: true });
+  document.addEventListener('pointerdown', e => { if (dockOpen && !e.target.closest('#dock [data-group],.dock-menu')) setMenu(null); }, true);
   function render() {
     if (frozen) return; // leaving: the save may already be the next chapter's; the office stays as it was behind the iris
     const mf = E.maxFocus(s);
@@ -188,19 +229,30 @@
     $('view-toggle').hidden = !s.seen.intro;
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
-    const known = (dockSeen = dockSeen || new Set(ORDER.filter(shown))), now = document.timeline.currentTime || 0;
+    const known = (dockSeen = dockSeen || new Set(slots().map(x => x.key))), now = document.timeline.currentTime || 0;
     let freshN = 0; // new dock buttons arrive 3 frames apart (style.css --stagger)
-    const btns = ORDER.filter(shown).map(id => {
-      if (!known.has(id)) { known.add(id); dockNew.set(id, [freshN++, now]); }
-      const nw = dockNew.get(id), fresh = !!nw && now - nw[1] < 470 + nw[0] * STAGGER; // dock-in is .42s
-      if (nw && !fresh) dockNew.delete(id);
-      const badge = id === 'contract' && s.tray.length ? `<span class="badge">${s.tray.length}</span>` : id === 'hq' && Object.keys(T).some(t => E.chainState(s, t).ready) ? '<span class="badge">!</span>' : '';
-      return `<button data-station="${id}" data-icon="${ST[id].icon}" class="${fresh ? 'fresh' : ''}"${fresh ? ` style="--i:${nw[0]}"` : ''} aria-pressed="${ui.win === id}" title="${ST[id].name} (${ST[id].key.toUpperCase()})">${ST[id].name}${badge}</button>`;
+    const badgeOf = id => id === 'contract' && s.tray.length ? s.tray.length : id === 'hq' && Object.keys(T).some(t => E.chainState(s, t).ready) ? '!' : '';
+    const chip = b => b === '' ? '' : `<span class="badge">${b}</span>`;
+    const station = (id, cls, extra) => `<button data-station="${id}" data-icon="${ST[id].icon}" class="${cls}"${extra} aria-pressed="${ui.win === id}" title="${ST[id].name} (${ST[id].key.toUpperCase()})">${ST[id].name}${chip(badgeOf(id))}</button>`;
+    $('dock').style.setProperty('--span', 12 / Math.max(1, slots().length)); // narrow screens: the slots share one row
+    const btns = slots().map(({ key, ids, g }) => {
+      if (!known.has(key)) { known.add(key); dockNew.set(key, [freshN++, now]); }
+      const nw = dockNew.get(key), fresh = !!nw && now - nw[1] < 470 + nw[0] * STAGGER; // dock-in is .42s
+      if (nw && !fresh) dockNew.delete(key);
+      const cls = fresh ? 'fresh' : '', at = fresh ? ` style="--i:${nw[0]}"` : '';
+      if (!g) return station(ids[0], cls, at);
+      // A group: its button, then its menu (a sibling, so the button stays a direct child of the dock's flex/grid).
+      // The group's badge adds up its stations' counts ("!" when only HQ's chain is ready).
+      const bs = ids.map(badgeOf).filter(b => b !== ''), n = bs.reduce((a, b) => a + (+b || 0), 0), on = ids.includes(ui.win);
+      const items = ids.map(id => station(id, 'dock-item', '').replace('</button>', `<kbd>${ST[id].key.toUpperCase()}</kbd></button>`)).join('');
+      return `<button data-group="${key}" data-icon="${GROUPS[g].icon}" class="${cls}"${at} aria-haspopup="true" aria-expanded="${dockOpen === g}" aria-pressed="${on}" title="${ids.map(id => ST[id].name).join(' · ')}">${on ? ST[ui.win].name : GROUPS[g].name}${chip(bs.length ? n || '!' : '')}</button>`
+        + `<div class="dock-menu${dockOpen === g ? ' open' : ''}${dockHush === g ? ' hush' : ''}" data-menu="${g}" role="group" aria-label="${GROUPS[g].name}">${items}</div>`;
     }).join('');
     const dock = $('dock');
     if (dock.dataset.html !== btns) {
-      dock.querySelectorAll('[data-station]').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns;
-      dock.querySelectorAll('.fresh').forEach(b => b.getAnimations().forEach(a => { a.startTime = dockNew.get(b.dataset.station)[1]; }));
+      dock.querySelectorAll('[data-station],[data-group],.dock-menu').forEach(b => b.remove()); $('stats-open').insertAdjacentHTML('beforebegin', btns); dock.dataset.html = btns;
+      dock.querySelectorAll('.fresh').forEach(b => b.getAnimations().forEach(a => { a.startTime = dockNew.get(b.dataset.station || b.dataset.group)[1]; }));
+      if (dockOpen) placeMenu(dock.querySelector(`[data-group="${dockOpen}"]`));
     }
     syncWorld();
     save();
@@ -512,7 +564,9 @@
   // What a window grows from and shrinks into: the button you clicked, else the station's dock button; none if hidden.
   function winButton(id, clicked) {
     const ev = clicked && window.event, hit = ev && ev.type === 'click' && ev.target.closest && ev.target.closest('button');
-    const el = hit && hit.isConnected && !hit.closest('#panel-dialog,#nib-bubble') ? hit : document.querySelector(`#dock [data-station="${id}"]`);
+    let el = hit && hit.isConnected && !hit.closest('#panel-dialog,#nib-bubble') ? hit : document.querySelector(`#dock [data-station="${id}"]`);
+    const menu = el && el.closest('.dock-menu');
+    if (menu && !menu.checkVisibility({ visibilityProperty: true, opacityProperty: true })) el = menu.previousElementSibling; // shut menu: its group's button
     const r = el && el.getBoundingClientRect();
     return r && r.width > 8 && r.height > 8 ? el : null;
   }
@@ -1139,6 +1193,8 @@
   ['keydown', 'click', 'pointerdown'].forEach(t => window.addEventListener(t, e => { if (frozen) { e.stopImmediatePropagation(); e.preventDefault(); } }, true));
   document.addEventListener('click', e => {
     const close = e.target.closest('[data-close]'); if (close) { const d = close.closest('dialog'); if (d.id === 'panel-dialog') closeWindow(); else { d.close(); render(); } return; }
+    const gb = e.target.closest('#dock [data-group]'); if (gb) { setMenu(dockOpen === gb.dataset.group ? null : gb.dataset.group); return; }
+    const pick = e.target.closest('.dock-menu [data-station]'); if (pick) { const m = pick.closest('.dock-menu'); if (dockOpen) setMenu(null); if (m.matches(':hover')) { dockHush = m.dataset.menu; m.classList.add('hush'); } }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
   });
   $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? openStation('hq') : nibSay('Twenty bugs and one critical. ' + s.bugs + ' down. Criticals are rare: about one in twenty.', { ms: 4000 }));
@@ -1159,6 +1215,7 @@
     if (nib.typing && (e.key === 'Enter' ? !e.target.closest('button') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
     if (!bubble.hidden && e.key === 'Enter' && !e.target.closest('button')) { const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
     if (!bubble.hidden && /^[1-3]$/.test(e.key)) { const b = bubble.querySelectorAll('.nib-choice')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
+    if (e.key === 'Escape' && (dockOpen || document.activeElement.closest?.('.dock-menu'))) { const g = dockOpen; setMenu(null); const b = document.querySelector(`#dock [data-group="${g || document.activeElement.closest('.dock-menu').dataset.menu}"]`); b && b.focus(); return; }
     if (e.key === 'Escape' && ui.win && !$('modal').open) { e.preventDefault(); closeWindow(); return; }
     if (e.repeat || $('modal').open || $('settings-dialog').open || ui.night) return;
     const id = ORDER.find(k => ST[k].key === e.key.toLowerCase());
