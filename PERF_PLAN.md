@@ -29,7 +29,7 @@ Root cause: six independent loops all run at the screen's refresh rate forever, 
 ### Phase 1: One loop instead of six
 - New `loop.js`: a single `requestAnimationFrame` with subscribers. Each system's `tick(dt, now)` returns whether it still needs frames.
 - When nothing needs frames the loop stops. It wakes on input, state change, a timer, or `visibilitychange`.
-- Cap drawing at 60 fps (skip every other frame on 120 Hz screens). Movement stays `dt`-based, so walking speed doesn't change.
+- ~~Cap drawing at 60 fps (skip every other frame on 120 Hz screens).~~ Removed 2026-10-28: on a 120 Hz screen it halved how often walking and the follow camera update (16.7 ms instead of 8.3 ms between redraws), which read as lag. The loop now runs at the screen's rate while awake; the idle savings come from sleeping, not the cap.
 - Move world, Nib, camTick, harness, crew and lifeLoop onto it.
 
 ### Phase 2: Only redraw the world when something changed (`world.js`)
@@ -117,6 +117,10 @@ After the phases, two follow-up fixes went in: the lamp layer moves by `transfor
 | Team view open | 117 → 56.1 (−52%) | 50.3 → 15.2 (−70%) | 123.3 → 64.6 (−48%) | 14.5 → 9.5 (−34%) | 60 → 14.1 (−77%) | 372 → 40.6 (−89%) |
 
 Walking and agents working still draw every frame, because something really is moving. Most of what's left while agents work is the CSS bob/sway/hop animations restyling each frame.
+
+### Frame cap removed (after release)
+
+Playtesting on a 120 Hz screen found walking laggy. The cause was the Phase 1 cap: redraws every 16.7 ms instead of 8.3 ms, which halved how often the follow camera scrolled. Removing the cap restored 8.3 ms (measured in a headed Chrome window on the real display, idle office and chapter 3, and at 3456×2000 with the hallway backdrop: median 8.3 ms, no long frames). The tables above were measured in headless Chrome at 30 or 60 Hz, where the cap never triggered, so those numbers still hold. On a 120 Hz screen, walking now draws 120 frames a second, the same as before this work.
 
 ### Memory (Phase 7)
 

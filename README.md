@@ -84,7 +84,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), quotas, same-origin and localhost checks |
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
-| `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. Capped at ~60 fps. See **Performance** below |
+| `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. While awake it runs at the screen's rate (no cap). See **Performance** below |
 | `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
 | `index.html`, `game.js`, `nib.js`, `style.css`, `original/` | The office (Stage 2 rebuild), with Stage 3 hooks |
 | `data.js`, `engine.js` | Rules. `stage`, `won3`, agent finds (`guess(…, by)`), `penalize` |
