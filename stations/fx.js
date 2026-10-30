@@ -81,7 +81,7 @@
   // ---------- picker (?fx) ----------
   function picker() {
     const el = document.createElement('div'); el.id = 'fx-picker';
-    el.style.cssText = 'position:fixed;right:8px;top:8px;z-index:99;background:#0f1630ee;color:#f1e6c8;font:12px/1.4 var(--mono,monospace);padding:8px;border:1px solid #39445c;max-width:300px';
+    el.style.cssText = 'position:fixed;left:8px;top:64px;z-index:99;background:#0f1630ee;color:#f1e6c8;font:12px/1.4 var(--mono,monospace);padding:8px;border:1px solid #39445c;max-width:300px';
     const paint = () => {
       el.innerHTML = '<b>Station variants</b>' + Object.keys(reg).map(id => {
         const vs = reg[id], cur = pick[id] || 'a';
