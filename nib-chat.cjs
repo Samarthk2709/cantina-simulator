@@ -3,7 +3,7 @@
 const deepinfra={MODEL:'google/gemma-4-26B-A4B-it',ENDPOINT:'https://api.deepinfra.com/v1/openai/chat/completions'};
 const LOCAL_MODEL='Qwen3-1.7B-Q8_0';
 // Copied from outputs/cantina-game/nib/nib.cjs so this folder runs on its own.
-const GOAL={bugs:20,criticals:1,critChance:0.05};
+const GOAL={bugs:5,criticals:1,critChance:0.05};
 const BEATS=['name','greet','talk','offer','return'];
 const INTENTS=['none','give_name','ask_purpose','accept','decline','ask_critical'];
 const MOODS=['idle','happy','think'];

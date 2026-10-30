@@ -136,6 +136,8 @@
   }
 
   // ---------- objective: always one clear next step ----------
+  // Past the bug count, only the critical is left: chain if we can, otherwise keep rolling.
+  function critHint() { return E.has(s, 'trace') ? 'chain two linked bugs at HQ.' : 'every bug has a 1 in 20 shot. Or save up for the Tracer and chain two.'; }
   function objective() {
     if (stage3()) return objective3();
     if (s.won) return 'Job done, ' + s.player + '. Chapter 3 is ready when you are: click the goal.';
@@ -149,7 +151,7 @@
     if (s.focus < E.maxFocus(s) * 0.1) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
     const tid = s.target, t = T[tid];
     const open = s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).filter(fid => E.slotState(s, fid) === 'open');
-    if (open.length) return 'Hunt in ' + t.rooms.find(r => r[0] === F[open[0]].room)[1] + '.' + (s.bugs ? ' ' + s.bugs + '/20 so far.' : '');
+    if (open.length) return 'Hunt in ' + t.rooms.find(r => r[0] === F[open[0]].room)[1] + '.' + (s.bugs >= E.GOAL.bugs ? ' Bugs done. Now a critical: ' + critHint() : s.bugs ? ' ' + s.bugs + '/' + E.GOAL.bugs + ' so far.' : '');
     if (t.rooms.some(r => E.canMap(s, tid, r[0]))) return 'Map another room of ' + t.name + '.';
     if (s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).some(fid => E.slotState(s, fid) === 'locked')) return 'What\'s left here needs tools. Buy one, or pick another job.';
     return t.name + ' is picked clean. Time for another job.';
@@ -237,8 +239,8 @@
     $('cups').textContent = s.cups; $('coffee').disabled = !s.cups || s.focus >= mf;
     $('date').textContent = 'DAY ' + s.day;
     const teamBugs = s.stats.agent || 0;
-    $('goal-name').textContent = stage3() ? 'Elite, with the team' : s.won ? 'Chapter 3: Hire help' : '20 bugs + 1 critical';
-    $('goal-pay').textContent = stage3() ? Math.min(s.rep, 60) + '/60 rep · ' + Math.min(teamBugs, TEAM_GOAL) + '/' + TEAM_GOAL + ' team bugs' : s.won ? 'Job done · start →' : s.bugs + '/20 bugs · ' + Math.min(s.crits, 1) + '/1 crit';
+    $('goal-name').textContent = stage3() ? 'Elite, with the team' : s.won ? 'Chapter 3: Hire help' : E.GOAL.bugs + ' bugs + 1 critical';
+    $('goal-pay').textContent = stage3() ? Math.min(s.rep, 60) + '/60 rep · ' + Math.min(teamBugs, TEAM_GOAL) + '/' + TEAM_GOAL + ' team bugs' : s.won ? 'Job done · start →' : Math.min(s.bugs, E.GOAL.bugs) + '/' + E.GOAL.bugs + ' bugs · ' + Math.min(s.crits, 1) + '/1 crit';
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
@@ -944,8 +946,8 @@
       return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
     }).join('');
     const rolls = Object.values(s.found).filter(f => f.status === 'accepted').length;
-    return `<p class="hq-goal">${s.bugs}/20 bugs · ${Math.min(1, s.crits)}/1 critical</p>
-      <div class="goalbar"><i style="width:${Math.min(100, s.bugs / 20 * 100)}%"></i></div>
+    return `<p class="hq-goal">${Math.min(s.bugs, E.GOAL.bugs)}/${E.GOAL.bugs} bugs · ${Math.min(1, s.crits)}/1 critical</p>
+      <div class="goalbar"><i style="width:${Math.min(100, s.bugs / E.GOAL.bugs * 100)}%"></i></div>
       <p class="fine">Each bug: 5% crit chance (${rolls} rolled). Or chain two linked bugs with the Tracer.</p>
       <ul class="chains">${chains || '<li class="fine">Take a job to see its chain.</li>'}</ul>`;
   }
@@ -1130,13 +1132,13 @@
 
   // ---------- ending ----------
   function ending() {
-    closeWindow();
+    closeWindow(); nib.hush(); tip = null; // a tutorial line must not sit on top of the ending
     const byHand = s.stats.manual, byNib = s.stats.nib, chain = Object.keys(s.chains).length > 0;
-    const style = byNib > byHand ? 'You taught me well enough that I did most of the finding. That was the idea.' : byHand >= 15 ? 'You did most of it by hand. I watched every line. Next time, let me carry more.' : 'Half you, half me. A real partnership.';
+    const style = byNib > byHand ? 'You taught me well enough that I did most of the finding. That was the idea.' : byHand >= Math.max(E.GOAL.bugs, s.bugs * 0.75) ? 'You did most of it by hand. I watched every line. Next time, let me carry more.' : 'Half you, half me. A real partnership.';
     const crit = chain ? 'And the critical: we built it from two small bugs.' : 'And the critical just fell out of the sky. Lucky us.';
     $('modal-body').innerHTML = `<div class="ending"><canvas id="end-nib" width="16" height="21"></canvas>
       <h1 id="modal-title">First job done.</h1>
-      <p class="lede">20 bugs and a critical in ${s.wonDay} day${s.wonDay > 1 ? 's' : ''}. ${money(s.stats.earned)} earned · ${E.tier(s).name} reputation.</p>
+      <p class="lede">${s.bugs} bugs and a critical in ${s.wonDay} day${s.wonDay > 1 ? 's' : ''}. ${money(s.stats.earned)} earned · ${E.tier(s).name} reputation.</p>
       <blockquote>“${esc(style)} ${esc(crit)}”<cite>— ${esc(s.nib)}</cite></blockquote>
       <p class="fine">Next chapter: hiring help. Teaching one partner was hard; a team is harder.</p>
       <div class="actions"><button data-close class="quiet">Stay a while</button><button id="to-stage3" class="accent" data-icon="arrow">Chapter 3: Hire help</button></div></div>`;
@@ -1151,7 +1153,7 @@
     leave();
   }
   function ending3() {
-    closeWindow();
+    closeWindow(); nib.hush(); tip = null; // a tutorial line must not sit on top of the ending
     const A = window.Stage3Agents, team = A ? A.list().filter(a => a.id !== 'nib') : [];
     const byTeam = s.stats.agent || 0, pens = A ? A.crew().pens.length : 0;
     $('modal-body').innerHTML = `<div class="ending"><canvas id="end-nib" width="16" height="21"></canvas>
@@ -1223,7 +1225,7 @@
     const pick = e.target.closest('.dock-menu [data-station]'); if (pick) { const m = pick.closest('.dock-menu'); if (dockOpen) setMenu(null); if (m.matches(':hover')) { dockHush = m.dataset.menu; m.classList.add('hush'); } }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
   });
-  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? openStation('hq') : nibSay('Twenty bugs and one critical. ' + s.bugs + ' down. Criticals are rare: about one in twenty.', { ms: 4000 }));
+  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? openStation('hq') : nibSay(s.bugs >= E.GOAL.bugs ? 'Bugs done. Now a critical: ' + critHint() : E.GOAL.bugs + ' bugs and one critical. ' + s.bugs + ' down. Criticals are rare: about one in twenty, or chain two bugs.', { ms: 4000 }));
   $('nib-chip').addEventListener('click', () => shown('training') ? openStation('training') : nibSay(objective(), { ms: 3600 }));
   $('stats-open').addEventListener('click', () => openStation('stats'));
   $('settings').addEventListener('click', openMenu);
@@ -1282,7 +1284,7 @@
     (async () => {
       await wait(700);
       await nibSay('So this is the office, ' + s.player + '. One desk, one lamp, and us.', { next: true });
-      await nibSay('Our first job is on that computer: twenty bugs and one critical. Walk over with WASD and press E.', { next: true, nextLabel: 'Let\'s go' });
+      await nibSay('Our first job is on that computer: ' + E.GOAL.bugs + ' bugs and one critical. Walk over with WASD and press E.', { next: true, nextLabel: 'Let\'s go' });
       s.seen.intro = true; render();
     })();
   } else if (s.pendingTeach) {

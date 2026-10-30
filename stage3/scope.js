@@ -85,7 +85,7 @@
     s.lit = JSON.parse(JSON.stringify(lit)); s.target = 'inv';
     s.tools = ['proxy', 'fuzz', 'dbg']; s.gpu = 2; s.desk = ['coffee'];
     s.lessons = {info: {clean: 3, noisy: 0}, auth: {clean: 3, noisy: 1}, inj: {clean: 2, noisy: 0}, path: {clean: 2, noisy: 1}, mem: {clean: 1, noisy: 0}, race: {clean: 1, noisy: 1}};
-    // Twenty accepted findings, all in scope, starting with ChatterBox's chain.
+    // Twenty accepted findings (more than the 5-bug goal, like a thorough first job), all in scope, starting with ChatterBox's chain.
     const ids = ['chat:login:0', 'chat:msgs:0'].concat(Object.keys(lit).flatMap(t => lit[t].flatMap(r => E.roomFindings(t, r))))
       .filter((fid, i, a) => a.indexOf(fid) === i && Scope.inScope(E.FINDINGS[fid].target, E.FINDINGS[fid].room))
       // Leave the other programs' chain halves unfound, so chapter 3's criticals have to be earned.
@@ -101,7 +101,7 @@
     Object.keys(s.picked).forEach(t => { if (!E.targetById[t].private) s.picked[t] = Math.min(0.9, +(s.picked[t] + 0.12).toFixed(2)); });
     ['job', 'training', 'ops', 'forge', 'rig', 'stats', 'hq', 'rest', 'intro'].forEach(k => { s.seen[k] = true; });
     E.log(s, 'CRITICAL chain: ' + E.targetById.chat.chain.name + ' · $' + chainPay, 'crit');
-    E.log(s, 'First job done: 20 bugs and a critical.', 'good');
+    E.log(s, 'First job done, with a critical.', 'good');
     return E.restore(JSON.parse(JSON.stringify(s)));
   }
 })();

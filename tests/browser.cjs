@@ -103,14 +103,15 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
       const E = Stage2Engine, D = Stage2Data, s = E.create({ playerName: 'Sam' }, 3); s.seen.intro = true;
       const bad = fid => { const f = E.FINDINGS[fid]; return D.CLASSES[f.cls].variants[f.variant].findIndex(l => l.bad); };
       const bank = fid => { const [t, r] = fid.split(':'); if (s.target !== t) E.takeJob(s, t); if (!E.isLit(s, t, r)) s.lit[t].push(r); s.focus = 100; s.rng = 1; E.guess(s, fid, bad(fid)); if (s.pendingTeach) E.teach(s, 'sharp'); D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0)); E.submit(s, fid); };
-      Object.keys(E.FINDINGS).filter(id => id.startsWith('chat:')).forEach(bank);
-      ['inv:acct:0', 'inv:inv:0', 'inv:inv:1', 'inv:pay:1', 'inv:admin:0', 'inv:admin:1', 'inv:acct:1', 'inv:up:0', 'inv:pdf:0'].forEach(bank);
+      // One bug short of the goal, including both halves of ChatterBox's chain.
+      const ch = E.targetById.chat.chain, halves = ['chat:' + ch.a, 'chat:' + ch.b];
+      halves.concat(Object.keys(E.FINDINGS).filter(id => id.startsWith('chat:') && !halves.includes(id))).slice(0, E.GOAL.bugs - 1).forEach(bank);
       Object.values(s.found).forEach(f => { f.crit = false; }); s.crits = 0; s.chains = {};
       E.takeJob(s, 'vault'); E.sleep(s); s.tray = []; s.cash = 3000; E.buyTool(s, 'dbg'); E.buyTool(s, 'trace');
       localStorage.setItem('first-office-game-v1', JSON.stringify(s));
     });
     await p.reload(); await p.waitForTimeout(1000);
-    assert.equal((await st(p)).bugs, 19);
+    assert.equal((await st(p)).bugs, await p.evaluate(() => Stage2Engine.GOAL.bugs - 1));
     await p.evaluate(() => Stage2.open('hq')); await p.waitForSelector('[data-act=trace]');
     await shot(p, '17-hq-chain');
     await p.click('[data-act=trace][data-tid=chat]:not([data-id="0"])'); await p.waitForTimeout(200);
@@ -126,7 +127,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     if (await p.waitForSelector('.nib-choice', { timeout: 6000 }).catch(() => null)) await teachSharp(p, fid);
     await p.waitForSelector('#modal[open] .ending', { timeout: 6000 }); await p.waitForTimeout(400);
     await shot(p, '19-ending');
-    const s = await st(p); assert.ok(s.won && s.bugs >= 20 && s.crits >= 1);
+    const s = await st(p); assert.ok(s.won && s.bugs >= 5 && s.crits >= 1);
     // The ending leads into chapter 3 with this same save: same money, same bugs, two agents.
     await p.click('#to-stage3'); await p.waitForFunction(() => window.Stage3Agents, null, { timeout: 8000 });
     const s3 = await st(p); assert.equal(s3.stage, 3); assert.equal(s3.bugs, s.bugs); assert.equal(s3.cash, s.cash);

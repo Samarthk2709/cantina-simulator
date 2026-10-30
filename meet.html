@@ -122,7 +122,7 @@ button,input{font:inherit;color:inherit}
 
   <aside class="goal" id="goal" aria-label="Current goal">
     <h2>First job</h2>
-    <dl><dt>Bugs</dt><dd id="goalBugs">0 / 20</dd><dt>Critical</dt><dd id="goalCrits">0 / 1</dd></dl>
+    <dl><dt>Bugs</dt><dd id="goalBugs">0 / 5</dd><dt>Critical</dt><dd id="goalCrits">0 / 1</dd></dl>
   </aside>
 
   <div class="talk">
@@ -216,7 +216,7 @@ $('reset').onclick=resetAll;
 
 /* ---------- beats: the page decides when the stage moves; the model only writes lines ---------- */
 // Fixed facts come from game data, never from the model.
-const GOAL={bugs:20,criticals:1,critChance:0.05};
+const GOAL={bugs:5,criticals:1,critChance:0.05};
 $('goalBugs').textContent=`0 / ${GOAL.bugs}`; $('goalCrits').textContent=`0 / ${GOAL.criticals}`;
 const PITCH=["I'm here to help you run a security company. We find bugs, and we get paid for them.",
   `Our first job: find ${GOAL.bugs} bugs, and at least ${GOAL.criticals===1?'one':GOAL.criticals} critical.`,

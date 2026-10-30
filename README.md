@@ -3,7 +3,7 @@
 Stages 1–3 of the [roadmap](../../work/ROADMAP.md) as one game: one server, one address, one save.
 
 1. **Meet Nib** (`meet.html`). The dark room, the lamp, Nib. Accepting the job fades into the office.
-2. **First job together** (`/`). 20 bugs and 1 critical in the office. Nib already knows your name from Stage 1.
+2. **First job together** (`/`). 5 bugs and 1 critical in the office. Nib already knows your name from Stage 1.
 3. **Hire help** (same page). The Stage 2 ending, or the goal button once the first job is done, starts chapter 3. The same save continues: same money, rep and tools, plus Pip and Moss. The goal is Elite (60 rep) with at least 5 bugs from agents. A fifth program, **Parcelly**, opens only in chapter 3, so the team always has fresh work.
 
 ## Run

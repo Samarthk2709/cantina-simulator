@@ -4,7 +4,7 @@
   'use strict';
   const D = typeof module === 'object' && module.exports ? require('./data.js') : root.Stage2Data;
   const { CLASSES, TARGETS, ALL_TARGETS, TOOLS, RIGS, DESK, REP_TIERS, GRADES, COST, SECTIONS } = D;
-  const VERSION = 2, GOAL = { bugs: 20, crits: 1 };
+  const VERSION = 2, GOAL = { bugs: 5, crits: 1 };
   const targetById = Object.fromEntries(ALL_TARGETS.map(t => [t.id, t]));
   const FINDINGS = {};
   ALL_TARGETS.forEach(t => t.rooms.forEach(r => r[5].forEach((_, i) => { const f = D.finding(t, r, i); FINDINGS[f.id] = f; })));
@@ -43,6 +43,7 @@
     if (s.pendingTeach && !s.found[s.pendingTeach]) s.pendingTeach = null;
     Object.keys(s.lit).forEach(t => { if (!targetById[t]) delete s.lit[t]; else s.lit[t] = s.lit[t].filter(r => targetById[t].rooms.some(x => x[0] === r)); });
     if (s.target && !targetById[s.target]) s.target = null;
+    checkWin(s); // a save from before the goal was lowered may already meet it
     return s;
   }
 

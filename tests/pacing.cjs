@@ -43,5 +43,5 @@ const res=[];for(let i=1;i<=40;i++)res.push(run(i*977));
 const days=res.map(r=>r.day).sort((a,b)=>a-b), manual=res.reduce((a,r)=>a+r.manual,0)/40, nib=res.reduce((a,r)=>a+r.nib,0)/40;
 console.log('won',res.filter(r=>r.won).length+'/40','· median day',days[20],'· range',days[0]+'-'+days[39],'· by hand',manual.toFixed(1),'· by Nib',nib.toFixed(1));
 assert.equal(res.filter(r=>r.won).length,40,'every run finishes');
-assert.ok(days[20]>=4&&days[20]<=9,'median length 4-9 days');
+assert.ok(days[20]>=3&&days[20]<=7,'median length 3-7 days');
 assert.ok(nib/(nib+manual)>=0.3,'Nib finds at least 30% of bugs');
