@@ -2,7 +2,7 @@
    Every variant keeps the desk's identity from original/world.js: the walnut desk, two monitors (cream code screen
    on the left, orange screen on the right), the keyboard, the paper and the orange chair at the approach tile.
    The desk has no facility level, so what it carries instead is progress: bugs / crits toward the
-   20 bugs + 1 critical goal, and cash as a pile of coins (A), bugs in a jar (B) or blips on a radar (C).
+   bugs + 1 critical goal (engine GOAL), and cash as a pile of coins (A), bugs in a jar (B) or blips on a radar (C).
      A  Bug Squash   - the screens sleep with a bouncing-bug screensaver, wake when you walk up, squash the bug on pay;
                        agents slide a split pane into the editor and type in their colour.
      B  Lamp & Jar   - a cozy analog desk: a roach wanders, the lamp clicks on and it bolts; pay drops a bug in the jar;
@@ -137,16 +137,17 @@
     });
     if (crew[1]) { const col = agentCol(crew[1]); R(c, col, L.x, L.y + 7, 14, 1); } // a second agent at the desk tints the status bar
   }
-  // Awake right screen: progress toward the goal. 20 bug pips (7 a row, 3 rows) and a crit lamp.
+  // Awake right screen: progress toward the goal: one pip per goal bug (the engine's GOAL), a goal bar and a crit lamp.
   function chart(c, k, Rt) {
     R(c, '#ffb07a', Rt.x, Rt.y, 14, 8);
-    const n = Math.min(20, bugsOf(k)), pay = prog(k, 'pay', 1.6);
-    for (let i = 0; i < 20; i++) {
+    const G = window.Stage2Engine?.GOAL?.bugs || 5, n = Math.min(G, bugsOf(k)), pay = prog(k, 'pay', 1.6);
+    const big = G <= 5, per = big ? G : 7, step = big ? 3 : 2, sz = big ? 2 : 1;
+    for (let i = 0; i < G; i++) {
       const fresh = i === n - 1 && pay >= 0 && pay < 0.6 && k.anim && Math.floor(pay * 10) % 2 === 0;
-      R(c, fresh ? '#ffffff' : i < n ? '#1f2a4a' : '#e8955f', Rt.x + 1 + (i % 7) * 2, Rt.y + 1 + Math.floor(i / 7) * 2, 1, 1);
+      R(c, fresh ? '#ffffff' : i < n ? '#1f2a4a' : '#e8955f', Rt.x + (big ? 0 : 1) + (i % per) * step, Rt.y + 1 + Math.floor(i / per) * step, sz, sz);
     }
     R(c, critsOf(k) ? '#c4572b' : '#e8955f', Rt.x + 11, Rt.y + 6, 2, 1);
-    R(c, '#1f2a4a', Rt.x + 1, Rt.y + 6, Math.min(9, 1 + Math.round(8 * n / 20)), 1); // goal bar
+    R(c, '#1f2a4a', Rt.x + 1, Rt.y + 6, Math.min(9, 1 + Math.round(8 * n / G)), 1); // goal bar
   }
   // Cash as a coin stack on the desk's left end (0-4 coins by cash), fed by a coin that arcs from the screen on pay.
   const CASH = [1, 400, 1500, 6000];

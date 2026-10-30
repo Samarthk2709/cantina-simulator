@@ -85,6 +85,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
 | `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. While awake it runs at the screen's rate (no cap). See **Performance** below |
+| `stations/fx.js`, `stations/<id>.js` | Animated office stations. `fx.js` is the hook world.js asks before drawing a station, plus events and the `?fx` picker; each station file holds three variants. See **Animated stations** |
 | `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
 | `index.html`, `game.js`, `nib.js`, `style.css`, `original/` | The office (Stage 2 rebuild), with Stage 3 hooks |
 | `data.js`, `engine.js` | Rules. `stage`, `won3`, agent finds (`guess(…, by)`), `penalize` |
@@ -100,6 +101,25 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 **Performance**: nothing redraws unless it changed. The world canvas redraws on movement, camera easing, its 8 fps sprite frame or an API call, with a 250 ms safety redraw. Nib's layer redraws on his own changes, and agent sprites write styles only when values change. Idle systems sleep on timers set to their next visible change (a blink, a sprite frame, a tool timer). Any new code that changes what a system shows must go through its API or call `Loop.wake()`. Numbers and method: `PERF_PLAN.md`.
 
 Saves (localStorage on this address): `first-office-nib-v1` (Stage 1 memory), `first-office-game-v1` (office), `first-office-crew-v1` (agents and rules).
+
+## Animated stations (2026-10-30)
+
+Each of the seven office stations moves on its own, reacts when you walk up, open it or get paid there, and reacts when a Stage 3 agent walks to it or works at it. One agent per station built three variants; a reviewer ranked them and sent issues back until all three passed. The top-ranked one ships:
+
+| Station | Variant |
+|---|---|
+| Desk | A · Bug Squash: screensaver bug, wakes to code and a goal chart, pay squashes the bug and stacks a coin |
+| Nib's bench | A · Pattern Book: the book flips through learned patterns, ribbons show precision, pay stamps a star |
+| Ops | C · Split-flap board: contract codes flip, greets you by name, pay flips to $!!$ |
+| Tools | C · Smithy: furnace and embers, trip-hammer anvil |
+| GPU Rig | C · Rack robot: a gantry robot tends the cabinets and zips over to you |
+| Ledger Vault | B · Ticker Ledger: adding machine with a reputation odometer and paper tape |
+| HQ | C · Chain Lights: bulbs over the door, sparks meet at a chain-link icon |
+
+- **Hook:** `world.js` asks `StationFX.draw` first; a variant draws with `k.base()` (the original art) and its own layers. Events: `open`, `near`, `leave`, `pay`, `float`, `agent-arrive`, `agent-start`, `agent-done`, `night`, `morning`.
+- **Compare:** `?fx` shows a picker (A/B/C/off per station); `?fx=hunt:b` sets one. Choices persist in localStorage. Clips of all 21: `work/station-fx/`.
+- **Cost:** about 0.06 ms of drawing per frame; the loop stays asleep when nothing is happening.
+- **Limits:** agents never walk to Nib's bench or the Vault, so their agent reactions only show if a later change sends them there. The Vault mirrors every payout into its own `deposit` event so it reacts to all money.
 
 ## Verify
 
@@ -155,7 +175,7 @@ Redesigned after Grok Bot's avatar system:
 - **You:** the human version, a head on a cream jacket with the founder's red scarf, and a back view when walking up.
 - **Moods:** the eyes carry them (idle, blink, talk, think, happy, sad, ask, sleep).
 - **Size:** all avatars are 16×21 pixels, one pixel per office pixel.
-- **One change to the published renderer:** `original/world.js` has a single hook that draws the founder with `avatars.js` when it's loaded. Otherwise it falls back to the original sprite.
+- **Changes to the published renderer:** `original/world.js` draws the founder with `avatars.js` when it's loaded (otherwise the original sprite), and asks `stations/fx.js` to draw each station (otherwise the original art).
 
 ## Review, 2026-10-25
 
