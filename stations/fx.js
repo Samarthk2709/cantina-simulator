@@ -12,10 +12,12 @@
      r(c, color, x, y, w, h) (pixel rect), base().
    Events (StationFX.emit(id, kind, data)): open (player opened its window), near / leave (player walked up / away),
      pay ({ amount, crit, who }), float ({ text }), agent-arrive / agent-start / agent-done ({ who }), night / morning.
-   Choosing: ?fx opens a picker (A/B/C/off per station); ?fx=hunt:b,rig:c sets choices. Kept in localStorage. */
+   Choosing: PICK below is what ships. ?fx opens a picker (A/B/C/off per station); ?fx=hunt:b,rig:c sets choices. Kept in localStorage. */
 (function () {
   'use strict';
   const KEY = 'first-office-fx', reg = {}, log = [], LIFE = 6, BUSY = 2.5;
+  // The shipped variant per station (picked 2026-10-30 from the reviewers' rankings); the others stay for ?fx.
+  const PICK = { hunt: 'a', training: 'a', contract: 'c', forge: 'c', rig: 'c', stats: 'b', hq: 'c' };
   let pick = {};
   try { pick = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch {}
   const q = new URLSearchParams(location.search).get('fx');
@@ -27,7 +29,7 @@
 
   function variant(id) {
     const vs = reg[id]; if (!vs) return null;
-    const key = pick[id] || 'a';
+    const key = pick[id] || PICK[id] || 'a';
     return key === 'off' ? null : vs[key] || null;
   }
   function emit(id, kind, data) {
@@ -84,7 +86,7 @@
     el.style.cssText = 'position:fixed;left:8px;top:64px;z-index:99;background:#0f1630ee;color:#f1e6c8;font:12px/1.4 var(--mono,monospace);padding:8px;border:1px solid #39445c;max-width:300px';
     const paint = () => {
       el.innerHTML = '<b>Station variants</b>' + Object.keys(reg).map(id => {
-        const vs = reg[id], cur = pick[id] || 'a';
+        const vs = reg[id], cur = pick[id] || PICK[id] || 'a';
         return '<div style="margin-top:4px">' + id + ' ' + Object.keys(vs).concat('off').map(k =>
           '<button data-id="' + id + '" data-v="' + k + '" title="' + (vs[k]?.name || 'original art') + '" style="margin-left:2px;' + (k === cur ? 'background:#c4572b;color:#fff' : '') + '">' + k.toUpperCase() + '</button>').join('') +
           '<div style="opacity:.7">' + (vs[cur]?.name || 'original art') + '</div></div>';
@@ -96,5 +98,5 @@
   function set(id, v) { pick[id] = v; store(); window.Loop?.wake(); }
   if (q !== null) addEventListener('DOMContentLoaded', () => setTimeout(picker, 0));
 
-  window.StationFX = { add: (id, vs) => { reg[id] = Object.assign(reg[id] || {}, vs); }, draw, busy, emit, set, variant, list: () => reg, choice: id => pick[id] || 'a' };
+  window.StationFX = { add: (id, vs) => { reg[id] = Object.assign(reg[id] || {}, vs); }, draw, busy, emit, set, variant, list: () => reg, choice: id => pick[id] || PICK[id] || 'a' };
 })();
