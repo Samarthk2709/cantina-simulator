@@ -1,4 +1,4 @@
-// Pacing check: a scripted, reasonable player (hunts by hand, teaches well, proves Nib's finds, buys the rig first).
+// Pacing check: a scripted, reasonable player (hunts by hand, teaches well, proves Nib's finds; chapter 2 has no rig or desk upgrades).
 // Run: node outputs/first-office/tests/pacing.cjs  — fails if the stage gets too short, too long, or Nib stops mattering.
 const assert = require('node:assert/strict');
 const D=require('../data.js');
@@ -10,14 +10,11 @@ function run(seed,{missRate=0.4,greedyRaw=false}={}){
     if(!s.target)E.takeJob(s,'chat');
     for(let guard=0;guard<80&&!s.won;guard++){
       // shop
-      if(s.gpu<3&&s.cash>=D.RIGS[s.gpu+1].cost-D.RIGS[s.gpu].cost+100) E.setRig(s,s.gpu+1);
       for(const t of ['fuzz','dbg','trace']) if(!E.has(s,t)&&s.cash>=D.TOOLS.find(x=>x.id===t).cost+200) E.buyTool(s,t);
-      if(s.gpu<3&&s.cash>=D.RIGS[s.gpu+1].cost-D.RIGS[s.gpu].cost+400) E.setRig(s,s.gpu+1);
       for(const t of order) if(E.chainState(s,t).ready) {E.trace(s,t,0);actions++;}
       if(s.tray.length){const c=s.tray[0];
         if(!greedyRaw&&s.focus>=15)E.prove(s,c.id); // proven finds file themselves
-        else if(c.conf>=50||greedyRaw)E.submitRaw(s,c.id);
-        else E.toss(s,c.id);
+        else E.submitRaw(s,c.id); // no Toss in the UI
         actions++;continue;}
       const drafts=Object.keys(s.found).filter(f=>s.found[f].status==='draft');
       if(drafts.length){E.fileDraft(s,drafts[0]);continue;}

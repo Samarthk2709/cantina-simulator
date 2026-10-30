@@ -4,6 +4,7 @@
   'use strict';
   const D = typeof module === 'object' && module.exports ? require('./data.js') : root.Stage2Data;
   const { CLASSES, TARGETS, ALL_TARGETS, TOOLS, RIGS, DESK, REP_TIERS, GRADES, COST, SECTIONS } = D;
+  const CH2_TRIES = 4; // chapter 2 has no rig: Nib gets a fixed few tries a night
   const VERSION = 2, GOAL = { bugs: 5, crits: 1 };
   const targetById = Object.fromEntries(ALL_TARGETS.map(t => [t.id, t]));
   const FINDINGS = {};
@@ -195,7 +196,7 @@
 
   // Nib's night: map one room next to what's lit, then try `tries` slots it knows how to look for.
   function sleep(s) {
-    const night = { day: s.day, mapped: [], tries: RIGS[s.gpu].tries, made: 0, idle: '' };
+    const night = { day: s.day, mapped: [], tries: s.stage === 3 ? RIGS[s.gpu].tries : CH2_TRIES, made: 0, idle: '' };
     // End-of-day totals for the vitals box: today's numbers are the change since the last entry.
     s.days.push({ day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned }); if (s.days.length > 60) s.days.shift();
     s.day++; s.focus = maxFocus(s); s.cups = maxCups(s);

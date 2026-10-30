@@ -32,7 +32,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     for (const a of st.agents) if (a.q) await p.evaluate(id => Stage3Agents.answer(id, 0), a.id);
     const free = st.agents.filter(a => !a.live).map(a => a.id);
     const brief = [];
-    if (!st.tools.includes('trace') && st.cash >= 900) brief.push('buy the Tracer, budget $900');
+    if (!st.tools.includes('trace') && st.cash >= 600) brief.push('buy the Tracer, budget $600');
     if (st.tools.includes('trace')) brief.push('connect a critical chain');
     if (st.tray) brief.push('validate the tray');
     brief.push('hunt wherever there\'s work', 'hunt wherever there\'s work', 'hunt wherever there\'s work');

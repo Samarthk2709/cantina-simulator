@@ -59,10 +59,10 @@
 
   function makeAgent(id) {
     const saved = crew().agents?.[id] || {};
-    const a = {id, ...ROSTER[id], log: saved.log || [], task: saved.task || null, stats: saved.stats || blankStats(), status: 'idle', ver: 0, q: null,
+    const a = {id, ...ROSTER[id], log: saved.log || [], task: saved.task || null, stats: saved.stats || blankStats(), queue: saved.queue || [], status: 'idle', ver: 0, q: null,
       pos: null, path: [], station: null, timer: 0, next: null, bubble: '', lastPenalty: 0, nibWalking: false,
       energy: saved.energy ?? D.COST.focus, energyDay: saved.energyDay ?? S().day};
-    if (a.task && !a.task.finished) a.status = 'thinking';
+    if (a.task && !a.task.finished) a.status = a.task.standbyDay === S().day ? 'resting' : 'thinking';
     else if (a.task) a.status = 'done';
     a.log.forEach(m => { m.id = ++seq; });
     if (!a.log.length) intro(a);
@@ -80,7 +80,7 @@
   const say = (a, t) => push(a, 'say', t), tool = (a, t) => push(a, 'tool', t), good = (a, t) => push(a, 'good', t), bad = (a, t) => push(a, 'bad', t), ruled = (a, t) => push(a, 'rule', t);
   function persist() {
     const out = {};
-    for (const a of Object.values(agents)) out[a.id] = {energy: a.energy, energyDay: a.energyDay, log: a.log.filter(m => m.kind !== 'typing').slice(-120).map(({kind, text, stats, task, reason, title, fix}) => ({kind, text, stats, task, reason, title, fix})), task: a.task, stats: a.stats};
+    for (const a of Object.values(agents)) out[a.id] = {energy: a.energy, energyDay: a.energyDay, log: a.log.filter(m => m.kind !== 'typing').slice(-120).map(({kind, text, stats, task, reason, title, fix}) => ({kind, text, stats, task, reason, title, fix})), task: a.task, stats: a.stats, queue: a.queue};
     crew().agents = out; C.save();
   }
 
@@ -106,6 +106,8 @@
   // ---------- plain words -> task ----------
   const PROGRAM_WORDS = [[/chatter|\bchat\b/, 'chat'], [/invoic/, 'inv'], [/vault/, 'vault'], [/northwind|\bbank\b/, 'bank'], [/parcel|shipping/, 'ship']];
   const AUTO = /\b(any(where| program| of them)?|whichever|wherever|you (choose|pick|decide)|pick (one|for me|a program)|your choice|best (one|program)|most (bugs|work|left)|(isn'?t|hasn'?t|not)( been)? (done|finished|completed|picked clean))\b/;
+  // A standing order: the task never finishes on its own. When it runs out (or hits its stop), the agent waits for the next day and goes again.
+  const FOREVER = /\b(every ?day|each day|daily|every morning|forever|always|non-?stop|from now on|standing order|long[- ]running|until i say( so| stop)?|until (told|i stop you)|keep (at it|on it|hunting|working))\b/;
   const CURRENT = /\b(current|this one|same (one|program)|active (one|program)|keep going|continue|again)\b/;
   // A question goes to chat, even when it mentions bugs ("why were there no accepted bugs?").
   const QUESTION = /^(why|what|how|who|when|where|which|did|does|do you|are you|is|was|were|can you (tell|explain)|explain|tell me (why|what|how))\b/;
@@ -139,6 +141,7 @@
     else if ((m = t.match(/until .*?\$\s?([\d,]+)/))) task.until = {kind: 'cash', val: +m[1].replace(/,/g, '')};
     if ((m = t.match(/(?:up to|budget(?: of)?|spend(?: up to)?|max)\s*\$?\s?([\d,]+)/) || t.match(/\$?\s?([\d,]+)\s*(?:dollars?\s*)?budget|([\d,]+)\s*dollars/))) task.budget = +(m[1] || m[2]).replace(/,/g, '');
     if (/don'?t spend|no spending|without spending/.test(t)) task.budget = 0;
+    if (FOREVER.test(t)) task.forever = true;
     return task;
   }
   function fromModel(m) {
@@ -147,7 +150,7 @@
   }
   // Model fields win; the local parser fills in what the model left out.
   function mergeBrief(local, m) {
-    return {gist: m.gist, job: m.job === 'none' ? local.job : m.job, program: m.program || local.program, item: m.item || local.item, until: m.until || local.until, budget: m.budget ?? local.budget};
+    return {gist: m.gist, job: m.job === 'none' ? local.job : m.job, program: m.program || local.program, item: m.item || local.item, until: m.until || local.until, budget: m.budget ?? local.budget, forever: local.forever};
   }
   // Brief values that can't mean what they say: a stop at 0, or a target that's already met.
   function sanitize(a, task) {
@@ -198,7 +201,7 @@
     const n = a.next, t = a.task;
     if (a.q) return 'Needs you · ' + a.q.text;
     if (a.status === 'queued') return 'Waiting for a free GPU';
-    if (a.status === 'resting') return 'Out of focus · back tomorrow';
+    if (a.status === 'resting') return t?.standbyDay != null ? 'Standing order · back tomorrow' : 'Out of focus · back tomorrow';
     if ((a.status === 'walking' || a.status === 'working') && n) return n.phrase || gistOf(t);
     if (a.status === 'thinking') return gistOf(t) || 'Thinking';
     if (a.status === 'done' && t) { const last = lastDone(a); return last?.stats ? `Done · ${last.stats.accepted} bug${last.stats.accepted === 1 ? '' : 's'}${last.stats.pens ? ` · ${last.stats.pens} penalt${last.stats.pens === 1 ? 'y' : 'ies'}` : ''}` : 'Done'; }
@@ -207,6 +210,7 @@
 
   function label(task) {
     if (!task) return '';
+    if (task.forever) return label({...task, forever: false}) + ' · every day';
     const p = task.program && T(task.program) ? T(task.program).name : 'a program';
     return {hunt: `Hunt ${p}`, map: `Map ${p}`, validate: 'Validate the tray', report: 'Finish draft reports', chain: 'Connect a critical chain', take: `Make ${p} the active program`,
       buy: `Buy ${itemName(task.item)}${task.until?.kind === 'tier' ? ` until tier ${task.until.val}` : ''}`}[task.job] || 'Talk';
@@ -257,7 +261,7 @@
     if (task.job === 'validate' && !s.tray.length && !Object.values(s.found).some(f => f.status === 'draft' && f.source === 'nib')) return 'The tray is empty. Nib fills it overnight, so sleep first, then send me back.';
     if (task.job === 'report' && !Object.keys(s.found).some(fid => s.found[fid].status === 'draft' && s.found[fid].source !== 'manual')) return 'There are no draft reports waiting for me. Your own hand-found reports stay yours.';
     if (task.job === 'chain') {
-      if (!E.has(s, 'trace')) return 'Chains need the Tracer, and we don\'t own it. Try “buy the Tracer, budget $900”.';
+      if (!E.has(s, 'trace')) return 'Chains need the Tracer, and we don\'t own it. Try “buy the Tracer, budget $600”.';
       if (!D.ALL_TARGETS.some(t => E.chainState(s, t.id).ready)) { const p = D.ALL_TARGETS.find(t => !s.chains[t.id] && openTo(t.id)); return p ? `No chain is ready. ${p.name} needs both linked findings accepted first.` : 'Every chain is already connected.'; }
     }
     if (task.job === 'buy') {
@@ -273,28 +277,49 @@
   }
 
   // ---------- talking ----------
-  async function send(id, text) {
+  // A message while the agent has a task: questions and "stop" go through now; a new task waits in its queue,
+  // unless you send it with now (⌘↵ in the Team view, or "now: …"), which drops the current one.
+  const hasTask = a => !!a.task && !a.task.finished;
+  async function send(id, text, opts = {}) {
     const a = agents[id]; text = String(text || '').trim().slice(0, 300); if (!a || !text) return;
     push(a, 'user', text); changed();
     if (/^stop\b/i.test(text) && !/\b(after|when|until|once|at)\b/i.test(text)) return stop(id, true);
     if (isQuestion(text)) return chat(a, text);
+    const now = opts.now || /^now\b[:,]?\s*/i.test(text); text = text.replace(/^now\b[:,]?\s*/i, '') || text;
+    if (hasTask(a) && !now && a.task.standbyDay != null) { a.queue.unshift(text); return finish(a, 'Pausing the standing order for this. It resumes after.'); }
+    if (hasTask(a) && !now) {
+      a.queue.push(text); say(a, `Queued${a.queue.length > 1 ? ' #' + a.queue.length : ''}. I'll start it after “${label(a.task)}”.`); persist(); changed(); return;
+    }
+    return brief(a, text);
+  }
+  // Read a brief and start it. Returns false if it was refused or wasn't a task.
+  async function brief(a, text) {
     let task = parseLocal(text), fromAI = false;
     if (model.ok) {
       const typing = push(a, 'typing', 'Reading your message…'); changed();
       try { const r = await api('/api/agents/brief', {text, last: a.task ? label(a.task) : ''}); task = mergeBrief(task, fromModel(r)); fromAI = true; } catch {}
       const i = a.log.indexOf(typing); if (i >= 0) a.log.splice(i, 1); a.ver++;
     }
-    if (task.job === 'none') return chat(a, text);
+    if (task.job === 'none') { chat(a, text); return false; }
     const notes = [resolveProgram(a, task), ...sanitize(a, task)].filter(Boolean);
     const problem = preflight(a, task);
-    if (problem) { push(a, 'refuse', problem); persist(); changed(); return; }
-    start(a, task, text, fromAI, notes);
+    // A standing order on an empty tray (or no drafts) isn't refused: it just waits for tomorrow's.
+    if (problem && !(task.forever && ['validate', 'report'].includes(task.job))) { push(a, 'refuse', problem); persist(); changed(); return false; }
+    start(a, task, text, fromAI, notes); return true;
   }
+  // The next queued brief, once the current task is over. A refused one is skipped (its reason stays in the chat).
+  let pulling = new Set();
+  async function nextQueued(a) {
+    if (pulling.has(a.id)) return; pulling.add(a.id);
+    try { while (a.queue.length && !hasTask(a)) { const text = a.queue.shift(); push(a, 'sys', '— next in queue —'); persist(); changed(); await brief(a, text); } }
+    finally { pulling.delete(a.id); }
+  }
+  function unqueue(id, i) { const a = agents[id]; if (!a || !a.queue[i]) return; a.queue.splice(i, 1); a.ver++; persist(); changed(); }
   function start(a, task, raw, fromAI, notes) {
     const switching = live(a);
     if (switching) { a.q = null; say(a, `Dropping “${label(a.task)}”.`); release(a); }
     else if (a.task) push(a, 'sys', '— new task —');
-    a.task = {...task, raw, notes: notes || [], drafts: [], tried: {}, avoid: [], seen: {}, written: {}, rewrites: {}, accepted: 0, spent: 0, finished: false, overclaimLearned: false};
+    a.task = {...task, raw, notes: notes || [], drafts: [], tried: {}, avoid: [], seen: {}, written: {}, rewrites: {}, accepted: 0, spent: 0, finished: false, overclaimLearned: false, standbyDay: null};
     a.stats = blankStats();
     a.status = switching || busy() < slots() ? 'thinking' : 'queued';
     push(a, 'brief', '', {task: {label: label(a.task), stop: stopLabel(a.task), budget: a.task.budget, program: a.task.program, fromAI}});
@@ -305,7 +330,7 @@
   }
   function planLine(a) {
     const t = a.task, n = ruleList(a).length;
-    return `${label(t)}. I'll stop when ${stopLabel(t)}. ${n ? `Following ${n} rule${n > 1 ? 's' : ''} from AGENTS.md.` : "AGENTS.md has no rules for me, so I'll use my own judgment."}`;
+    return `${label(t)}. ${t.forever ? `Standing order: when ${stopLabel(t)}, I'll go again the next day.` : `I'll stop when ${stopLabel(t)}.`} ${n ? `Following ${n} rule${n > 1 ? 's' : ''} from AGENTS.md.` : "AGENTS.md has no rules for me, so I'll use my own judgment."}`;
   }
   function chat(a, text) {
     const t = a.task, last = lastDone(a);
@@ -465,7 +490,7 @@
       t.rewrites[fid] = (t.rewrites[fid] || 0) + 1;
       if (r.over) { t.overclaimLearned = true; penaltyLine(a, C.penalize(S(), a.name, 'Report rejected', `Overclaimed the impact in the ${name.toLowerCase()} report. −2 rep.`, 2, null, true)); }
       else tool(a, `Sent back: ${String(r.why).replace(/^Rejected: /, '')}`);
-      if (t.rewrites[fid] > MAX_REWRITES) { t.drafts = t.drafts.filter(x => x !== fid); say(a, `I can't get the ${name} report past the triager. It's on the Ops desk for you.`); }
+      if (t.rewrites[fid] > MAX_REWRITES) { t.drafts = t.drafts.filter(x => x !== fid); say(a, `I can't get the ${name} report past the triager. It's at Finds for you.`); }
       else t.written[fid] = false;
     }, name);
   }
@@ -567,11 +592,23 @@
 
   function finish(a, why) {
     if (!a.task || a.task.finished === true) return;
+    const byYou = why === 'Stopped by you.';
+    if (a.task.forever && !byYou && !a.queue.length) return standby(a, why);
+    if (a.task.forever && !byYou) a.queue.push(a.task.raw.replace(/^now\b[:,]?\s*/i, '')); // the standing order resumes after what you queued
     const reason = why === 'stop' ? `Stop condition reached: ${stopLabel(a.task)}.` : why;
     a.task.finished = true; a.status = 'done'; a.q = null; release(a);
     say(a, reason);
     push(a, 'done', label(a.task), {stats: {...a.stats}, reason});
     narrate(a, 'done', `${a.stats.accepted} accepted, ${money(a.stats.earned)} earned, ${a.stats.pens} penalties${a.stats.spent ? `, ${money(a.stats.spent)} spent` : ''}.`);
+    persist(); pullQueue(); changed();
+    if (a.queue.length) setTimeout(() => nextQueued(a), 400);
+  }
+  // A standing order that ran out for today: rest until morning, then pick it up again with a fresh count.
+  function standby(a, why) {
+    const t = a.task, first = t.standbyDay == null;
+    t.standbyDay = S().day; t.accepted = 0; t.spent = 0; t.tried = {}; t.seen = {};
+    a.status = 'resting'; a.q = null; release(a);
+    say(a, first ? `${why === 'stop' ? `Today's done: ${stopLabel(t)}.` : why} Standing order, so I'll go again tomorrow.` : 'Nothing more today. Again tomorrow.');
     persist(); pullQueue(); changed();
   }
   function stop(id, said) { const a = agents[id]; if (!a?.task || a.task.finished === true) { if (said) say(a, 'Nothing to stop.'); changed(); return; } if (!said) push(a, 'user', 'Stop.'); a.q = null; finish(a, 'Stopped by you.'); }
@@ -660,7 +697,7 @@
     const scene = G.ui().busy || G.ui().morning; // a lesson or the morning talk: Nib stays put
     for (const a of Object.values(agents)) {
       if (a.id === 'nib' && scene) continue;
-      if (a.energyDay !== S().day) { a.energyDay = S().day; a.energy = D.COST.focus; if (a.status === 'resting') { a.status = busy() < slots() ? 'thinking' : 'queued'; tool(a, 'New day, full focus.'); } }
+      if (a.energyDay !== S().day) { a.energyDay = S().day; a.energy = D.COST.focus; if (a.status === 'resting') { if (a.task) a.task.standbyDay = null; a.status = busy() < slots() ? 'thinking' : 'queued'; tool(a, 'New day, full focus.'); } }
       const from = a.id !== 'nib' && a.path.length && !(a.windup > 0) ? {x: a.pos.x, y: a.pos.y} : null; // #6: a step that may end the walk
       if (a.id === 'nib') a.pos = G.nib.pos();
       else if (a.path.length && a.windup > 0) { a.windup -= dt; a.crouch = true; a.moving = false; }
@@ -741,7 +778,7 @@
 
   window.Stage3Agents = {
     list: () => hired().map(id => agents[id]), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),
-    send, answer, stop, hire, setRule, addRule, rule, ruleList, RULES, TOOLS, parseLocal, isQuestion, lint, label, stopLabel, live,
+    send, unqueue, answer, stop, hire, setRule, addRule, rule, ruleList, RULES, TOOLS, parseLocal, isQuestion, lint, label, stopLabel, live,
     resetAll: () => G.restart3(), slots, busy, phrase, gistOf, model: () => model,
     speed: v => { if (v) { settleNap(); speed = v; window.Loop.wake(); } return speed; }, pause: v => { if (v !== undefined) { paused = v; window.Loop.wake(); } return paused; },
     onChange: fn => listeners.push(fn), crew,

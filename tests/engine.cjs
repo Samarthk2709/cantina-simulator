@@ -129,7 +129,7 @@ test('validation: proof is safe, raw false alarms cost rep, raw real finds pay w
 test('tools unlock bug types, not numbers; rig and desk are fully refundable without farming', () => {
   const s = E.create({}, 4); s.cash = 3000;
   assert.equal(E.unlocked(s, 'mem'), false);
-  assert.equal(E.buyTool(s, 'trace').ok, false, 'tracer needs debugger');
+  assert.ok(E.buyTool(s, 'trace').ok, 'the Tracer stands alone'); s.cash = 3000;
   assert.ok(E.buyTool(s, 'fuzz').ok); assert.ok(E.unlocked(s, 'mem'));
   assert.ok(E.setRig(s, 2).ok); assert.equal(s.cash, 3000 - 450 - 800);
   assert.ok(E.setRig(s, 0).ok); assert.equal(s.cash, 3000 - 450);

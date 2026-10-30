@@ -221,10 +221,10 @@ $('goalBugs').textContent=`0 / ${GOAL.bugs}`; $('goalCrits').textContent=`0 / ${
 const PITCH=["I'm here to help you run a security company. We find bugs, and we get paid for them.",
   `Our first job: find ${GOAL.bugs} bugs, and at least ${GOAL.criticals===1?'one':GOAL.criticals} critical.`,
   ()=>goal.classList.add('on'),
-  `Criticals are rare. About one find in ${Math.round(1/GOAL.critChance)}. Want to start?`];
+  `Criticals are rare: about one find in ${Math.round(1/GOAL.critChance)}. Or we chain two small bugs into one. Want to start?`];
 const CRITICAL=["A critical is the most serious kind of security bug.",
   "It lets an attacker take over a system or reach private data, often with no login at all.",
-  `They're rare. Each bug we find has about a ${GOAL.critChance*100}% chance of being one.`];
+  `They're rare. Each bug we find has about a ${GOAL.critChance*100}% chance of being one, or we can chain two small bugs into one.`];
 const KW={
   purpose:/\b(what (do|should|are) we|why are (you|we)|job|work|goal|purpose|start|build|company|bugs?)\b/i,
   critical:/\bcrit(ical)?s?\b/i,

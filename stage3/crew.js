@@ -280,7 +280,7 @@
     morph($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
       ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
       <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
-      <div class="s3-foot">${w.rep}/60 rep to Elite · ${money(w.cash)}</div>`);
+      <div class="s3-foot">${w.rep}/60 rep to Elite · ${money(w.cash)}<span class="s3-keys">↑↓ switch · ↵ send · ⌘↵ now · Esc office</span></div>`);
   }
 
   // ---------- one agent's timeline ----------
@@ -289,10 +289,15 @@
     if (view.kind === 'rules') { main.innerHTML = rulesView(); return; }
     const a = A.get(view.id) || A.list()[0]; view.id = a.id;
     main.innerHTML = `<section class="s3-pane" data-pane="${a.id}"><header data-ph></header><div class="s3-msgs" data-msgs></div>
-      <div class="s3-composer"><input data-input="${a.id}" autocomplete="off" placeholder="Tell ${esc(a.name)} what to do…" aria-label="Message ${esc(a.name)}"><div class="s3-hint" data-hint></div></div></section>`;
+      <div class="s3-queue" data-queue></div>
+      <div class="s3-composer"><input data-input="${a.id}" autocomplete="off" placeholder="${placeholder(a)}" aria-label="Message ${esc(a.name)}"><div class="s3-hint" data-hint></div></div></section>`;
     update();
     main.querySelector('[data-input]').focus();
   }
+  const busyWith = a => !!a.task && !a.task.finished;
+  const placeholder = a => busyWith(a) ? `Queue a task for ${esc(a.name)} · ⌘↵ to do it now` : `Tell ${esc(a.name)} what to do · “every day” makes it a standing order`;
+  // Briefs waiting behind the current task, in order. ✕ drops one.
+  const queueHtml = a => a.queue.length ? a.queue.map((q, i) => `<div class="s3-q"><span class="n">${i ? 'Then' : 'Next'}</span><span class="t">${esc(q)}</span><button class="s3-link" data-unq="${a.id}:${i}" aria-label="Remove from queue">✕</button></div>`).join('') : '';
   function head(a) {
     const g = a.status === 'resting' || a.q ? A.phrase(a) : a.task && a.task.finished !== true ? A.gistOf(a.task) : '';
     return `${avatar(a)}<div class="who"><b>${esc(a.name)}</b><span>${esc(g || (a.id === 'nib' ? 'Co-lead' : 'Agent'))}</span></div>${A.live(a) || a.status === 'queued' ? `<button class="s3-link" data-stop="${a.id}">Stop</button>` : ''}`;
@@ -348,6 +353,8 @@
     if (!open || view.kind === 'rules') return;
     const el = document.querySelector('#s3-main [data-pane]'), a = el && A.get(el.dataset.pane); if (!a) return;
     morph(el.querySelector('[data-ph]'), head(a));
+    morph(el.querySelector('[data-queue]'), queueHtml(a));
+    const inp = el.querySelector('[data-input]'), ph = placeholder(a).replace(/&[^;]+;/g, m => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" }[m] || m)); if (inp.placeholder !== ph) inp.placeholder = ph;
     const box = el.querySelector('[data-msgs]'), key = a.ver + ':' + (a.q ? 1 : 0) + ':' + A.phrase(a) + ':' + openSteps.size;
     if (box.__key !== key) {
       const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
@@ -409,7 +416,7 @@
     const t = A.parseLocal(text);
     if (t.job === 'none') return void (out.innerHTML = A.model().ok ? '' : 'Not a task the game recognizes');
     const w = A.lint(a, t)[0];
-    out.innerHTML = `${esc(A.label(t))}${t.until ? ' · until ' + esc(A.stopLabel(t)) : ''}${A.live(a) ? ' · replaces the current task' : ''}${w ? `<span class="warn">${esc(w)}</span>` : ''}`;
+    out.innerHTML = `${esc(A.label(t))}${t.until ? ' · until ' + esc(A.stopLabel(t)) : ''}${busyWith(a) ? (a.task.standbyDay != null ? ' · runs now, then the standing order resumes' : ' · queued after the current task · ⌘↵ replaces it') : ''}${t.forever ? ' · standing order' : ''}${w ? `<span class="warn">${esc(w)}</span>` : ''}`;
   }
   function rulesView() {
     const rules = A.crew().rules;
@@ -429,20 +436,32 @@
     if (d.go) { const [kind, id] = d.go.split(':'); view = {kind, id}; renderMain(); }
     else if (d.ans) { const [id, i] = d.ans.split(':'); A.answer(id, +i); }
     else if (d.stop) A.stop(d.stop);
+    else if (d.unq) { const [id, i] = d.unq.split(':'); A.unqueue(id, +i); }
     else if (d.steps) { openSteps.has(d.steps) ? openSteps.delete(d.steps) : openSteps.add(d.steps); }
     else if (d.fix) { A.setRule('all', d.fix, true); G.toast('Added to AGENTS.md', 'good'); }
     else if (d.rule) { A.setRule('all', d.rule, el.checked); renderMain(); }
     else if (d.hire) { if (A.hire(d.hire)) { view = {kind: 'agent', id: d.hire}; renderMain(); } }
     update();
   });
-  function sendFrom(id) { const i = document.querySelector(`[data-input="${id}"]`); if (!i) return; if (!i.value.trim()) { i.value = ''; return; } A.send(id, i.value); i.value = ''; hint(id); i.focus(); }
+  function sendFrom(id, now) { const i = document.querySelector(`[data-input="${id}"]`); if (!i) return; if (!i.value.trim()) { i.value = ''; return; } A.send(id, i.value, {now}); i.value = ''; hint(id); i.focus(); }
+  // ↑↓ (or Alt+↑↓ while typing) walk the roster, AGENTS.md last; Alt+1–9 jump straight to an agent.
+  function go(delta, index) {
+    const ids = A.list().map(a => 'agent:' + a.id).concat('rules:all'), cur = view.kind + ':' + view.id;
+    const i = index != null ? index : (ids.indexOf(cur) + delta + ids.length) % ids.length; if (!ids[i]) return;
+    const [kind, id] = ids[i].split(':'); view = {kind, id}; renderMain(); update();
+    document.querySelector(`#s3-side [data-go="${ids[i]}"]`)?.scrollIntoView({block: 'nearest'});
+  }
   document.addEventListener('input', e => { if (e.target.dataset?.input) hint(e.target.dataset.input); });
   // While the team view is open it owns the keyboard, so typing never walks you around the office.
   window.addEventListener('keydown', e => {
     if (!open || document.querySelector('#modal[open], #settings-dialog[open]')) return;
     e.stopPropagation();
-    if (e.key === 'Escape') { e.preventDefault(); return setOpen(false); }
-    if (e.key === 'Enter' && e.target.dataset?.input) { e.preventDefault(); sendFrom(e.target.dataset.input); }
+    const typing = !!e.target.dataset?.input, empty = !typing || !e.target.value;
+    if (e.key === 'Escape') { e.preventDefault(); if (typing && e.target.value) { e.target.value = ''; hint(e.target.dataset.input); return; } return setOpen(false); }
+    if (e.key === 'Enter' && typing) { e.preventDefault(); return sendFrom(e.target.dataset.input, e.metaKey || e.ctrlKey); }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (e.altKey || empty)) { e.preventDefault(); return go(e.key === 'ArrowUp' ? -1 : 1); }
+    if (e.altKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); return go(0, +e.code.slice(5) - 1); }
+    if (e.key === '/' && !typing && !e.target.closest?.('input,textarea')) { e.preventDefault(); document.querySelector('#s3-main [data-input]')?.focus(); }
   }, true);
   window.addEventListener('keyup', e => { if (open) e.stopPropagation(); }, true);
 

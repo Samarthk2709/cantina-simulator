@@ -229,7 +229,7 @@
         ['bots', 'Bots API', 84, 74, N('bot'), ['auth', 'inj']]],
       links: [['login', 'msgs'], ['msgs', 'groups'], ['login', 'media'], ['msgs', 'search'], ['groups', 'bots'], ['media', 'search'], ['search', 'bots']],
       chain: { a: 'login:0', b: 'msgs:0', name: 'Read anyone\'s private chats',
-        options: ['The leaked session id from Login is accepted by Messages without an owner check, so anyone can open anyone\'s chats.', 'Both bugs are in the same app, so together they are critical.', 'Two medium bugs always add up to one critical.'] } },
+        options: ['Login leaks something about other users, and Messages trusts it without an owner check, so anyone can open anyone\'s chats.', 'Both bugs are in the same app, so together they are critical.', 'Two medium bugs always add up to one critical.'] } },
     { id: 'inv', name: 'Invoicely', kind: 'Billing & payments', base: 300, stars: 2, picked: 0.22,
       blurb: 'Follow the money. Some rooms need tools you don\'t have yet.',
       rooms: [
@@ -241,7 +241,7 @@
         ['admin', 'Admin', 84, 74, N('customer'), ['auth', 'info']]],
       links: [['acct', 'inv'], ['inv', 'pay'], ['acct', 'up'], ['up', 'pdf'], ['inv', 'pdf'], ['pdf', 'admin'], ['pay', 'admin']],
       chain: { a: 'acct:0', b: 'inv:0', name: 'Read every customer\'s invoices',
-        options: ['Accounts leaks internal account ids, and Invoices trusts any id without an owner check, so every customer\'s invoices are readable.', 'Billing bugs are always critical.', 'The two rooms are next to each other.'] } },
+        options: ['Accounts leaks something about other customers, and Invoices trusts it without an owner check, so every customer\'s invoices are readable.', 'Billing bugs are always critical.', 'The two rooms are next to each other.'] } },
     { id: 'vault', name: 'VaultKit', kind: 'Password manager', base: 600, stars: 4, picked: 0.06,
       blurb: 'Fresh and well paid. Half of it is native code: bring a fuzzer and a debugger.',
       rooms: [
@@ -253,7 +253,7 @@
         ['login', 'Login', 84, 74, N('device'), ['auth', 'race']]],
       links: [['sync', 'share'], ['share', 'crypto'], ['sync', 'import'], ['import', 'ext'], ['crypto', 'ext'], ['ext', 'login']],
       chain: { a: 'sync:0', b: 'share:0', name: 'Open someone else\'s vault',
-        options: ['Sync leaks a vault id, and Sharing accepts that id as permission, so a stranger can open someone else\'s vault.', 'Password managers are always critical.', 'The fuzzer said so.'] } },
+        options: ['Sync leaks something about other vaults, and Sharing trusts it without an owner check, so a stranger can open someone else\'s vault.', 'Password managers are always critical.', 'The fuzzer said so.'] } },
     { id: 'bank', name: 'Northwind Bank', kind: 'Private invite', base: 1100, stars: 5, picked: 0, private: true, rep: 30,
       blurb: 'Invite only. Nobody else is looking. Big payouts.',
       rooms: [
@@ -265,7 +265,7 @@
         ['core', 'Core ledger', 84, 74, N('entry', 'entries'), ['mem']]],
       links: [['portal', 'cards'], ['cards', 'xfer'], ['portal', 'loans'], ['loans', 'stmt'], ['cards', 'core'], ['stmt', 'core']],
       chain: { a: 'portal:0', b: 'cards:0', name: 'Read another customer\'s cards',
-        options: ['The portal leaks an internal customer id, and Cards trusts it without checking ownership, exposing other customers\' cards.', 'Banks are critical by definition.', 'Both rooms have cards in them.'] } }
+        options: ['The portal leaks something about other customers, and Cards trusts it without an owner check, exposing their cards.', 'Banks are critical by definition.', 'Both rooms have cards in them.'] } }
   ];
 
   // Opens in chapter 3 only, so a team always has fresh work after the first job.
@@ -281,7 +281,7 @@
         ['hub', 'Sorting hub', 84, 74, N('crate'), ['mem', 'auth']]],
       links: [['track', 'label'], ['label', 'rates'], ['track', 'drivers'], ['drivers', 'returns'], ['label', 'returns'], ['returns', 'hub'], ['rates', 'hub']],
       chain: { a: 'track:0', b: 'drivers:0', name: 'Reroute anyone\'s parcels',
-        options: ['Tracking leaks internal shipment ids, and Drivers accepts any shipment id without checking it is theirs, so anyone can reroute parcels.', 'Shipping apps are always critical.', 'Both rooms mention parcels.'] } }
+        options: ['Tracking leaks something about other shipments, and Drivers trusts it without an owner check, so anyone can reroute parcels.', 'Shipping apps are always critical.', 'Both rooms mention parcels.'] } }
   ];
   const ALL_TARGETS = TARGETS.concat(LATE_TARGETS);
 
@@ -289,7 +289,7 @@
     { id: 'proxy', name: 'Proxy', cost: 0, owned: true, opens: 'Web bugs: access checks, leaks, injection, file paths.' },
     { id: 'fuzz', name: 'Fuzzer', cost: 450, opens: 'Buffer overflows in native code.' },
     { id: 'dbg', name: 'Debugger', cost: 600, opens: 'Race conditions between simultaneous requests.' },
-    { id: 'trace', name: 'Tracer', cost: 900, need: 'dbg', opens: 'Chain two linked bugs into a guaranteed critical.' }
+    { id: 'trace', name: 'Tracer', cost: 600, opens: 'Chain two linked bugs into a sure critical.' }
   ];
   const RIGS = [
     { name: 'Old laptop', tries: 1, cost: 0 },

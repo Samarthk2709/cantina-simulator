@@ -32,11 +32,11 @@
   const ST = {
     hunt: { name: 'Desk', title: 'YOUR DESK', icon: 'bug', key: 'h', seen: null },
     training: { name: 'Nib', title: 'NIB · PATTERN BOOK', icon: 'book', key: 't', seen: 'training' },
-    contract: { name: 'Ops', title: 'OPS · NIB\'S OVERNIGHT FINDS', icon: 'briefcase', key: 'o', seen: 'ops' },
-    forge: { name: 'Tools', title: 'TOOL SHELF', icon: 'build', key: 'b', seen: 'forge' },
+    contract: { name: 'Finds', title: 'NIB\'S FINDS', icon: 'briefcase', key: 'o', seen: 'ops' },
+    forge: { name: 'Shop', title: 'SHOP', icon: 'build', key: 'b', seen: 'forge' },
     rig: { name: 'Rig', title: 'GPU RIG', icon: 'bolt', key: 'r', seen: 'rig' },
     stats: { name: 'Ledger', title: 'LEDGER · REPUTATION', icon: 'chart', key: 'i', seen: 'stats' },
-    hq: { name: 'HQ', title: 'HQ · CRITICALS', icon: 'shield', key: 'c', seen: 'hq' }
+    hq: { name: 'Goal', title: 'GOAL BOARD', icon: 'shield', key: 'c', seen: 'hq' }
   };
   const ORDER = ['hunt', 'training', 'contract', 'forge', 'rig', 'stats', 'hq'];
   // The dock groups stations so it stays short: Desk on its own, the rest in pop-up groups (hover, focus or tap).
@@ -47,12 +47,18 @@
     books: { name: 'Books', icon: 'book', ids: ['training', 'stats'] }
   };
   const SLOTS = ['hunt', 'jobs', 'gear', 'books'];
-  const shown = id => !ST[id].seen || !!s.seen[ST[id].seen];
+  // Chapter 2 keeps it to a few clear things: Desk, Finds, Shop, and the Goal board (the goal button). Nib's pattern book,
+  // the GPU rig and the ledger open in chapter 3, where the team needs them.
+  const CH2_HIDDEN = ['training', 'rig', 'stats'], CH2_SLOTS = ['hunt', 'contract', 'forge'];
+  const shown = id => stage3() ? !ST[id].seen || !!s.seen[ST[id].seen]
+    : CH2_HIDDEN.includes(id) ? false : id === 'hq' ? !!s.target || !!s.seen.hq : !ST[id].seen || !!s.seen[ST[id].seen];
   const hidden = () => { const h = { terminals: true }; ORDER.forEach(id => { if (!shown(id)) h[id] = true; }); return h; };
   const SPOT = { // where Nib stands, in office world px
     side: [184, 104], home: [232, 184], rig: [232, 216], ops: [40, 72], hq: [184, 56]
   };
   const nibHome = () => shown('training') ? SPOT.home : SPOT.side;
+  // A chain whose two bugs are filed, waiting on the Tracer or the pick: the goal board wants a look.
+  const chainHalves = () => Object.keys(T).some(tid => { const c = E.chainState(s, tid); return c.haveA && c.haveB && !c.done; });
 
   // ---------- world ----------
   let ui = { win: null, view: s.target ? 'map' : 'board', room: null, fid: null, miss: null, hit: null, result: null, traceMsg: null, busy: false, night: false };
@@ -64,7 +70,7 @@
   function worldView() {
     const flags = {};
     if (s.tray.length) flags.contract = 'amber';
-    if (Object.keys(T).some(tid => E.chainState(s, tid).ready)) flags.hq = 'amber';
+    if (chainHalves()) flags.hq = 'amber';
     const timers = ui.night ? [{ station: shown('rig') ? 'rig' : 'hunt', caption: 'Nib working', remaining: 'night', progress: ui.nightP || 0 }] : [];
     return { hq: 1, facilities: { hq: 1, rig: Math.max(1, s.gpu), forge: Math.max(1, s.tools.length - 1), vault: 1, ops: 1 }, vault: Math.min(1, s.cash / 4000), dormant: Object.keys(hidden()), flags, timers };
   }
@@ -137,17 +143,19 @@
 
   // ---------- objective: always one clear next step ----------
   // Past the bug count, only the critical is left: chain if we can, otherwise keep rolling.
-  function critHint() { return E.has(s, 'trace') ? 'chain two linked bugs at HQ.' : 'every bug has a 1 in 20 shot. Or save up for the Tracer and chain two.'; }
+  function critHint() { return E.has(s, 'trace') ? 'find both chain bugs, then link them on the Goal board.' : 'every bug has a 1 in 20 shot. Or buy the Tracer (' + money(tracerCost()) + ', Shop) and chain two.'; }
+  const tracerCost = () => D.TOOLS.find(x => x.id === 'trace').cost;
   function objective() {
     if (stage3()) return objective3();
     if (s.won) return 'Job done, ' + s.player + '. Chapter 3 is ready when you are: click the goal.';
     if (!s.target) return 'Walk to your desk and press E. Our first job is on the computer.';
     if (s.pendingTeach) return 'Tell me why that was a bug.';
     const drafts = leftoverDrafts(), draft = drafts[0];
-    if (Object.keys(T).some(tid => E.chainState(s, tid).ready)) return 'Both halves of a chain are in. Trace it at HQ.';
-    if (s.tray.length >= D.COST.tray) return 'The Ops desk is full, so I can\'t work tonight. Clear some finds.';
-    if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' on the Ops desk.';
-    if (draft) return 'A find is waiting to be filed on the Ops desk.';
+    if ((stage3() || !s.crits) && Object.keys(T).some(tid => E.chainState(s, tid).ready)) return 'Both chain bugs are in. Open the Goal board (G) and link them.';
+    if (!stage3() && !s.crits && chainHalves()) return 'Both chain bugs are in. Buy the Tracer (' + money(tracerCost()) + ') at the Shop.';
+    if (s.tray.length >= D.COST.tray) return 'Finds is full, so I can\'t work tonight. Prove or send some.';
+    if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove or send them.';
+    if (draft) return 'A find is waiting to be filed at Finds.';
     if (s.focus < E.maxFocus(s) * 0.1) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
     const tid = s.target, t = T[tid];
     const open = s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).filter(fid => E.slotState(s, fid) === 'open');
@@ -165,7 +173,7 @@
     if (s.pendingTeach) return 'Tell me why that was a bug.';
     const A = window.Stage3Agents, busy = A ? A.busy() : 0, need = A ? A.list().filter(a => a.q).length : 0;
     if (need) return need === 1 ? 'An agent is waiting on you. Open Team.' : need + ' agents are waiting on you. Open Team.';
-    if (s.tray.length && !busy) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' on Ops. Prove them, or brief someone to.';
+    if (s.tray.length && !busy) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove them, or brief someone to.';
     if (!busy && A && A.list().some(a => a.status === 'resting')) return 'The team is out of focus. Sleep, and they start fresh tomorrow.';
     if (!busy) return (60 - s.rep) + ' rep to Elite. Open Team and give someone a job.';
     return busy + ' working · ' + s.rep + '/60 rep. Hunt too, or sleep and I\'ll fill the tray.';
@@ -198,7 +206,7 @@
   let dockOpen = null, dockHush = null; // the group whose menu a click or tap opened (hover and focus need no state); the one a pick just hid
   // Each dock slot: a lone station, or a group once two or more of its stations are unlocked. key names it for entrances.
   function slots() {
-    return SLOTS.map(k => {
+    return (stage3() ? SLOTS : CH2_SLOTS).map(k => {
       const ids = GROUPS[k] ? GROUPS[k].ids.filter(shown) : shown(k) ? [k] : [];
       return ids.length > 1 ? { key: k, ids, g: k } : ids.length ? { key: ids[0], ids } : null;
     }).filter(Boolean);
@@ -240,6 +248,7 @@
     $('date').textContent = 'DAY ' + s.day;
     const teamBugs = s.stats.agent || 0;
     $('goal-name').textContent = stage3() ? 'Elite, with the team' : s.won ? 'Chapter 3: Hire help' : E.GOAL.bugs + ' bugs + 1 critical';
+    $('goal-open').classList.toggle('ping', !stage3() && !s.won && !s.crits && chainHalves());
     $('goal-pay').textContent = stage3() ? Math.min(s.rep, 60) + '/60 rep · ' + Math.min(teamBugs, TEAM_GOAL) + '/' + TEAM_GOAL + ' team bugs' : s.won ? 'Job done · start →' : Math.min(s.bugs, E.GOAL.bugs) + '/' + E.GOAL.bugs + ' bugs · ' + Math.min(s.crits, 1) + '/1 crit';
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
@@ -247,13 +256,14 @@
     if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
+    $('stats-open').title = stage3() ? 'Reputation (I)' : 'Cash · Shop (B)';
     vitals();
     $('view-toggle').hidden = !s.seen.intro;
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
     const known = (dockSeen = dockSeen || new Set(slots().map(x => x.key))), now = document.timeline.currentTime || 0;
     let freshN = 0; // new dock buttons arrive 3 frames apart (style.css --stagger)
-    const badgeOf = id => id === 'contract' && s.tray.length ? s.tray.length : id === 'hq' && Object.keys(T).some(t => E.chainState(s, t).ready) ? '!' : '';
+    const badgeOf = id => id === 'contract' && s.tray.length ? s.tray.length : id === 'hq' && chainHalves() ? '!' : '';
     const chip = b => b === '' ? '' : `<span class="badge">${b}</span>`;
     const station = (id, cls, extra) => `<button data-station="${id}" data-icon="${ST[id].icon}" class="${cls}"${extra} aria-pressed="${ui.win === id}" title="${ST[id].name} (${ST[id].key.toUpperCase()})">${ST[id].name}${chip(badgeOf(id))}</button>`;
     $('dock').style.setProperty('--span', 12 / Math.max(1, slots().length)); // narrow screens: the slots share one row
@@ -705,7 +715,7 @@
         if (ui.view === 'hunt' && f) c.push(t.rooms.find(r => r[0] === f.room)[1], 'Hunt');
         else if (ui.room) { const r = t.rooms.find(x => x[0] === ui.room); if (r) c.push(r[1]); }
       }
-    } else c.push({ training: 'Pattern book', contract: 'Nib\'s finds', forge: 'Shop', rig: 'GPU rig', stats: s.rep + ' rep · ' + E.tier(s).name, hq: 'Criticals' }[ui.win]);
+    } else c.push({ training: 'Pattern book', contract: 'Overnight', forge: 'Tools', rig: 'GPU rig', stats: s.rep + ' rep · ' + E.tier(s).name, hq: E.GOAL.bugs + ' bugs + 1 critical' }[ui.win]);
     return c.join('  ›  ');
   }
 
@@ -751,14 +761,15 @@
       const f = F[fid], st = E.slotState(s, fid), cls = C[f.cls], found = s.found[fid];
       const right = st === 'open' ? `<button data-act="hunt" data-id="${fid}" class="accent">Hunt</button>`
         : st === 'locked' ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === cls.tool).name)}</span>`
-        : st === 'tray' ? `<button data-act="go" data-id="contract">On Ops desk</button>`
+        : st === 'tray' ? `<button data-act="go" data-id="contract">At Finds</button>`
         : st === 'draft' ? (leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
         : paidTag(fid);
       return `<li class="slot ${st}"><span class="dot ${st}"></span><div><b>${st === 'open' || st === 'locked' ? 'Something off' : esc(cls.name)}</b><small>${st === 'open' ? 'about ' + money(t.base * cls.mult * E.crowd(s, tid)) : st === 'locked' ? esc(cls.name) : st === 'tray' ? 'Nib thinks it\'s ' + esc(cls.name.toLowerCase()) : found && found.source === 'nib' ? 'found by Nib' : found && found.source === 'agent' ? 'found by ' + esc(found.by) : 'found by you'}</small></div>${right}</li>`;
     }).join('');
-    const ch = E.chainState(s, tid), chainNote = [ch.a, ch.b].some(fid => F[fid].room === ui.room) ? `<p class="hint-line">↔ Links to a bug next door. See HQ.</p>` : '';
+    const ch = E.chainState(s, tid), half = [ch.a, ch.b].find(fid => F[fid].room === ui.room), other = half && F[half === ch.a ? ch.b : ch.a];
+    const chainNote = half ? `<p class="hint-line">↔ Chain bug: the ${esc(C[F[half].cls].name.toLowerCase())} here + the ${esc(C[other.cls].name.toLowerCase())} in ${esc(t.rooms.find(r => r[0] === other.room)[1])} = a critical. Chain them on the Goal board (G).</p>` : '';
     return `<div class="target-map"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${nodes}</div>
-      <div class="map-foot"><p class="legend"><span><i class="dot open"></i>hunt</span><span><i class="dot locked"></i>tool</span><span><i class="dot tray"></i>Nib</span><span><i class="dot draft"></i>report</span><span><i class="dot accepted"></i>paid</span></p><button data-act="board" class="quiet small">Change job</button></div>
+      <div class="map-foot"><p class="legend"><span><i class="dot open"></i>hunt</span><span><i class="dot locked"></i>tool</span><span><i class="dot tray"></i>Nib</span><span><i class="dot draft"></i>to file</span><span><i class="dot accepted"></i>paid</span></p><button data-act="board" class="quiet small">Change job</button></div>
       <ul class="slots">${rows}</ul>${chainNote}`;
   }
   // Stage 3: programs publish rooms that are off limits.
@@ -799,18 +810,19 @@
     const cands = s.tray.map(c => {
       const f = F[c.fid], t = T[f.target], room = t.rooms.find(r => r[0] === f.room)[1];
       return `<li class="cand"><div><b>${esc(C[f.cls].name)}</b><small>${esc(t.name)} · ${esc(room)}</small><span class="conf"><span class="meter"><i style="width:${c.conf}%"></i></span>${c.conf}% sure</span></div>
-        <div class="cand-acts"><button data-act="prove" data-id="${c.id}" class="accent" ${s.focus < D.COST.prove ? 'disabled' : ''}>Prove <small>−${D.COST.prove}</small></button><button data-act="raw" data-id="${c.id}">As-is</button><button data-act="toss" data-id="${c.id}" class="quiet">Toss</button></div></li>`;
+        <div class="cand-acts"><button data-act="prove" data-id="${c.id}" class="accent" ${s.focus < D.COST.prove ? 'disabled' : ''}>Prove <small>−${D.COST.prove}</small></button><button data-act="raw" data-id="${c.id}">Send as-is</button></div></li>`;
     }).join('');
     const drafts = leftoverDrafts().map(fid => `<li class="cand"><div><b>${esc(C[F[fid].cls].name)}</b><small>${esc(T[F[fid].target].name)}</small></div><button data-act="file" data-id="${fid}" class="accent">File</button></li>`).join('');
     const res = ui.result && ui.result.ops ? `<div class="feedback ${ui.result.good ? 'hit' : 'miss'}">${ui.result.html}</div>` : '';
-    return `${res}${cands ? `<p class="fine">Prove: safe, +25% pay. As-is: free, −3 rep if it's wrong.</p><ul class="cands">${cands}</ul>` : '<p class="empty">Nothing yet. Nib works while you sleep.</p>'}
+    return `${res}${cands ? `<p class="fine">Prove: costs focus, safe, +25% pay. Send as-is: free, −3 rep if Nib was wrong.</p><ul class="cands">${cands}</ul>` : '<p class="empty">Nothing yet. Nib works while you sleep.</p>'}
       ${drafts ? `<h3>To file</h3><ul class="cands">${drafts}</ul>` : ''}`;
   }
   function toolsView() {
     const tools = D.TOOLS.filter(t => t.cost).map(t => {
       const own = E.has(s, t.id), need = t.need && !E.has(s, t.need);
-      return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(t.name)}</b><small>${esc(t.opens)}</small></div>${own ? '<span class="tag good">Owned</span>' : need ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === t.need).name)}</span>` : `<button data-act="tool" data-id="${t.id}" ${s.cash < t.cost ? 'disabled' : ''}>${money(t.cost)}</button>`}</li>`;
+      return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(t.name)}</b><small>${esc(t.opens)}</small></div>${own ? '<span class="tag good">Owned</span>' : need ? `<span class="tag">${money(t.cost)} · needs ${esc(D.TOOLS.find(x => x.id === t.need).name)}</span>` : `<button data-act="tool" data-id="${t.id}" ${s.cash < t.cost ? 'disabled' : ''}>${money(t.cost)}</button>`}</li>`;
     }).join('');
+    if (!stage3()) return `<ul class="shoplist">${tools}</ul>`;
     const desk = D.DESK.map(d => { const own = s.desk.includes(d.id); return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(d.name)}</b><small>${esc(d.does)}</small></div><button data-act="desk" data-id="${d.id}" ${!own && s.cash < d.cost ? 'disabled' : ''}>${own ? 'Return · +' + money(d.cost) : money(d.cost)}</button></li>`; }).join('');
     return `<h3>Tools</h3><ul class="shoplist">${tools}</ul><h3>Desk</h3><ul class="shoplist">${desk}</ul>`;
   }
@@ -891,14 +903,14 @@
     if (wasHidden) layout(); // the room makes way for the box the first time it shows
     if (!el.firstChild) {
       el.innerHTML = `<header><span>Vitals</span><span class="vday"></span><i class="chev" aria-hidden="true"></i></header>
-        <dl class="vq"><div><dt>Bugs today</dt><dd data-k="today" class="big"></dd></div><div><dt>Crits</dt><dd data-k="crits"></dd></div>
+        <dl class="vq"><div><dt>Bugs</dt><dd data-k="today" class="big"></dd></div><div><dt>Crits</dt><dd data-k="crits"></dd></div>
           <div><dt>Cash</dt><dd data-k="cash" class="cash"></dd></div><div class="vfocus"><dt>Focus</dt><dd><b data-k="focus"></b><small data-k="fmax"></small></dd><span class="vbar"><i></i></span></div></dl>
         <div class="vx"><div class="vx-in"></div></div>`;
     }
     const rows = dayRows(), t = rows[rows.length - 1], open = el.classList.contains('open'), mf = E.maxFocus(s), q = k => el.querySelector(`[data-k="${k}"]`);
     el.setAttribute('aria-expanded', open);
     el.querySelector('.vday').textContent = 'Day ' + s.day;
-    countTo(q('today'), t.newBugs, String); countTo(q('crits'), s.crits, String); countTo(q('cash'), s.cash, money); countTo(q('focus'), s.focus, String);
+    countTo(q('today'), s.bugs, String); countTo(q('crits'), s.crits, String); countTo(q('cash'), s.cash, money); countTo(q('focus'), s.focus, String);
     q('fmax').textContent = '/' + mf; q('crits').classList.toggle('crit', s.crits > 0);
     el.querySelector('.vfocus').classList.toggle('low', s.focus < mf * 0.25); el.querySelector('.vbar i').style.width = Math.round(s.focus / mf * 100) + '%';
     fitVitals();
@@ -935,6 +947,12 @@
     return `${next ? `<p class="fine">${next.min - s.rep} more to ${next.name}</p>` : ''}
       <ol class="ladder">${ladder}</ol><h3>Recent</h3><ul class="log">${log || '<li>Nothing yet.</li>'}</ul>`;
   }
+  // Chapter 2's whole toolbox: what you can do, and where.
+  const HOWTO = [
+    ['Take a job', 'Desk'], ['Open a room, click the buggy line', 'Desk'], ['Tell Nib why it\'s a bug', 'Nib asks'],
+    ['Sleep: Nib hunts overnight', 'Sleep, top right'], ['Prove or send Nib\'s finds', 'Finds'], ['Coffee for focus', 'top right'],
+    ['Buy tools, like the Tracer', 'Shop'], ['Chain two bugs into a critical', 'here']
+  ];
   function hqView() {
     const taken = D.ALL_TARGETS.filter(t => s.lit[t.id]);
     const chains = taken.map(t => {
@@ -943,14 +961,20 @@
       const tr = ui.traceMsg && ui.traceMsg.tid === t.id ? ui.traceMsg : null;
       let act = '';
       if (c.done) act = `<span class="tag good crit" data-stamp="chain:${t.id}">CRITICAL · chained</span>`;
-      else if (c.ready) act = `<p class="fine">Why is this critical?</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
-      else act = `<p class="fine">${!E.has(s, 'trace') ? 'Needs the Tracer' : 'Needs both bugs'}</p>`;
+      else if (c.ready) act = `<p class="fine"><b>Chain them:</b> pick why the two together are critical.</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
+      else {
+        const need = [!c.haveA || !c.haveB ? 'Find both bugs at the Desk.' : '', !E.has(s, 'trace') ? 'Chaining needs the Tracer.' : ''].filter(Boolean).join(' ');
+        const buy = !E.has(s, 'trace') ? `<button data-act="tool" data-id="trace" class="accent" ${s.cash < tracerCost() ? 'disabled' : ''}>Buy the Tracer · ${money(tracerCost())}</button>${s.cash < tracerCost() ? `<small class="fine"> ${money(tracerCost() - s.cash)} more to go</small>` : ''}` : '';
+        act = `<p class="fine">${need}</p>${buy}`;
+      }
       return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
     }).join('');
     const rolls = Object.values(s.found).filter(f => f.status === 'accepted').length;
+    const steps = stage3() ? '' : `<ol class="howto">${HOWTO.map(([what, where]) => `<li><b>${what}</b><span>${where}</span></li>`).join('')}</ol>`;
     return `<p class="hq-goal">${Math.min(s.bugs, E.GOAL.bugs)}/${E.GOAL.bugs} bugs · ${Math.min(1, s.crits)}/1 critical</p>
-      <div class="goalbar"><i style="width:${Math.min(100, s.bugs / E.GOAL.bugs * 100)}%"></i></div>
-      <p class="fine">Each bug: 5% crit chance (${rolls} rolled). Or chain two linked bugs with the Tracer.</p>
+      <div class="goalbar"><i style="width:${Math.min(100, s.bugs / E.GOAL.bugs * 100)}%"></i></div>${steps}
+      <h3>The critical</h3>
+      <p class="fine">Any bug has a 1 in 20 shot (${rolls} rolled). For a sure one, chain two bugs that feed each other:</p>
       <ul class="chains">${chains || '<li class="fine">Take a job to see its chain.</li>'}</ul>`;
   }
 
@@ -1007,7 +1031,7 @@
       ui.busy = false;
       if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
       else nibSay('OK, I\'ll remember that. ' + (r.after < r.before ? 'Though I feel less sure: ' + pct(r.before) + ' → ' + pct(r.after) + '.' : 'Feels thin, but it\'s a start: ' + pct(r.after) + '.'), { mood: 'think', ms: 4200 });
-      if (first) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
+      if (first && stage3()) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
       paid(r.paid, 'hunt', fid); // your explanation is the report: it's filed and paid now
       break;
     }
@@ -1027,10 +1051,16 @@
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
-    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); world.pulseAt('stats'); nibSay('Our first bounty. There\'s a tool shelf now: tools open new kinds of bugs. The ledger tracks our reputation.', { ms: 5600, mood: 'happy' }); }
-    if (r.firsts && r.firsts.hq) { world.pulseAt('hq'); nibSay('About one bug in twenty turns out critical. Or we make one: two bugs in connected rooms. HQ has the board.', { ms: 5600 }); }
+    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); nibSay('Our first bounty. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
+    if (r.firsts && r.firsts.hq && !stage3() && !r.won && !s.crits) { world.pulseAt('hq'); chainTip(); }
     if (r.won) setTimeout(() => goal(ending, station), 1600);
     nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
+  }
+  // Said once, at the third bug, and waits for you: which two bugs chain, and what it costs.
+  async function chainTip() {
+    const t = T[s.target]; if (!t) return;
+    const c = E.chainState(s, t.id), room = fid => t.rooms.find(r => r[0] === F[fid].room)[1];
+    await nibSay('Criticals: any bug has a 1 in 20 shot. For a sure one, chain two. Here: ' + room(c.a) + ' + ' + room(c.b) + ', then the Tracer (' + money(tracerCost()) + ', Shop). The Goal board (G) shows it.', { next: true, nextLabel: 'Got it' });
   }
   function prove(id) {
     const c = s.tray.find(x => x.id === id), r = E.prove(s, id); if (!r.ok) return toast(r.why, 'bad');
@@ -1048,7 +1078,7 @@
   function buyTool(id) {
     const r = E.buyTool(s, id); if (!r.ok) return toast(r.why, 'bad');
     const t = D.TOOLS.find(x => x.id === id); floatAt(t.name, 'forge'); toast(t.name + ' bought. ' + t.opens, 'good');
-    if (r.first) { world.pulseAt('hq'); nibSay('HQ has a board for criticals now. Look for two bugs that feed each other.', { ms: 4200 }); }
+    if (id === 'trace') { world.pulseAt('hq'); nibSay(chainHalves() ? 'Tracer\'s in. Open the Goal board (G) and link the two bugs.' : 'Tracer\'s in. Find both chain bugs, then link them on the Goal board (G).', { ms: 4200 }); }
     drawWindow();
   }
   function traceChain(tid, option) {
@@ -1118,16 +1148,16 @@
     const mapped = r.mapped.map(id => T[s.target].rooms.find(x => x[0] === id)[1]);
     const bits = [];
     if (mapped.length) bits.push('I mapped ' + (mapped.length > 1 ? mapped.slice(0, -1).join(', ') + ' and ' + mapped[mapped.length - 1] : mapped[0]) + '.');
-    if (r.made) bits.push(r.made === 1 ? 'One find is on the Ops desk.' : r.made + ' finds are on the Ops desk.');
+    if (r.made) bits.push(r.made === 1 ? 'One find is waiting at Finds.' : r.made + ' finds are waiting at Finds.');
     else if (r.idle === 'untaught') bits.push('I couldn\'t hunt: I don\'t know any patterns yet. Teach me.');
-    else if (r.idle === 'full') bits.push('The Ops desk is full, so I stopped. Clear some finds.');
+    else if (r.idle === 'full') bits.push('Finds is full, so I stopped. Clear some.');
     else if (r.idle === 'nothing') bits.push('Nothing I know how to look for in the rooms we\'ve mapped.');
     else if (r.idle === 'nojob') bits.push('No job yet, so I just watched the lamp.');
     if (r.made) await nibWalk(SPOT.ops);
     if (r.firsts.ops) world.pulseAt('contract');
     await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
-    if (r.firsts.rig) { world.pulseAt('rig'); await nibSay('That laptop gives me one try a night. A GPU would give me more tries. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
-    if (r.firsts.ops) await nibSay('I\'m not always right. Prove a find to be safe, or trust me and submit it as-is.', { next: true, nextLabel: 'Got it' });
+    if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('That laptop gives me one try a night. A GPU would give me more tries. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
+    if (r.firsts.ops) await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' });
     ui.morning = false; render();
     if (!ui.busy) nibWalk(nibHome());
   }
@@ -1174,7 +1204,7 @@
     $('settings-body').innerHTML = `<div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
       <div class="field"><label for="nname">Partner's name</label><input id="nname" value="${esc(s.nib)}" maxlength="24"></div>
       <div class="menu-row"><button id="save-names" class="accent">Save names</button></div>
-      <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H T O B R I C</dt><dd>Desk, Nib, Ops, Tools, Rig, Ledger, HQ</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl></details>
+      <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H O B G</dt><dd>Desk, Finds, Shop, Goal</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl></details>
       <details class="ref"><summary>Chapters</summary>
         <div class="menu-row"><button id="ch1" class="quiet">1 · Meet Nib</button><button id="ch2" class="quiet">2 · First job</button><button id="ch3" class="quiet">3 · Hire help</button></div></details>
       <div class="menu-row"><button id="restart" data-icon="refresh" class="danger">Restart this chapter</button></div>${saveOk ? '' : '<small id="save-status">Saving is unavailable in this browser.</small>'}`;
@@ -1227,9 +1257,9 @@
     const pick = e.target.closest('.dock-menu [data-station]'); if (pick) { const m = pick.closest('.dock-menu'); if (dockOpen) setMenu(null); if (m.matches(':hover')) { dockHush = m.dataset.menu; m.classList.add('hush'); } }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
   });
-  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? openStation('hq') : nibSay(s.bugs >= E.GOAL.bugs ? 'Bugs done. Now a critical: ' + critHint() : E.GOAL.bugs + ' bugs and one critical. ' + s.bugs + ' down. Criticals are rare: about one in twenty, or chain two bugs.', { ms: 4000 }));
+  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. Take a job at the Desk first.', { ms: 4000 }));
   $('nib-chip').addEventListener('click', () => shown('training') ? openStation('training') : nibSay(objective(), { ms: 3600 }));
-  $('stats-open').addEventListener('click', () => openStation('stats'));
+  $('stats-open').addEventListener('click', () => openStation(stage3() ? 'stats' : 'forge'));
   $('settings').addEventListener('click', openMenu);
   $('interact').addEventListener('click', () => world.interact());
   $('world').addEventListener('pointerdown', () => { if (ui.win) closeWindow(); });

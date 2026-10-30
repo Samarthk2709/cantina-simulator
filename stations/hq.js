@@ -230,7 +230,7 @@
     else if (walker) { msg = walker.name + ' INBOUND · '; col = colorOf(walker); }
     else if (k.open) { const n = chainsReady(k); msg = 'BOARD OPEN · ' + (n ? n + ' READY · ' : 'NO CHAIN READY · '); }
     else if (k.near) { msg = 'HI ' + name + ' · '; col = HOT; }
-    else { const n = chainsReady(k); msg = 'HQ · CRITICALS · LV ' + L + ' · ' + (n ? 'CHAIN READY! · ' : ''); }
+    else { const n = chainsReady(k); msg = 'GOAL BOARD · LV ' + L + ' · ' + (n ? 'CHAIN READY! · ' : ''); }
     // Panel: the nameplate from level 2 (same place, now an LED strip), the left counter's display before that.
     const big = L >= 2, px = big ? g.x + 33 : g.x + 5, py = big ? g.top + 9 : g.y + 23, pw = big ? 30 : 28, W = pw - 2, fits = m => m.length * 4 - 1 <= W;
     if (!anim) { // reduced motion: a still label, the message's first part (or first word) if it fits

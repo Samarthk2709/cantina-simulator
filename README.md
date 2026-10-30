@@ -138,6 +138,32 @@ NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # 
 
 Verified 2026-10-25: all five pass. Gemma was also checked live in Stage 3: it parsed briefs, sanitize and auto-pick worked, and spend approval asked first. Live Gemma replies sometimes get numbers slightly wrong in chat. Game numbers come from code, never from the model.
 
+## Team view: shortcuts, queue, standing orders (2026-10-30)
+
+- **Keys:** ↑/↓ switch between agents (AGENTS.md is last), or Alt+↑/↓ while you're typing. Alt+1–9 jumps to an agent, / focuses the message bar, and Esc clears the bar, then goes back to the office. The keys are listed under the roster.
+- **Queue:** a brief sent while an agent has a task waits in its queue, shown as Next/Then rows above the message bar, each with a ✕. When the task ends, the next one starts. ⌘↵ (or "now: …") drops the current task and starts the new one. Questions and "stop" always go through straight away, and a stopped task moves on to the queue.
+- **Standing orders:** "every day", "daily", "from now on", "until I say stop" and similar make a task long-running (`FOREVER` in `stage3/harness.js`). When it runs out of work or reaches its stop condition, the agent rests ("Standing order · back tomorrow") and starts again the next morning with a fresh count, so "validate the tray every day" clears Nib's finds each morning. A brief sent during that rest runs first, then the order goes back to the end of the queue.
+
+## Chapter 2 kept small (2026-10-30)
+
+The first job has 8 things to do, and each one happens in one place. The **Goal** board (the goal button, or G) lists them:
+
+| What | Where |
+|---|---|
+| Take a job | Desk |
+| Open a room, click the buggy line | Desk |
+| Tell Nib why it's a bug | Nib asks right after |
+| Sleep: Nib hunts overnight | Sleep, top right |
+| Prove or send Nib's finds | Finds (was Ops) |
+| Coffee for focus | top right |
+| Buy tools, like the Tracer | Shop (was Tools) |
+| Chain two bugs into a critical | Goal board (was HQ) |
+
+- **Hidden until chapter 3:** Nib's pattern book, the GPU rig, the ledger, and the desk upgrades. In chapter 2 Nib gets a fixed 4 tries a night (`CH2_TRIES` in `engine.js`). The dock is flat (Desk, Finds, Shop), and the cash button opens the Shop.
+- **Fewer choices:** Finds has Prove and Send as-is (Toss is gone). The Tracer ($600, was $900) no longer needs the Debugger, and the Goal board has its Buy button right on the chain.
+- **Chaining spelled out:** a chain room's note names its pair ("the information leak here + the missing access check in Messages = a critical"). At bug 3 Nib names the two rooms and the Tracer's price, and waits for "Got it". Once both bugs are filed, the objective says to buy the Tracer, and the goal button lights up. The board says what each chain still needs, with prices. The right chain answer no longer names a specific leak, so it fits whichever code version you found.
+- `pacing.cjs` gives a median of day 3 (2–5), with Nib making about a third of the bugs.
+
 ## No report writing (2026-10-26)
 
 You no longer write reports. A bug you find is filed and paid the moment you tell Nib why it's a bug:
@@ -153,7 +179,7 @@ A leftover draft, for example one an agent gave up on, is one **File** click on 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
 - **Nib docks to the window:** while a window is open, Nib speaks from one strip docked on top of it, with choices and Next inline, instead of a bubble over your work. Opening a window puts keyboard focus on Nib's waiting line or the window, never the × button.
 - **Redraws patch in place:** a window or dock redraw keeps every node still there and only patches what changed (`morph` in `game.js`), so the button under a resting cursor keeps its hover instead of blinking when agents or Nib change the save.
-- **Dock groups:** Desk stands alone; Ops + HQ are **Jobs**, Tools + Rig are **Gear**, Nib + Ledger are **Books** (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
+- **Dock groups (chapter 3; chapter 2's dock is flat):** Desk stands alone; Ops + HQ are **Jobs**, Tools + Rig are **Gear**, Nib + Ledger are **Books** (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
 - **Toasts:** they sit just above the dock and slide as the stack changes. On phones with a window open, they sit at the top instead, clear of the window's buttons.
 - **Less text:**
   - Intro paragraphs, legends and fine print are cut down to a few words.

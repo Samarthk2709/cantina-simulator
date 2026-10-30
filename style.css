@@ -521,3 +521,12 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
    sticks out get it; the HUD, dock and toasts carry shadows, focus rings and badges past their edges. */
 .hud,.dock-shell,.stage-toasts{contain:layout style}
 #vitals,.nib-bubble{contain:layout paint style}
+
+/* Chapter 2's goal board: the whole toolbox, what and where, one line each. */
+#panel-dialog .howto{margin:10px 0 14px;padding:0;list-style:none;counter-reset:h;display:grid;gap:4px}
+#panel-dialog .howto li{counter-increment:h;display:flex;align-items:baseline;gap:8px;font-size:13px}
+#panel-dialog .howto li::before{content:counter(h);flex:none;width:18px;color:var(--muted,#8aa)}
+#panel-dialog .howto b{font-weight:500}
+#panel-dialog .howto span{margin-left:auto;color:var(--muted,#8aa);font-size:12px;white-space:nowrap}
+/* Both chain bugs are filed: the goal button wants a look. */
+#goal-open.ping{box-shadow:0 0 0 2px var(--accent,#d6a456)}
