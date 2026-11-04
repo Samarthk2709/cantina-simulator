@@ -55,13 +55,14 @@
   const agents = {};
   let speed = 1, paused = false, model = {ok: false, label: 'checking…'};
   const listeners = [];
-  const changed = () => { listeners.forEach(fn => fn()); if (needs()) window.Loop.wake(); }; // a new task, answer or day: frames again
+  const changed = () => { window.Lag?.count('agents.changed'); listeners.forEach(fn => fn()); if (needs()) window.Loop.wake(); }; // a new task, answer or day: frames again
 
   function makeAgent(id) {
     const saved = crew().agents?.[id] || {};
-    const a = {id, ...ROSTER[id], log: saved.log || [], task: saved.task || null, stats: saved.stats || blankStats(), queue: saved.queue || [], status: 'idle', ver: 0, q: null,
+    const a = {id, ...ROSTER[id], log: saved.log || [], task: saved.task || null, stats: saved.stats || blankStats(), queue: saved.queue || [], today: saved.today || blankDay(), ot: saved.ot || null, status: 'idle', ver: 0, q: null,
       pos: null, path: [], station: null, timer: 0, next: null, bubble: '', lastPenalty: 0, nibWalking: false,
-      energy: saved.energy ?? D.COST.focus, energyDay: saved.energyDay ?? S().day};
+      energyDay: saved.energyDay ?? S().day};
+    Object.defineProperty(a, 'energy', {get: () => E.energyOf(S(), id)}); // focus lives in the save (engine.js), refilled each night
     if (a.task && !a.task.finished) a.status = a.task.standbyDay === S().day ? 'resting' : 'thinking';
     else if (a.task) a.status = 'done';
     a.log.forEach(m => { m.id = ++seq; });
@@ -74,13 +75,15 @@
       say(a, 'We only know your message and AGENTS.md. Mistakes cost reputation. The goal: Elite (60 rep), with at least 5 bugs from the team.');
     } else say(a, `Hi, I'm ${a.name}. What should I work on?`);
   }
+  const blankDay = () => ({bugs: 0, earned: 0, pens: 0, wasted: 0, fix: null});
   const blankStats = () => ({accepted: 0, earned: 0, pens: 0, repLost: 0, asked: 0, guessed: 0, spent: 0, wasted: 0});
   let seq = 0;
   function push(a, kind, text, extra) { a.log.push({id: ++seq, kind, text, ...extra}); if (a.log.length > 160) a.log.shift(); a.ver++; return a.log[a.log.length - 1]; }
   const say = (a, t) => push(a, 'say', t), tool = (a, t) => push(a, 'tool', t), good = (a, t) => push(a, 'good', t), bad = (a, t) => push(a, 'bad', t), ruled = (a, t) => push(a, 'rule', t);
   function persist() {
+    if (G.frozen()) return; // another tab took over, or the page is leaving: never write an old crew back
     const out = {};
-    for (const a of Object.values(agents)) out[a.id] = {energy: a.energy, energyDay: a.energyDay, log: a.log.filter(m => m.kind !== 'typing').slice(-120).map(({kind, text, stats, task, reason, title, fix}) => ({kind, text, stats, task, reason, title, fix})), task: a.task, stats: a.stats, queue: a.queue};
+    for (const a of Object.values(agents)) out[a.id] = {energyDay: a.energyDay, log: a.log.filter(m => m.kind !== 'typing').slice(-120).map(({kind, text, stats, task, reason, title, fix, rows}) => ({kind, text, stats, task, reason, title, fix, rows})), task: a.task, stats: a.stats, queue: a.queue, today: a.today, ot: a.ot};
     crew().agents = out; C.save();
   }
 
@@ -279,13 +282,15 @@
   // ---------- talking ----------
   // A message while the agent has a task: questions and "stop" go through now; a new task waits in its queue,
   // unless you send it with now (⌘↵ in the Team view, or "now: …"), which drops the current one.
-  const hasTask = a => !!a.task && !a.task.finished;
+  const hasTask = a => !!a.briefing || !!a.task && !a.task.finished; // briefing: its brief is still being read
   async function send(id, text, opts = {}) {
     const a = agents[id]; text = String(text || '').trim().slice(0, 300); if (!a || !text) return;
     push(a, 'user', text); changed();
     if (/^stop\b/i.test(text) && !/\b(after|when|until|once|at)\b/i.test(text)) return stop(id, true);
     if (isQuestion(text)) return chat(a, text);
     const now = opts.now || /^now\b[:,]?\s*/i.test(text); text = text.replace(/^now\b[:,]?\s*/i, '') || text;
+    if (hasTask(a) && !now && a.task.forever && a.task.raw.replace(/^now\b[:,]?\s*/i, '') === text) { say(a, 'That standing order is already on.'); return; }
+    if (hasTask(a) && !now && a.queue.includes(text)) { say(a, 'That one is already in my queue.'); return; }
     if (hasTask(a) && !now && a.task.standbyDay != null) { a.queue.unshift(text); return finish(a, 'Pausing the standing order for this. It resumes after.'); }
     if (hasTask(a) && !now) {
       a.queue.push(text); say(a, `Queued${a.queue.length > 1 ? ' #' + a.queue.length : ''}. I'll start it after “${label(a.task)}”.`); persist(); changed(); return;
@@ -294,6 +299,10 @@
   }
   // Read a brief and start it. Returns false if it was refused or wasn't a task.
   async function brief(a, text) {
+    a.briefing = true;
+    try { return await readBrief(a, text); } finally { a.briefing = false; }
+  }
+  async function readBrief(a, text) {
     let task = parseLocal(text), fromAI = false;
     if (model.ok) {
       const typing = push(a, 'typing', 'Reading your message…'); changed();
@@ -304,27 +313,29 @@
     const notes = [resolveProgram(a, task), ...sanitize(a, task)].filter(Boolean);
     const problem = preflight(a, task);
     // A standing order on an empty tray (or no drafts) isn't refused: it just waits for tomorrow's.
-    if (problem && !(task.forever && ['validate', 'report'].includes(task.job))) { push(a, 'refuse', problem); persist(); changed(); return false; }
-    start(a, task, text, fromAI, notes); return true;
+    if (problem && !task.forever) { push(a, 'refuse', problem); persist(); changed(); return false; }
+    start(a, task, text, fromAI, notes);
+    if (problem) finish(a, problem); // a standing order that can't run today waits for tomorrow instead of being refused
+    return true;
   }
   // The next queued brief, once the current task is over. A refused one is skipped (its reason stays in the chat).
   let pulling = new Set();
   async function nextQueued(a) {
     if (pulling.has(a.id)) return; pulling.add(a.id);
     try { while (a.queue.length && !hasTask(a)) { const text = a.queue.shift(); push(a, 'sys', '— next in queue —'); persist(); changed(); await brief(a, text); } }
-    finally { pulling.delete(a.id); }
+    finally { pulling.delete(a.id); if (a.queue.length && !hasTask(a)) setTimeout(() => nextQueued(a), 400); } // a finish inside the loop found it busy
   }
   function unqueue(id, i) { const a = agents[id]; if (!a || !a.queue[i]) return; a.queue.splice(i, 1); a.ver++; persist(); changed(); }
   function start(a, task, raw, fromAI, notes) {
     const switching = live(a);
     if (switching) { a.q = null; say(a, `Dropping “${label(a.task)}”.`); release(a); }
     else if (a.task) push(a, 'sys', '— new task —');
-    a.task = {...task, raw, notes: notes || [], drafts: [], tried: {}, avoid: [], seen: {}, written: {}, rewrites: {}, accepted: 0, spent: 0, finished: false, overclaimLearned: false, standbyDay: null};
+    a.task = {...task, autoPick: /\b(any|whichever|wherever|you (choose|pick|decide)|pick|your choice|best|most)\b/i.test(raw) && !PROGRAM_WORDS.some(([re]) => re.test(raw.toLowerCase())), raw, notes: notes || [], drafts: [], tried: {}, avoid: [], seen: {}, written: {}, rewrites: {}, accepted: 0, spent: 0, finished: false, overclaimLearned: false, standbyDay: null};
     a.stats = blankStats();
-    a.status = switching || busy() < slots() ? 'thinking' : 'queued';
+    a.status = busy() < slots() ? 'thinking' : 'queued';
     push(a, 'brief', '', {task: {label: label(a.task), stop: stopLabel(a.task), budget: a.task.budget, program: a.task.program, fromAI}});
     (notes || []).forEach(n => ruled(a, n));
-    if (a.status === 'queued') say(a, `All ${slots()} GPU slots are busy. I'll start when one frees up.`);
+    if (a.status === 'queued') say(a, `All ${slots()} GPU slots are busy. I'll start when one frees up. (A bigger rig adds slots.)`);
     else narrate(a, 'start', planLine(a));
     persist(); changed();
   }
@@ -334,7 +345,7 @@
   }
   function chat(a, text) {
     const t = a.task, last = lastDone(a);
-    const fallback = t && !t.finished ? `I'm on “${label(t)}”, stopping when ${stopLabel(t)}. So far: ${a.stats.accepted} accepted, ${a.stats.pens} penalties.`
+    const fallback = t && !t.finished ? `I'm on “${label(t)}”, stopping when ${stopLabel(t)}. So far: ${a.stats.accepted} accepted, ${a.stats.pens} penalt${a.stats.pens === 1 ? 'y' : 'ies'}.`
       : last ? `My last task was “${last.text}”. ${last.reason || ''} ${last.stats ? `${last.stats.accepted} accepted, ${last.stats.pens} penalties.` : ''}`.trim()
       : 'I can hunt, map, validate the tray, finish reports, buy upgrades, connect a chain or switch the active program. Give me the job, the program and when to stop.';
     narrate(a, 'chat', fallback, {text});
@@ -373,7 +384,7 @@
   }
   function answer(id, i) {
     const a = agents[id]; if (!a?.q) return;
-    const o = a.q.opts[i]; if (!o) return false; a.q = null; a.status = 'thinking';
+    const o = a.q.opts[i]; if (!o) return false; a.q = null; a.status = busy() < slots() ? 'thinking' : 'queued'; // a teammate may have taken the slot while it waited
     push(a, 'user', o.label); o.fn(a); a.ver++; persist(); changed(); return true;
   }
 
@@ -381,13 +392,8 @@
   // Agents use the engine exactly like the player: same rules, same checks, same save. Their own program
   // and energy are swapped in for the call, so they never spend the player's focus.
   function exec(a, fn, keepTarget) {
-    return G.agentAct(s => {
-      const saved = {target: s.target, focus: s.focus}, prog = a.task?.program;
-      window.Stage3Actor = a.name;
-      if (prog) { s.target = prog; if (!s.lit[prog]) s.lit[prog] = [T(prog).rooms[0][0]]; }
-      s.focus = a.energy;
-      try { return fn(s); } finally { window.Stage3Actor = null; a.energy = s.focus; s.focus = saved.focus; if (!keepTarget) s.target = saved.target; }
-    });
+    // engine.js asAgent swaps in the agent's focus and program, and tags each call so a server replays it the same way.
+    return G.agentAct(s => E.asAgent(s, a.id, a.task?.program || null, keepTarget, fn));
   }
   const act = (toolName, station, dur, run, onResult, desc) => ({act: {toolName, station, dur, run, onResult, desc}});
   function stepPhrase(n, a) {
@@ -400,7 +406,7 @@
   const floatUp = (a, text, kind, after) => window.Stage3Float?.(a.id, text, kind, after); // after: the pay chip, which leaves the head first
   function paid(a, r, station) {
     if (!r.accepted) return;
-    a.task.accepted++; a.stats.accepted++; a.stats.earned += r.pay || 0;
+    a.task.accepted++; a.stats.accepted++; a.stats.earned += r.pay || 0; a.today.bugs++; a.today.earned += r.pay || 0;
     const chip = G.payChip?.(r, station, a.id); // the chip flies from the agent to the wallet
     if (!chip) G.floatAt('+' + money(r.pay), station);
     G.toast(r.crit ? `CRITICAL · ${a.name} · +${money(r.pay)}` : `${a.name}: ${r.grade} report · +${money(r.pay)} · +${r.rep} rep`, r.crit ? 'crit' : 'good');
@@ -419,6 +425,7 @@
 
   function decide(a) {
     const t = a.task, s = S();
+    if (['hunt', 'map', 'take'].includes(t.job) && !t.program) return {done: 'Nothing in scope is left to find in any program.'};
     look(a, 'brief', '› read_brief');
     look(a, 'rules', `› read_rules · AGENTS.md${crew().rules[a.id] && Object.values(crew().rules[a.id]).some(Boolean) ? ` + agents/${a.id}.md` : ''} · ${ruleList(a).length} rules`);
     if (t.program) {
@@ -449,7 +456,7 @@
       const line = !wrong.length || rnd() < p ? bug : pick(wrong);
       if (!tried.length) tool(a, `Something off in ${roomName(prog.id, f.room)}. Reading the sketch.`);
       return room(f.room, act('hunt_finding', STATION.hunt, DUR.hunt, s => E.guess(s, fid, line, a.name), r => {
-        if (!r.ok) { a.stats.wasted++; return note(a, `Someone got to that finding first, so my trip was wasted.`, rule(a, 'claim') ? null : 'claim'); }
+        if (!r.ok) { a.stats.wasted++; a.today.wasted++; if (!rule(a, 'claim')) a.today.fix ??= 'claim'; return note(a, `Someone got to that finding first, so my trip was wasted.`, rule(a, 'claim') ? null : 'claim'); }
         tried.push(line);
         if (r.hit) { t.drafts.push(fid); tool(a, `Found it on line ${line + 1}: ${D.CLASSES[f.cls].name.toLowerCase()}.`); }
         if (r.hit) floatUp(a, '+1 bug', 'find'); // #16
@@ -565,7 +572,7 @@
     if (ready) return act('chain', STATION.hq, DUR.chain, s => E.trace(s, ready.id, 0), r => {
       t.chained = true;
       if (!r.ok || !r.chained) return bad(a, r.why || 'The chain didn\'t hold.');
-      push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`);
+      push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`); a.stats.earned += r.pay; a.today.earned += r.pay;
       G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
       floatUp(a, 'CRITICAL chain', 'crit', G.payChip?.({...r, crit: true}, 'hq', a.id)); // #16 (the label over the agent is the CRITICAL); its pay flies amber, like yours
     }, ready.name);
@@ -581,6 +588,7 @@
     a.stats.pens++; a.stats.repLost += p.rep; a.lastPenalty = Date.now();
     floatUp(a, `−${p.rep} rep`, 'pen'); // #16: the on-floor echo of the penalty toast
     const fix = p.program ? 'scope' : p.title === 'False alarm' ? 'proof' : p.title === 'Report rejected' ? 'honest' : null;
+    a.today.pens++; if (fix && !rule(a, fix)) a.today.fix = fix;
     push(a, 'pen', p.text, {title: p.title, fix: fix && !rule(a, fix) ? fix : null});
     if (p.program && a.next?.room) a.task.avoid.push(p.program + ':' + a.next.room);
     if (p.banned) push(a, 'pen', `${T(p.program).name} banned the company after ${C.BAN_AT} strikes.`, {title: 'Banned'});
@@ -593,13 +601,14 @@
   function finish(a, why) {
     if (!a.task || a.task.finished === true) return;
     const byYou = why === 'Stopped by you.';
-    if (a.task.forever && !byYou && !a.queue.length) return standby(a, why);
-    if (a.task.forever && !byYou) a.queue.push(a.task.raw.replace(/^now\b[:,]?\s*/i, '')); // the standing order resumes after what you queued
+    const keep = a.task.forever && !byYou && a.task.finished !== 'declined';
+    if (keep && !a.queue.length) return standby(a, why);
+    if (keep && !a.queue.includes(a.task.raw.replace(/^now\b[:,]?\s*/i, ''))) a.queue.push(a.task.raw.replace(/^now\b[:,]?\s*/i, '')); // the standing order resumes after what you queued
     const reason = why === 'stop' ? `Stop condition reached: ${stopLabel(a.task)}.` : why;
     a.task.finished = true; a.status = 'done'; a.q = null; release(a);
     say(a, reason);
     push(a, 'done', label(a.task), {stats: {...a.stats}, reason});
-    narrate(a, 'done', `${a.stats.accepted} accepted, ${money(a.stats.earned)} earned, ${a.stats.pens} penalties${a.stats.spent ? `, ${money(a.stats.spent)} spent` : ''}.`);
+    narrate(a, 'done', `${a.stats.accepted} accepted, ${money(a.stats.earned)} earned, ${a.stats.pens} penalt${a.stats.pens === 1 ? 'y' : 'ies'}${a.stats.spent ? `, ${money(a.stats.spent)} spent` : ''}.`);
     persist(); pullQueue(); changed();
     if (a.queue.length) setTimeout(() => nextQueued(a), 400);
   }
@@ -665,7 +674,7 @@
       || ['idle', 'done', 'queued', 'resting'].includes(a.status) && a.station !== 'home';
   }
   const needs = () => !stations || ready() && Object.values(agents).some(a => !a.pos || moving(a));
-  function frame(now) {
+  function agentsFrame(now) {
     const real = (now - last) / 1000, dt = Math.min(slept ? 1 / 60 : 0.1, real); last = now; // after a sleep, one frame's worth: nothing jumps
     slept = true;
     if (!world()) return slept = false, true;
@@ -695,9 +704,11 @@
   }
   function step(dt, tdt = dt) { // tdt: the tool timers' clock (real time across a nap)
     const scene = G.ui().busy || G.ui().morning; // a lesson or the morning talk: Nib stays put
+    if (crew().standupDay !== S().day) { if (crew().standupDay != null) standup(); crew().standupDay = S().day; C.save(); }
     for (const a of Object.values(agents)) {
       if (a.id === 'nib' && scene) continue;
-      if (a.energyDay !== S().day) { a.energyDay = S().day; a.energy = D.COST.focus; if (a.status === 'resting') { if (a.task) a.task.standbyDay = null; a.status = busy() < slots() ? 'thinking' : 'queued'; tool(a, 'New day, full focus.'); } }
+      if (a.energyDay !== S().day) { a.energyDay = S().day; if (a.q?.ot) { a.q = null; a.status = 'resting'; } if (a.status === 'resting') { if (a.task) { a.task.standbyDay = null; if (a.task.forever && a.task.autoPick) { const b = bestProgram(a); if (b) a.task.program = b.id; } } // "wherever there's work" re-picks each morning
+ a.status = busy() < slots() ? 'thinking' : 'queued'; tool(a, 'New day, full focus.'); } }
       const from = a.id !== 'nib' && a.path.length && !(a.windup > 0) ? {x: a.pos.x, y: a.pos.y} : null; // #6: a step that may end the walk
       if (a.id === 'nib') a.pos = G.nib.pos();
       else if (a.path.length && a.windup > 0) { a.windup -= dt; a.crouch = true; a.moving = false; }
@@ -724,10 +735,27 @@
     if (!d || d.asked) return;
     if (d.done) return finish(a, d.done);
     const cost = FOCUS_COST[d.act.toolName] || 0;
-    if (a.energy < cost) { a.status = 'resting'; release(a); say(a, `I'm out of focus for today (${a.energy} left). I'll pick this up after you sleep.`); persist(); pullQueue(); changed(); return; }
+    if (a.energy < cost) {
+      release(a);
+      // Overtime: a coffee run buys more focus today. Each run the same day costs more.
+      const o = S().ot?.[a.id], n = o && o.day === S().day ? o.n : 0, price = OT.cost * (n + 1);
+      if (n < OT.max && S().cash >= price) return void (ask(a, `I'm out of focus (${a.energy} left). Coffee run for ${money(price)}? +${OT.focus} focus, or I'm back tomorrow.`, [
+        {label: `Coffee run · ${money(price)}`, fn: a => { const r = G.agentAct(s => E.coffeeRun(s, a.id)); if (!r.ok) return rest(a); a.stats.spent += r.price; tool(a, `› coffee_run · +${r.focus} focus`); }},
+        {label: 'Back tomorrow', fn: rest}]), a.q.ot = true);
+      return rest(a);
+    }
     a.next = {...d.act}; a.next.phrase = stepPhrase(a.next, a); a.station = d.act.station; a.bubble = 'walking';
     a.status = 'walking'; walkTo(a, spotAt(a, d.act.station));
     a.ver++;
+  }
+  const OT = E.OT; // coffee runs: price, focus and daily limit come from the engine
+  function rest(a) { a.status = 'resting'; release(a); say(a, `I'm out of focus for today (${a.energy} left). I'll pick this up after you sleep.`); persist(); pullQueue(); changed(); }
+  // Morning standup: yesterday in one line per agent, in Nib's chat. Each row links to that agent to brief it.
+  function standup() {
+    const rows = Object.values(agents).filter(a => a.today.bugs || a.today.earned || a.today.pens || a.today.wasted).map(a => ({id: a.id, name: a.name, ...a.today}));
+    Object.values(agents).forEach(a => { a.today = blankDay(); });
+    if (!rows.length || !agents.nib) return;
+    push(agents.nib, 'standup', 'Day ' + (S().day - 1), {rows}); G.toast('Standup is in Team.', 'good'); persist();
   }
   function run(a) {
     const n = a.next; a.bubble = '';
@@ -750,10 +778,11 @@
   }
 
   // ---------- public API ----------
-  const hired = () => crew().hired.filter(id => ROSTER[id]);
+  const hired = () => (S().hired || crew().hired).filter(id => ROSTER[id]); // the save's list (engine.js hire)
   function hire(id) {
-    const r = ROSTER[id], s = S(); if (!r?.price || hired().includes(id) || s.cash < r.price) return false;
-    s.cash -= r.price; E.log(s, 'Hired ' + r.name + ' · −' + money(r.price), ''); G.refresh(); crew().hired.push(id); makeAgent(id); persist(); changed(); return true;
+    const r = ROSTER[id]; if (!r?.price || hired().includes(id)) return false;
+    if (!G.agentAct(s => E.hire(s, id)).ok) return false;
+    makeAgent(id); persist(); changed(); return true;
   }
   // A rule changes every timeline's "Add to AGENTS.md" links, so each agent's version moves on and Team redraws it.
   function setRule(tab, k, on) { (crew().rules[tab] ??= {})[k] = on; Object.values(agents).forEach(a => a.ver++); C.save(); changed(); }
@@ -766,15 +795,18 @@
   }
 
   hired().forEach(makeAgent);
+  // A reload right after a task ended: its queue picks up where it left off.
+  setTimeout(() => Object.values(agents).forEach(a => { if (a.queue.length && !hasTask(a)) nextQueued(a); }), 800);
   Object.values(agents).filter(a => a.status === 'thinking').slice(slots()).forEach(a => { a.status = 'queued'; });
   C.on(() => changed());
   // Hidden: no model checks or saves on a timer; the log is saved as the tab hides or the page goes.
   checkModel(); setInterval(() => { if (!document.hidden) checkModel(); }, 60000);
-  setInterval(() => { if (!document.hidden) persist(); }, 3000);
+  let saved = ''; // the 3 s save writes only when the crew changed
+  setInterval(() => { if (document.hidden) return; const k = Object.values(agents).map(a => a.ver + ':' + a.energy + ':' + a.queue.length).join(); if (k !== saved) { saved = k; persist(); } }, 3000);
   setInterval(secondTick, 1000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
   addEventListener('pagehide', persist);
-  window.Loop.add(frame);
+  window.Loop.add(agentsFrame);
 
   window.Stage3Agents = {
     list: () => hired().map(id => agents[id]), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),

@@ -467,7 +467,7 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .vchart circle{fill:#10242c;stroke:var(--nib);stroke-width:1.2}.vchart circle.now{fill:var(--nib)}
 .vitals.open .vchart circle{animation:v-fade .3s ease-out both;animation-delay:calc(300ms + var(--i) * 50ms)}
 .vchart text{font:8px var(--mono);fill:var(--muted);text-anchor:middle}
-@media (max-width:700px){.vitals{top:12px;left:12px}}
+@media (max-width:700px){.vitals{top:76px;left:12px}} /* below the HUD row, never on top of Team or Focus */
 @media (prefers-reduced-motion:reduce){.vitals,.vx,.vitals .chev,.vitals .vbar i{transition:none}.vitals.open .vx section,.vitals.open .vchart *{animation:none!important;opacity:1;transform:none}.vitals .up{animation:none}}
 
 /* Zoom toggle (game.js setFollow): bottom right, above the dock. Following you shows "Whole office" (zoom out); zoomed out shows "Follow me". */
@@ -530,3 +530,37 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 #panel-dialog .howto span{margin-left:auto;color:var(--muted,#8aa);font-size:12px;white-space:nowrap}
 /* Both chain bugs are filed: the goal button wants a look. */
 #goal-open.ping{box-shadow:0 0 0 2px var(--accent,#d6a456)}
+
+/* Leaderboard (L, or the menu): one row per company, sorted by the column you pick. */
+.board{min-width:min(620px,86vw)}
+.board h1{font-size:22px;margin:0 0 12px}
+.board table{width:100%;border-collapse:collapse;font-size:13px}
+.board th,.board td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
+.board th:nth-child(-n+2),.board td:nth-child(-n+2){text-align:left}
+.board th button{all:unset;cursor:pointer;opacity:.7}
+.board th button.on{opacity:1;text-decoration:underline}
+.board td small{opacity:.6}
+.board tr.me td{color:var(--good)}
+.board .actions{margin-top:14px;display:flex;justify-content:flex-end}
+
+/* Another tab took over the game (game.js elsewhere()). */
+#other-tab{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(6,12,16,.82)}
+#other-tab>div{display:grid;gap:14px;justify-items:center;padding:24px 28px;border:1px solid var(--line);border-radius:12px;background:var(--panel,#10202a);color:var(--ink,#e8efe8)}
+#modal:has(.board){max-width:min(700px,94vw)}
+.board{min-width:0}
+/* The chapter subtitle sits on the light floor: give it contrast. */
+#chapter-sub{text-shadow:0 1px 2px rgba(0,0,0,.75),0 0 6px rgba(0,0,0,.5)}
+
+/* Vitals mini view: just the header (game.js setVitals). */
+.vitals.mini{padding-bottom:4px}
+.vitals.mini header{margin-bottom:4px}
+.vitals.mini .vq,.vitals.mini .vx{display:none}
+.vitals.mini .chev{transform:translateY(-1px) rotate(-45deg)}
+.vitals.open{cursor:pointer}
+/* Each window's one-line description (game.js lede). */
+#panel-body .win-lede{margin:0 0 12px;font-size:13px;color:var(--muted);line-height:1.4}
+
+/* The menu's account row (sign-in screen styles live in auth.js, which both pages load). */
+.menu-row.account{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.menu-row.account span{display:grid;font-size:13px}
+.menu-row.account small{opacity:.65}

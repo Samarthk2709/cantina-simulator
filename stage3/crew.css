@@ -58,11 +58,11 @@ body.s3-agents-open #s3-layer{display:none}
 .s3-float{position:absolute;left:0;top:0;z-index:1;width:0;height:0;pointer-events:none}
 .s3-float span{position:absolute;left:0;bottom:0;translate:-50% 0;transform-origin:50% 100%;font:600 12px var(--mono);white-space:nowrap;color:var(--good);text-shadow:0 1px 0 #000,0 0 3px #000,0 0 6px #000}
 .s3-float .crit{color:var(--amber)}.s3-float .pen{color:var(--danger-ink)}
-/* Night (crew.js toggles #s3-layer.night with #night.on): agents dim with the office like Nib, bubbles and labels go,
+/* Night (crew.js toggles #s3-layer.s3-night with #night.on): agents dim with the office like Nib, bubbles and labels go,
    on the night's own timing (style.css .night.fall/.rise). */
 .s3-agent,.s3-bubble,.s3-float{transition:filter .5s ease-in,opacity .5s ease-in}
-#s3-layer.night .s3-agent{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}
-#s3-layer.night :is(.s3-bubble,.s3-float){opacity:0;transition:opacity .9s linear .2s}
+#s3-layer.s3-night .s3-agent{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}
+#s3-layer.s3-night :is(.s3-bubble,.s3-float){opacity:0;transition:opacity .9s linear .2s}
 @media (prefers-reduced-motion:reduce){#s3-layer :is(.s3-agent,.s3-bubble,.s3-float){transition:none!important}}
 .s3-oos{border-color:var(--danger-ink)!important;opacity:.85}
 .s3-oos-tag{display:block;font:600 9px var(--mono);letter-spacing:.08em;color:var(--danger-ink);margin-top:2px}
@@ -150,3 +150,21 @@ body.s3-agents-open .nib-bubble{display:none}
 .s3-q .n{flex:none;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .s3-q .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .s3-keys{display:block;margin-top:6px;font-size:11px;opacity:.7}
+/* Morning standup: one row per agent. */
+.m-card.standup .su-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:4px 0;font-size:13px}
+.m-card.standup .su-row>.s3-link:first-child{min-width:52px;font-weight:600;text-align:left}
+
+/* Names show only on hover (or keyboard focus): the tag fades in, rises 4 px and settles with a slight overshoot; the
+   sprite lifts a pixel and brightens. Leaving fades it out faster than it came. */
+.s3-tag{opacity:0;translate:0 4px;scale:.92;pointer-events:none;transition:opacity .12s ease-in,translate .12s ease-in,scale .12s ease-in}
+.s3-agent:hover .s3-tag,.s3-agent:focus-visible .s3-tag{opacity:1;translate:0 0;scale:1;transition:opacity .16s ease-out,translate .22s cubic-bezier(.3,1.5,.5,1),scale .22s cubic-bezier(.3,1.5,.5,1)}
+.s3-agent .s3-av{transition:translate .18s cubic-bezier(.3,1.4,.5,1),filter .18s ease-out}
+.s3-agent:hover .s3-av{translate:0 -2px;filter:brightness(1.12) drop-shadow(0 2px 0 rgba(0,0,0,.22))}
+@media (prefers-reduced-motion: reduce){.s3-tag,.s3-agent .s3-av{transition:opacity .12s}.s3-agent:hover .s3-av{translate:none}}
+.s3-agent:hover,.s3-agent:focus-visible,.s3-agent:active{background:none!important;box-shadow:none!important;outline:none}
+.s3-tag{font-size:11px;padding:1px 6px}
+/* You and Nib on the agents' layer (crew.js body): stacked with them by depth. */
+.s3-body{position:absolute;left:0;top:0;pointer-events:none;transform-origin:50% 100%}
+.s3-body svg{width:100%;height:100%;image-rendering:pixelated;display:block}
+.s3-float{z-index:1000}
+#s3-layer.s3-night .s3-body{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}

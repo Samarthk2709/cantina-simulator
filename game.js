@@ -1,11 +1,12 @@
 /* First Office · the office (Stages 2 and 3), its windows, and Nib. Rules live in engine.js; Stage 3's agents live in stage3/. */
-(() => {
+(async () => {
   'use strict';
+  if (window.Auth) await window.Auth.ready; // signed in (and the cloud save pulled), or playing locally
   const D = window.Stage2Data, E = window.Stage2Engine, W = window.CantinaWorld;
   const KEY = 'first-office-game-v1', INTRO = 'first-office-nib-v1', POS = 'first-office-avatar-v1';
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const money = v => '$' + Math.round(v).toLocaleString('en-US');
+  const money = v => (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
   const pct = p => Math.round(p * 100) + '%';
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const wait = ms => new Promise(r => setTimeout(r, reduced ? 0 : ms));
@@ -21,11 +22,38 @@
   }
   // Stage 1 (meet.html) comes first: no office until you've met Nib and taken the job.
   if (!localStorage.getItem(KEY) && !intro().completedAt) { location.replace('/meet.html'); return; }
+  await window.Customize?.ensure(); // first visit: pick your look before the office starts
   let s = load();
   const stage3 = () => s.stage === 3;
+  const awayMs = s.seenAt ? Date.now() - s.seenAt : 0; // real time since this save was last written (before boot rewrites it)
   // frozen: set by leave(), right after the last save before a navigation. Nothing may write an old save back.
   let frozen = false;
-  function save() { if (frozen) return; try { localStorage.setItem(KEY, JSON.stringify(s)); saveOk = true; } catch { saveOk = false; } }
+  // Writes only when something changed (seenAt is refreshed at most once a minute, so it alone never counts). Without
+  // that, two copies of the game (two tabs) answered each other's every write and saved about 30 times a second.
+  let lastSaved = '';
+  function save() {
+    if (frozen) return;
+    if (Date.now() - (s.seenAt || 0) > 60000) s.seenAt = Date.now();
+    const j = JSON.stringify(s); if (j === lastSaved) return;
+    window.Lag?.count('save');
+    try { localStorage.setItem(KEY, j); lastSaved = j; saveOk = true; } catch { saveOk = false; }
+  }
+  // One tab plays at a time. Two tabs would each run the agents and overwrite each other's save (the board flips between
+  // their jobs, and everything runs twice). The newest tab wins; an older one stops and offers to take over.
+  const TAB = Math.random().toString(36).slice(2);
+  try {
+    const bc = new BroadcastChannel('first-office');
+    bc.onmessage = e => { if (e.data?.open && e.data.open !== TAB && !frozen) elsewhere(); };
+    bc.postMessage({ open: TAB });
+  } catch {}
+  function elsewhere() {
+    // No save here: everything is already saved, and a late write from this older tab would roll the new one back.
+    frozen = true; window.Stage3Agents?.pause(true);
+    ['settings-dialog', 'modal'].forEach(id => { if ($(id)?.open) $(id).close(); }); // the top layer would cover the overlay
+    const d = document.createElement('div'); d.id = 'other-tab';
+    d.innerHTML = '<div><b>The game is open in another tab.</b><button class="accent">Play here</button></div>';
+    d.addEventListener('click', e => { if (e.target.closest('button')) location.reload(); }); document.body.appendChild(d); // on the box: buttons.js may rebuild the button
+  }
 
   // ---------- stations ----------
   // The published office's stations, given Stage 2 jobs. `seen` names the engine flag that reveals each one.
@@ -86,7 +114,7 @@
 
   // Nib docks to an open window, and stays docked while it shrinks away. Out of sight (a window over the office, or Team),
   // his happy hop plays on his dock portrait instead (faceHop).
-  const nib = window.NibActor.create({ W, world, canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => (ui.win || winFx?.shut) && $('panel-dialog').open ? winRect() : null,
+  const nib = window.NibActor.create({ W, world, player: () => world.playerPose(), canvas: $('nib-layer'), bubble: $('nib-bubble'), hidden, side: () => 'right', dock: () => (ui.win || winFx?.shut) && $('panel-dialog').open ? winRect() : null,
     covered: () => !!ui.win || document.body.classList.contains('s3-agents-open'), faceHop });
   // Lines that wait for the player (Next or a choice) queue up; timed lines (tips) are interrupted by anything newer,
   // but a newer tip waits its turn: until the tip has been up TIP ms and fully shown (typed or skipped) for READ ms.
@@ -166,7 +194,7 @@
   }
 
   // Chapter 3's goal: Elite reputation, with at least this many bugs landed by agents (not just carried over).
-  const TEAM_GOAL = 5;
+  const TEAM_GOAL = E.TEAM_GOAL;
   function objective3() {
     if (s.won3) return 'Elite. The team works. Next chapter: a rival company.';
     if (s.rep >= 60 && (s.stats.agent || 0) < TEAM_GOAL) return 'We\'re Elite already. Now prove the team works: ' + (TEAM_GOAL - (s.stats.agent || 0)) + ' more bugs from agents.';
@@ -237,7 +265,7 @@
   }, { passive: true });
   document.addEventListener('pointerdown', e => { if (dockOpen && !e.target.closest('#dock [data-group],.dock-menu')) setMenu(null); }, true);
   function render() {
-    if (frozen) return; // leaving: the save may already be the next chapter's; the office stays as it was behind the iris
+    if (frozen) return; window.Lag?.count('render'); // leaving: the save may already be the next chapter's; the office stays as it was behind the iris
     const mf = E.maxFocus(s);
     $('focus').hidden = !s.seen.job;
     focusMeter(s.focus, mf);
@@ -253,7 +281,8 @@
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
-    if (stage3() && !s.won3 && s.rep >= 60 && teamBugs >= TEAM_GOAL) { s.won3 = true; const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
+    // Elite: the engine sets won3 (so the server agrees); the ending shows once, the first render after.
+    if (stage3() && s.won3 && !s.seen.elite) { E.meta(s, { seen: { elite: true } }); setTimeout(postScore, 0); const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
     $('stats-open').title = stage3() ? 'Reputation (I)' : 'Cash · Shop (B)';
@@ -469,10 +498,22 @@
     (wait || $('panel-body')).focus({ preventScroll: true });
   }
   function closeWindow() { const id = ui.win; ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
+  // One sentence at the top of each window: what it shows and what you do there.
+  function lede() {
+    return {
+      hunt: !s.target || ui.view === 'board' ? 'Pick a job: each app pays per bug you find in it.' : 'The app\'s rooms. Open one, then hunt its bugs: click the line that\'s wrong.',
+      training: 'What Nib has learned from you, and how sure it is about each kind of bug when it hunts at night.',
+      contract: 'Bugs Nib found overnight. Prove one to be safe, or send it as-is.',
+      forge: stage3() ? 'Tools open new kinds of bugs; desk upgrades give more coffee and focus.' : 'Tools open new kinds of bugs. The Tracer turns two linked bugs into a critical.',
+      rig: stage3() ? 'Your GPUs: more tries for Nib each night, and more agents working at once.' : 'Your GPUs: more tries for Nib each night.',
+      stats: 'Your reputation, what it unlocks, and everything that happened recently.',
+      hq: stage3() ? 'The chapter goal, and the board where two linked bugs become a critical.' : 'Your goal, the steps to get there, and where two linked bugs become a critical.',
+    }[ui.win] || '';
+  }
   function drawWindow(top) {
-    if (!ui.win) return;
+    if (!ui.win) return; window.Lag?.count('drawWindow');
     const body = $('panel-body'), y = body.scrollTop;
-    const html = { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
+    const html = (ui.win === 'hunt' && ui.view === 'hunt' ? '' : `<p class="win-lede">${esc(lede())}</p>`) + { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
     if (top) body.innerHTML = html; else morph(body, html); // a new view starts fresh; a redraw of the same view patches it in place
     stampFx(body);
     $('panel-title').textContent = crumbs();
@@ -715,7 +756,7 @@
         if (ui.view === 'hunt' && f) c.push(t.rooms.find(r => r[0] === f.room)[1], 'Hunt');
         else if (ui.room) { const r = t.rooms.find(x => x[0] === ui.room); if (r) c.push(r[1]); }
       }
-    } else c.push({ training: 'Pattern book', contract: 'Overnight', forge: 'Tools', rig: 'GPU rig', stats: s.rep + ' rep · ' + E.tier(s).name, hq: E.GOAL.bugs + ' bugs + 1 critical' }[ui.win]);
+    } else c.push({ training: 'Pattern book', contract: 'Overnight', forge: 'Tools', rig: 'GPU rig', stats: s.rep + ' rep · ' + E.tier(s).name, hq: stage3() ? 'Elite, with the team' : E.GOAL.bugs + ' bugs + 1 critical' }[ui.win]);
     return c.join('  ›  ');
   }
 
@@ -751,7 +792,7 @@
     }).join('');
     const nodes = t.rooms.map(r => {
       const rid = r[0], lit = E.isLit(s, tid, rid), mappable = E.canMap(s, tid, rid), sel = ui.room === rid;
-      if (!lit) return `<button class="room dark ${mappable ? 'mappable' : ''} ${oosRoom(tid, rid) ? 's3-oos' : ''}" style="left:${r[2]}%;top:${r[3]}%" ${mappable ? `data-act="map" data-id="${rid}"` : 'disabled'} aria-label="${mappable ? 'Map this room, ' + D.COST.map + ' focus' : 'Out of reach'}"><b>?</b><small>${mappable ? 'Map · ' + D.COST.map : ''}</small></button>`;
+      if (!lit) return `<button class="room dark ${mappable ? 'mappable' : ''} ${oosRoom(tid, rid) ? 's3-oos' : ''}" style="left:${r[2]}%;top:${r[3]}%" ${mappable ? `data-act="map" data-id="${rid}"` : 'disabled'} aria-label="${mappable ? 'Map this room, ' + D.COST.map + ' focus' : 'Out of reach'}"><b>?</b><small>${mappable ? 'Map · ' + D.COST.map : ''}</small>${oosRoom(tid, rid) ? '<span class="s3-oos-tag">OUT OF SCOPE</span>' : ''}</button>`;
       const pips = E.roomFindings(tid, rid).map(fid => `<i class="dot ${E.slotState(s, fid)}"></i>`).join('');
       const oos = oosRoom(tid, rid);
       return `<button class="room ${sel ? 'sel' : ''} ${oos ? 's3-oos' : ''}" style="left:${r[2]}%;top:${r[3]}%" data-act="room" data-id="${rid}"><b>${esc(r[1])}</b><span class="pips">${pips}</span>${oos ? '<span class="s3-oos-tag">OUT OF SCOPE</span>' : ''}</button>`;
@@ -831,7 +872,7 @@
     const avg = known.length ? known.reduce((a, k) => a + E.precision(s, k), 0) / known.length : 0;
     const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${r.tries} ${r.tries === 1 ? 'try' : 'tries'} a night</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
     const tries = D.RIGS[s.gpu].tries;
-    return `<div class="estimate"><div><span>Tries a night</span><b>${tries}</b></div><div><span>Precision</span><b>${known.length ? pct(avg) : '—'}</b></div><div><span>Real finds</span><b>≈ ${(tries * avg).toFixed(1)}</b></div></div>
+    return `<div class="estimate"><div><span>Tries a night</span><b>${tries}</b></div>${stage3() ? `<div><span>Agents at once</span><b>${[2, 3, 4, 6][s.gpu] || 2}</b></div>` : ''}<div><span>Precision</span><b>${known.length ? pct(avg) : '—'}</b></div><div><span>Real finds</span><b>≈ ${(tries * avg).toFixed(1)}</b></div></div>
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
       <ul class="shoplist">${tiers}</ul>`;
   }
@@ -880,7 +921,7 @@
     if (v > from) { el.classList.remove('up'); void el.offsetWidth; el.classList.add('up'); }
     const t0 = performance.now(), step = now => {
       if (el._v !== v) return; // retargeted
-      const k = Math.min(1, (now - t0) / 450), e = 1 - Math.pow(1 - k, 3);
+      const k = Math.max(0, Math.min(1, (now - t0) / 450)), e = 1 - Math.pow(1 - k, 3);
       el.textContent = fmt(Math.round(from + (v - from) * e)); if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -932,13 +973,27 @@
     const open = el.classList.contains('open'), w = open ? Math.max(VIT.openW, Math.min(400, Math.floor(avail))) : VIT.w;
     el.classList.toggle('over', w > avail); el.style.setProperty('--vw', w + 'px');
   }
-  function toggleVitals(force) {
-    const el = $('vitals'); if (el.hidden) return;
-    el.classList.toggle('open', force ?? !el.classList.contains('open')); vitals();
+  // Three views: mini (just the header), small (four rows), big (today, lifetime, charts). A click on the header folds
+  // the box to mini and back to whichever of small or big it was last; a click on the body switches small ↔ big.
+  // The choice is remembered on this address.
+  const VMODE = 'first-office-vitals-v1', VMODES = ['mini', 'small', 'big'];
+  let vmode = 'small'; try { vmode = VMODES.includes(localStorage.getItem(VMODE)) ? localStorage.getItem(VMODE) : 'small'; } catch {}
+  let vlast = 'small'; // the open view the header unfolds back to
+  function setVitals(m) {
+    const el = $('vitals'); vmode = m; if (m !== 'mini') vlast = m; try { localStorage.setItem(VMODE, m); } catch {}
+    el.classList.toggle('open', m === 'big'); el.classList.toggle('mini', m === 'mini'); vitals();
   }
-  $('vitals').addEventListener('click', e => { if (!$('vitals').classList.contains('open') || e.target.closest('header')) toggleVitals(); });
+  function toggleVitals(force) { // V and Esc: small ↔ big
+    if ($('vitals').hidden) return;
+    setVitals((force ?? vmode !== 'big') ? 'big' : 'small');
+  }
+  $('vitals').addEventListener('click', e => {
+    if (e.target.closest('header')) setVitals(vmode === 'mini' ? vlast : 'mini');
+    else setVitals(vmode === 'big' ? 'small' : 'big');
+  });
+  requestAnimationFrame(() => { $('vitals').classList.toggle('mini', vmode === 'mini'); if (vmode === 'big') setVitals('small'); }); // opens small at most: big is a peek
   $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
-  document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals') && $('vitals').classList.contains('open')) toggleVitals(false); });
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals') && vmode === 'big') setVitals('small'); });
 
   function ledgerView() {
     const tier = E.tier(s), next = E.nextTier(s);
@@ -971,8 +1026,10 @@
     }).join('');
     const rolls = Object.values(s.found).filter(f => f.status === 'accepted').length;
     const steps = stage3() ? '' : `<ol class="howto">${HOWTO.map(([what, where]) => `<li><b>${what}</b><span>${where}</span></li>`).join('')}</ol>`;
-    return `<p class="hq-goal">${Math.min(s.bugs, E.GOAL.bugs)}/${E.GOAL.bugs} bugs · ${Math.min(1, s.crits)}/1 critical</p>
-      <div class="goalbar"><i style="width:${Math.min(100, s.bugs / E.GOAL.bugs * 100)}%"></i></div>${steps}
+    const team = s.stats.agent || 0, goalLine = stage3() ? `${Math.min(s.rep, 60)}/60 rep · ${Math.min(team, TEAM_GOAL)}/${TEAM_GOAL} team bugs` : `${Math.min(s.bugs, E.GOAL.bugs)}/${E.GOAL.bugs} bugs · ${Math.min(1, s.crits)}/1 critical`;
+    const goalPct = stage3() ? Math.min(s.rep / 60, team / TEAM_GOAL) : s.bugs / E.GOAL.bugs;
+    return `<p class="hq-goal">${goalLine}</p>
+      <div class="goalbar"><i style="width:${Math.min(100, goalPct * 100)}%"></i></div>${steps}
       <h3>The critical</h3>
       <p class="fine">Any bug has a 1 in 20 shot (${rolls} rolled). For a sure one, chain two bugs that feed each other:</p>
       <ul class="chains">${chains || '<li class="fine">Take a job to see its chain.</li>'}</ul>`;
@@ -1005,7 +1062,7 @@
     if (first) nibSay('Good pick. Lit rooms show their bugs. Click a room, then hunt. Focus is your energy for the day.', { ms: 5200 });
     else nibSay(T[tid].name + '. New rooms to explore.', { ms: 2400 });
   }
-  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { s.seen.rest = true; nibSay('Focus runs out. Coffee buys a little more; sleep resets it, and I work while you\'re out.', { ms: 5200 }); } }
+  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { E.meta(s, { seen: { rest: true } }); nibSay('Focus runs out. Coffee buys a little more; sleep resets it, and I work while you\'re out.', { ms: 5200 }); } }
 
   async function guessLine(i) {
     if (ui.hit != null || (ui.miss && ui.miss.lines.includes(i))) return; // a line already marked fine costs nothing twice
@@ -1048,12 +1105,12 @@
   function paid(r, station, fid) {
     const key = 'found:' + fid; stampDue(key); // its tag is stamped where it shows (#2), and its chip leaves from there (#4)
     if (!payChip(r, station, null, key)) floatAt('+' + money(r.pay), station);
-    if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
+    if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); if (!stage3() && s.crits === 1) nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
     if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); nibSay('Our first bounty. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
     if (r.firsts && r.firsts.hq && !stage3() && !r.won && !s.crits) { world.pulseAt('hq'); chainTip(); }
-    if (r.won) setTimeout(() => goal(ending, station), 1600);
+    if (r.won) { postScore(); setTimeout(() => goal(ending, station), 1600); }
     nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
   }
   // Said once, at the third bug, and waits for you: which two bugs chain, and what it costs.
@@ -1089,12 +1146,12 @@
     payChip({ ...r, crit: true, rep: s.rep - rep }, 'hq', null, 'chain:' + tid); // its pay flies from the tag once that lands (#4)
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     nib.hop(); // squash & stretch: and for a critical chain
-    drawWindow(); if (r.won) setTimeout(() => goal(ending, 'hq'), 1600);
+    drawWindow(); if (r.won) { postScore(); setTimeout(() => goal(ending, 'hq'), 1600); }
   }
 
   // ---------- coffee, sleep, night ----------
   $('coffee').addEventListener('click', () => { const r = E.coffee(s); if (!r.ok) return toast(r.why, 'bad'); toast('+' + D.COST.coffee + ' focus. ' + s.cups + ' left today.'); if (ui.win) drawWindow(); else render(); });
-  $('sleep').addEventListener('click', sleep);
+  $('sleep').addEventListener('click', () => sleep());
   // #12 Lights out, lamp by lamp. Warm pools over the stations that exist, on a layer over the world canvas (world.js
   // stays as published; positioned from roomRect() like nib.js's layer). Sleep flickers them off one by one, 120 ms apart
   // in steps, farthest from Nib's night spot first, while the night settles; morning lifts the night and flickers them
@@ -1132,15 +1189,17 @@
   // The night falls after the first lamps go (style.css .fall) and lifts in the 500 ms sleep() gives it (.rise).
   function lightsOut(night) { if (!reduced) { night.classList.remove('rise'); night.classList.add('fall'); } switchLamps(false); }
   function lightsOn(night) { if (!reduced) { night.classList.remove('fall'); night.classList.add('rise'); } switchLamps(true); }
-  async function sleep() {
+  // away: you were gone 8+ real hours, so the night ran without you (see boot).
+  async function sleep(o) {
+    const away = o && o.away === true;
     if (ui.night || ui.busy || ui.morning) return;
     if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad');
     closeWindow(); nib.hush(); tip = null; ui.night = true; ui.nightP = 0; render();
-    const night = $('night'); night.hidden = false; $('night-text').textContent = 'Night ' + s.day + '. ' + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
+    const night = $('night'); night.hidden = false; $('night-text').textContent = (away ? 'You were away ' + Math.floor(awayMs / 3600000) + 'h. Night ' + s.day + ' ran without you. ' : 'Night ' + s.day + '. ') + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
     await wait(30); night.classList.add('on');
     lightsOut(night); // #12: decoration only, nothing waits on it
     nib.setLit(true); await nibWalk(shown('rig') ? SPOT.rig : nibHome()); nib.setMood('think');
-    const r = E.sleep(s).night;
+    const r = E.sleep(s).night; save(); // saved now: a reload mid-animation must not lose the night
     for (let i = 1; i <= 10; i++) { ui.nightP = i / 10; syncWorld(); await wait(170); }
     lightsOn(night); // #12
     night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; ui.morning = true; nib.setLit(false); nib.setMood('idle');
@@ -1153,12 +1212,13 @@
     else if (r.idle === 'full') bits.push('Finds is full, so I stopped. Clear some.');
     else if (r.idle === 'nothing') bits.push('Nothing I know how to look for in the rooms we\'ve mapped.');
     else if (r.idle === 'nojob') bits.push('No job yet, so I just watched the lamp.');
+    if (r.release) { const n = r.release.rooms.length; bits.push(T[r.release.t].name + ' shipped an update overnight: ' + (n > 1 ? n + ' new bugs' : 'a new bug') + ' in ' + [...new Set(r.release.rooms)].join(' and ') + '.'); }
     if (r.made) await nibWalk(SPOT.ops);
     if (r.firsts.ops) world.pulseAt('contract');
     await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
     if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('That laptop gives me one try a night. A GPU would give me more tries. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
     if (r.firsts.ops) await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' });
-    ui.morning = false; render();
+    ui.morning = false; render(); postScore();
     if (!ui.busy) nibWalk(nibHome());
   }
 
@@ -1179,9 +1239,16 @@
     $('to-stage3').addEventListener('click', () => { $('modal').close(); startStage3(); });
   }
   // Stage 3 starts from wherever Stage 2 ended: same office, same money, same Nib. Two agents join.
-  function startStage3(seeded) {
-    if (seeded) s = seeded;
-    s.stage = 3; ['job', 'training', 'ops', 'forge', 'rig', 'stats', 'hq', 'rest', 'intro'].forEach(k => { s.seen[k] = true; });
+  // New runs. Signed in, the server makes them (sync.js) and the page reloads into its copy; as a guest, here.
+  // mode: 'fresh' (a new first job), 'seed3' (chapter 3 with a ready-made first job) or 'clear' (no game: Stage 1 next).
+  const profile = () => ({ playerName: s.player, nibName: s.nib, facts: s.memories });
+  async function newRun(mode) {
+    if (window.Sync?.on) { const p = profile(); frozen = true; await window.Sync.newGame(mode, p).catch(() => toast('Couldn\'t reach the server. Try again.', 'bad')); return; }
+    if (mode === 'seed3') s = E.seed3(profile()); else if (mode === 'fresh') s = E.create(profile(), crypto.getRandomValues(new Uint32Array(1))[0]);
+  }
+  async function startStage3(seeded) {
+    if (seeded) { wipe(true); await newRun('seed3'); }
+    else { E.startStage3(s); await window.Sync?.flush(); }
     leave();
   }
   function ending3() {
@@ -1199,26 +1266,61 @@
   }
   function drawPortrait(cv) { cv.width = 16; cv.height = 21; const g = cv.getContext('2d'); g.clearRect(0, 0, 16, 21); window.Avatars.draw(g, 'nib', 8, 21, 1, { mood: 'happy', lit: true }); }
 
+  // ---------- real time ----------
+  const AWAY_NIGHT = 8 * 3600000; // gone this long (real time) and the night runs on its own when you come back
+  const awayNight = awayMs >= AWAY_NIGHT && s.seen.rest && !s.pendingTeach && s.seen.intro && (!s.won || stage3());
+
+  // ---------- leaderboard ----------
+  // Scores go to the game server (server.cjs, /api/leaderboard): one row per browser, keyed by a random id kept here.
+  const PID = 'first-office-player-id';
+  const playerId = () => { let id = localStorage.getItem(PID); if (!id) { id = [...crypto.getRandomValues(new Uint8Array(10))].map(b => b.toString(16).padStart(2, '0')).join(''); try { localStorage.setItem(PID, id); } catch {} } return id; }; // getRandomValues: works on plain http too
+  // Scores are the server's: it writes your leaderboard row from its own copy of the game (server.cjs /api/act).
+  function postScore() { return Promise.resolve(); }
+
+  // The board shows a hash of each id, never the id itself (the id is what lets you post as that row).
+  const sha = async v => !crypto.subtle ? null : // plain http (not localhost) has no crypto.subtle: no highlight then
+    [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)))].slice(0, 6).map(b => b.toString(16).padStart(2, '0')).join('');
+  const BOARD_COLS = [['rep', 'Rep'], ['bugs', 'Bugs'], ['crits', 'Crits'], ['earned', 'Earned'], ['day', 'Days']];
+  let boardSort = 'rep';
+  async function openBoard() {
+    await postScore(); // your newest numbers and name first
+    let rows = null, mine = null; try { const r = await fetch('/api/leaderboard'); if (r.ok) { const b = await r.json(); rows = b.rows; mine = b.me; } } catch {}
+    const me = mine || await sha(playerId()), draw = () => {
+      const list = rows ? rows.slice().sort((a, b) => boardSort === 'day' ? a.day - b.day : b[boardSort] - a[boardSort]) : [];
+      $('modal-body').innerHTML = `<div class="board"><h1 id="modal-title">Leaderboard</h1>
+        ${rows ? `<table><thead><tr><th>#</th><th>Company</th>${BOARD_COLS.map(([k, n]) => `<th><button data-sort="${k}" class="${k === boardSort ? 'on' : ''}">${n}</button></th>`).join('')}</tr></thead>
+        <tbody>${list.map((x, i) => `<tr class="${x.key === me ? 'me' : ''}"><td>${i + 1}</td><td>${esc(x.name)}<small> · ch ${esc(x.chapter)}</small></td><td>${esc(x.rep)}</td><td>${esc(x.bugs)}</td><td>${esc(x.crits)}</td><td>${money(+x.earned || 0)}</td><td>${esc(x.day)}</td></tr>`).join('') || '<tr><td colspan="7">No scores yet.</td></tr>'}</tbody></table>` : '<p class="fine">The leaderboard is offline.</p>'}
+        <div class="actions"><button data-close class="accent">Close</button></div></div>`;
+      $('modal-body').querySelectorAll('[data-sort]').forEach(b => b.onclick = () => { boardSort = b.dataset.sort; draw(); });
+    };
+    draw(); if (!$('modal').open) $('modal').showModal();
+  }
+
   // ---------- menu ----------
   function openMenu() {
-    $('settings-body').innerHTML = `<div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
+    const au = window.Auth;
+    $('settings-body').innerHTML = `${au?.configured ? `<div class="menu-row account">${au.user ? `<span>Signed in as <b>${esc(au.user.name)}</b><small>${esc(au.user.email)}</small></span><button id="sign-out" class="quiet">Sign out</button>` : `<span>Playing without an account</span><button id="sign-in" class="accent">Sign in</button>`}</div>` : ''}<div class="menu-row"><button id="open-board" class="accent">Leaderboard (L)</button><button id="customize" class="quiet">Customize character</button></div><div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
       <div class="field"><label for="nname">Partner's name</label><input id="nname" value="${esc(s.nib)}" maxlength="24"></div>
       <div class="menu-row"><button id="save-names" class="accent">Save names</button></div>
       <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H O B G</dt><dd>Desk, Finds, Shop, Goal</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl></details>
       <details class="ref"><summary>Chapters</summary>
         <div class="menu-row"><button id="ch1" class="quiet">1 · Meet Nib</button><button id="ch2" class="quiet">2 · First job</button><button id="ch3" class="quiet">3 · Hire help</button></div></details>
-      <div class="menu-row"><button id="restart" data-icon="refresh" class="danger">Restart this chapter</button></div>${saveOk ? '' : '<small id="save-status">Saving is unavailable in this browser.</small>'}`;
+      <div class="menu-row"><button id="restart" data-icon="refresh" class="danger">Restart this chapter</button></div><nav class="menu-row" aria-label="Game information"><a href="/about.html" target="_blank" rel="noopener">About</a><a href="/privacy.html" target="_blank" rel="noopener">Privacy</a><a href="/terms.html" target="_blank" rel="noopener">Terms</a></nav>${saveOk ? '' : '<small id="save-status">Saving is unavailable in this browser.</small>'}`;
     $('settings-dialog').showModal(); render();
-    $('save-names').onclick = () => { s.player = $('pname').value.trim().slice(0, 24) || 'friend'; s.nib = $('nname').value.trim().slice(0, 24) || 'Nib'; save(); toast('Saved.'); };
+    $('save-names').onclick = () => { E.meta(s, { player: $('pname').value.trim().slice(0, 24) || 'friend', nib: $('nname').value.trim().slice(0, 24) || 'Nib' }); save(); postScore(); toast('Saved.'); };
     $('restart').onclick = restart;
-    $('ch1').onclick = () => { if (!confirm('Replay Stage 1? Nib forgets you, and the office starts over.')) return; wipe(); frozen = true; location.href = '/meet.html'; };
-    $('ch2').onclick = () => { if (!confirm('Start the first job over? Names stay.')) return; s = E.create({ playerName: s.player, nibName: s.nib, facts: s.memories }, crypto.getRandomValues(new Uint32Array(1))[0]); wipe(true); leave(); };
+    $('open-board').onclick = () => { $('settings-dialog').close(); openBoard(); };
+    $('customize').onclick = () => { $('settings-dialog').close(); window.Customize?.open(); };
+    if ($('sign-out')) $('sign-out').onclick = () => { save(); frozen = true; window.Auth.signOut(); }; // frozen: nothing writes the old save back while it's cleared
+    if ($('sign-in')) $('sign-in').onclick = () => window.Auth.signIn();
+    $('ch1').onclick = async () => { if (!confirm('Replay Stage 1? Nib forgets you, and the office starts over.')) return; await newRun('clear'); wipe(); frozen = true; location.href = '/meet.html'; };
+    $('ch2').onclick = async () => { if (!confirm('Start the first job over? Names stay.')) return; await newRun('fresh'); wipe(true); leave(); };
     // A finished first job goes into chapter 3 as it is; otherwise the jump uses a ready-made finished job.
     $('ch3').onclick = () => {
       if (stage3()) return toast('You\'re already in chapter 3.');
       if (s.won) return startStage3();
       if (!confirm('Jump to chapter 3 with a ready-made finished first job? This replaces your save.')) return;
-      wipe(true); startStage3(window.Stage3Scope.seed({ playerName: s.player, nibName: s.nib, facts: s.memories }));
+      startStage3(true);
     };
   }
   // Writes the current save one last time, then freezes saving and navigates.
@@ -1239,18 +1341,17 @@
     window.Stage3Scope?.reset(); posSaved = null;
     try { [KEY, POS, 'first-office-crew-v1'].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
   }
-  function restart() {
-    if (stage3()) { if (!confirm('Restart chapter 3? Agents, rules and progress since the first job are cleared.')) return; wipe(true); startStage3(window.Stage3Scope.seed({ playerName: s.player, nibName: s.nib, facts: s.memories })); return; }
+  async function restart() {
+    if (stage3()) { if (!confirm('Restart chapter 3? Agents, rules and progress since the first job are cleared.')) return; startStage3(true); return; }
     if (!confirm('Restart the first job? Your names stay.')) return;
-    const keep = { playerName: s.player, nibName: s.nib, facts: s.memories };
-    s = E.create(keep, crypto.getRandomValues(new Uint32Array(1))[0]);
+    await newRun('fresh');
     try { localStorage.removeItem(POS); } catch {} posSaved = null;
     leave();
   }
 
   // ---------- input ----------
   // Leaving (the iris is closing): no key or click reaches the office, world.js included (window capture runs first).
-  ['keydown', 'click', 'pointerdown'].forEach(t => window.addEventListener(t, e => { if (frozen) { e.stopImmediatePropagation(); e.preventDefault(); } }, true));
+  ['keydown', 'click', 'pointerdown'].forEach(t => window.addEventListener(t, e => { if (frozen && !e.target.closest?.('#other-tab')) { e.stopImmediatePropagation(); e.preventDefault(); } }, true));
   document.addEventListener('click', e => {
     const close = e.target.closest('[data-close]'); if (close) { const d = close.closest('dialog'); if (d.id === 'panel-dialog') closeWindow(); else { d.close(); render(); } return; }
     const gb = e.target.closest('#dock [data-group]'); if (gb) { setMenu(dockOpen === gb.dataset.group ? null : gb.dataset.group); return; }
@@ -1281,12 +1382,13 @@
     const id = ORDER.find(k => ST[k].key === e.key.toLowerCase());
     if (id && shown(id) && !(ui.win && e.target.closest('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
+    else if (e.key.toLowerCase() === 'l') openBoard();
     else if (e.key.toLowerCase() === 'v') toggleVitals();
     else if (e.key.toLowerCase() === 'z' && !$('view-toggle').hidden) $('view-toggle').click();
   });
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
-  window.addEventListener('storage', e => { if (e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); render(); if (ui.win) drawWindow(); } catch {} } });
+  window.addEventListener('storage', e => { if (!frozen && e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); lastSaved = JSON.stringify(s); render(); if (ui.win) drawWindow(); } catch {} } }); // lastSaved: don't echo what we just received
   // Where you stand: written only when it changed (not every second while idle), and on leaving or hiding the tab.
   const savePos = () => { if (frozen) return; const v = JSON.stringify(world.getState()); if (v === posSaved) return; try { localStorage.setItem(POS, v); posSaved = v; } catch {} };
   let posTimer = setInterval(savePos, 1000); // you can't move in a hidden tab: no timer there
@@ -1306,6 +1408,14 @@
   chipFace();
 
   // ---------- boot ----------
+  // Nib and the agents are solid: you walk around them (world.js clearOfBodies).
+  // Nib and the agents get shoved out of your way when you walk into them (world.js shoveBodies). An agent leans
+  // with the shove for a moment (crew.js reads a.bump).
+  world.setBodies(() => {
+    const out = [], n = nib.pos(); if (n && isFinite(n.x)) out.push({ x: n.x, y: n.y, push: (x, y) => nib.nudge(x, y) });
+    for (const a of window.Stage3Agents?.list() || []) if (a.id !== 'nib' && a.pos) out.push({ x: a.pos.x, y: a.pos.y, push: (x, y, ux) => { if (Math.hypot(x - a.pos.x, y - a.pos.y) > 1) a.bump = { t: performance.now(), dir: ux < 0 ? -1 : 1 }; a.pos.x = x; a.pos.y = y; window.Loop.wake(); } });
+    return out;
+  });
   syncWorld();
   try { const p = JSON.parse(localStorage.getItem(POS)); if (p) world.restore(p, 0, worldView()); } catch {}
   layout(); render();
@@ -1317,7 +1427,7 @@
       await wait(700);
       await nibSay('So this is the office, ' + s.player + '. One desk, one lamp, and us.', { next: true });
       await nibSay('Our first job is on that computer: ' + E.GOAL.bugs + ' bugs and one critical. Walk over with WASD and press E.', { next: true, nextLabel: 'Let\'s go' });
-      s.seen.intro = true; render();
+      E.meta(s, { seen: { intro: true } }); render();
     })();
   } else if (s.pendingTeach) {
     // Reloaded mid-lesson: reopen the code with the found line marked, so the question has its context.
@@ -1329,9 +1439,11 @@
       await wait(700);
       await nibSay('We have a team now, ' + s.player + '. Pip and Moss. They walk the office and use the same desks you do.', { next: true });
       await nibSay('Tell them what to do in Team, at the top, in plain words. The goal: Elite, 60 rep, with at least 5 bugs from the team.', { next: true, nextLabel: 'Open Team' });
-      s.seen.team = true; render(); window.Stage3UI?.open('nib');
+      E.meta(s, { seen: { team: true } }); render(); window.Stage3UI?.open('nib');
     })();
-  } else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
+  } else if (awayNight) setTimeout(() => sleep({ away: true }), 900);
+  else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
+  try { postScore(); } catch {}
 
   // Agents change the save while you have a window open. Redraw it, but never between your mousedown and mouseup,
   // or the button you're pressing is replaced and the click is lost.
@@ -1346,8 +1458,21 @@
     frozen: () => frozen,
     refresh: () => { render(); if (ui.win && !ui.busy) drawWindow(); },
     hud: () => render(), // HUD and dock only: never redraws an open window under your cursor
-    restart3: () => { wipe(true); startStage3(window.Stage3Scope.seed({ playerName: s.player, nibName: s.nib, facts: s.memories })); } };
+    restart3: () => startStage3(true), freeze: () => { frozen = true; } };
   window.Stage2.payChip = payChip; // agents' pay flies to the wallet too (#4)
   window.Stage2.wallet = shownWallet; // what the wallet shows, pay in flight held back: Team's footer uses it
   if (stage3()) (window.Stage3Boot || []).forEach(fn => fn());
+  // Chapter 3 programs also ship on the real calendar: one update per real day you were away (up to 3).
+  // Runs after the Stage 3 boot below, so scope rules and bans already filter the rooms.
+  function calendarReleases() {
+    if (!stage3() || window.Sync?.on) return; // signed in: the server ships them (server.cjs calendar)
+    const today = new Date().toLocaleDateString('en-CA'), last = s.realDay;
+    if (last && last !== today) {
+      const days = Math.min(3, Math.round((new Date(today) - new Date(last)) / 864e5)), got = [];
+      for (let i = 0; i < days; i++) { const r = E.shipRelease(s); if (r) got.push(T[r.t].name); }
+      if (got.length) setTimeout(() => toast('While you were away: ' + [...new Set(got)].join(', ') + ' shipped updates. New bugs are up.', 'good'), awayNight ? 7000 : 1500); // after the away night, if one runs
+    }
+    s.realDay = today; save();
+  }
+  calendarReleases();
 })();

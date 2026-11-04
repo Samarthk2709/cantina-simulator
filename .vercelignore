@@ -1,0 +1,9 @@
+.env
+data/
+evidence/
+perf/
+tests/
+public/
+node_modules/
+*.md
+.DS_Store

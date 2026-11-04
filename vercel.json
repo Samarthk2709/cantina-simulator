@@ -1,0 +1,7 @@
+{
+  "buildCommand": "node scripts/build-public.cjs",
+  "outputDirectory": "public",
+  "installCommand": "",
+  "rewrites": [{ "source": "/api/:path*", "destination": "/api/index" }],
+  "functions": { "api/index.js": { "maxDuration": 30, "includeFiles": "{server.cjs,auth.cjs,store.cjs,nib-chat.cjs,engine.js,data.js}" } }
+}

@@ -54,6 +54,8 @@
       if (!A.path.length && onArrive) { A.onArrive = null; onArrive(); }
     }
     function place(x, y) { poke(); A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
+    // Shoved by the player (world.js): moves him without dropping his walk, so he carries on from where he lands.
+    function nudge(x, y) { A.x = x; A.y = y; poke(); }
     function step(dt) {
       if (A.hop !== null && A.hop < 0.7 && A.hop + dt >= 0.7 && !A.path.length && A.visible) dust.land(A.x, A.y + 2); // #10: lands at 700 ms (Avatars.hop)
       if (A.hop !== null) { A.hop += dt; if (A.path.length || A.hop >= 1) A.hop = null; } // squash & stretch hop: a walk cancels it
@@ -99,6 +101,7 @@
     function strip(h) { h = Math.round(h); if (h === stripH) return false; stripH = h; document.documentElement.style.setProperty('--strip', h + 'px'); return true; }
     // What was last drawn: the canvas's key, Nib's cleared box (device px; null: nothing of his on it), whether dust was
     // on it, and the bubble's placement key and spring position.
+    let bodyHidden = false, lastPose = null; // bodyHidden: crew.js draws Nib's body (chapter 3), depth-sorted with everyone
     let drawn = '', box = null, dustOn = false, placed = '', trailAt = null, springing = false, bubbleUp = false;
     function draw(force) {
       const dpr = window.devicePixelRatio || 1, w = layer.clientWidth, h = layer.clientHeight;
@@ -125,7 +128,10 @@
       const [lx, ly] = followLean(px); // #6: the sprite leans on, its shadow doesn't
       const mood = hp && A.mood === 'idle' ? 'happy' : A.face, pose = hp ? {} : lifePose();
       const zz = A.mood === 'sleep' && !reduced ? (Math.floor(t * 8) / 8) * 4 % 6 : -1; // the z drifts up in half-px steps at 8 Hz
-      const key = [dpr, fx, fy, A.facing, A.lit, A.mood, mood, mood === 'talk' ? f % 2 : 0, crouch, stepN, bob, lx, ly, hp ? [hp.y, hp.sx, hp.sy] : '', pose.breath, pose.look, pose.flip, zz].join();
+      lastPose = { x: A.x - (crouch ? A.facing : 0) + lx / px, y: A.y + ly / px, mood, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: (hp ? hp.y * px : bob) / px, sx: hp && hp.sx, sy: hp && hp.sy, breath: pose.breath, look: pose.look };
+      // Chapter 2: you in front of Nib when you stand lower and overlap (the office canvas draws you under his).
+      const pp = !bodyHidden && opts.player ? opts.player() : null, front = pp && pp.room === 'office' && Math.abs(pp.x - A.x) < 16 && pp.y > A.y && pp.y - A.y < 22 ? pp : null;
+      const key = [bodyHidden, front ? [front.x, front.y, front.step, front.back, front.flip] : '', dpr, fx, fy, A.facing, A.lit, A.mood, mood, mood === 'talk' ? f % 2 : 0, crouch, stepN, bob, lx, ly, hp ? [hp.y, hp.sx, hp.sy] : '', pose.breath, pose.look, pose.flip, zz].join();
       if (force || dirty || key !== drawn || dusty || dustOn) {
         dirty = false; drawn = key;
         // Nib's box (CSS px): the lit glow (±30 px, 20 above to 40 below his top), a hop's rise, the z, the lean.
@@ -139,8 +145,9 @@
         g.fillStyle = `rgba(0,0,0,${.35 * (1 - rise / 2)})`; g.beginPath(); g.ellipse(fx, fy, 7 * px * (hp ? hp.sx : 1) * (1 - rise * .4), 2 * px, 0, 0, 7); g.fill();
         if (A.lit) { const gr = g.createRadialGradient(fx, oy + 8 * px, 0, fx, oy + 8 * px, 26 * px); gr.addColorStop(0, 'rgba(127,240,216,.22)'); gr.addColorStop(1, 'rgba(127,240,216,0)'); g.fillStyle = gr; g.fillRect(fx - 30 * px, oy - 20 * px, 60 * px, 60 * px); }
         g.translate(lx, ly);
-        window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy, ...pose });
+        if (!bodyHidden) window.Avatars.draw(g, 'nib', fx - (crouch ? A.facing * px : 0), fy, px, { mood, step: stepN, f, lit: A.mood === 'think' || A.lit, flip: A.facing < 0, bob: hp ? hp.y * px : bob, sx: hp && hp.sx, sy: hp && hp.sy, ...pose });
         g.translate(-lx, -ly);
+        if (front) window.Avatars.draw(g, 'you', rr.left - lr.left + Math.round(front.x) * s, rr.top - lr.top + (Math.round(front.y) + 2) * s, px, { step: front.step, back: front.back, flip: front.flip });
         if (zz >= 0) { g.fillStyle = '#d8d0b8'; g.font = Math.round(7 * px) + 'px "Office Pixel", monospace'; g.fillText('z', ox + 17 * px, oy - 2 * px - zz); }
       }
       // The bubble: its spring is stepped every frame it's up (cheap); the DOM is read and moved only when something moved.
@@ -192,7 +199,7 @@
     // t (blinks, breath, the lean, the z) keeps real time across the loop's sleeps; movement steps at most 50 ms, and the
     // first step after Nib was idle at most a frame, so a walk asked for after a long sleep doesn't start with a jump.
     let awake = true, timer = 0, timerAt = 0;
-    function frame(now) {
+    function nibFrame(now) {
       const real = last ? (now - last) / 1000 : 0; last = now; t += real; f = (t * 7) | 0;
       step(Math.min(awake ? 0.05 : 1 / 60, real)); draw();
       awake = !!(A.path.length || A.hop !== null || dustOn || springing || t - A.followAt < FOLLOW);
@@ -214,7 +221,7 @@
       }
       return Math.max(d, t + 0.02);
     }
-    window.Loop.add(frame);
+    window.Loop.add(nibFrame);
 
     // Bubble: text, optional choices [{label, value}], optional next. Returns a promise of the choice.
     function say(text, o) {
@@ -274,7 +281,7 @@
       goTo, place, say, hush, setMood, skip,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
       get typing() { const h = bubble.querySelector('.nib-text').talk; return bubbleOpen && !!h && h.typing; }, // #11
-      pos: () => ({ x: A.x, y: A.y }), setLit: v => { A.lit = !!v; poke(); }, show: v => { A.visible = !!v; poke(); }
+      pos: () => ({ x: A.x, y: A.y }), nudge, pose: () => A.visible ? lastPose : null, setBodyHidden: v => { if (bodyHidden !== !!v) { bodyHidden = !!v; poke(); } }, setLit: v => { A.lit = !!v; poke(); }, show: v => { A.visible = !!v; poke(); }
     };
   }
   // Follow-through (#6): a speech bubble trails its speaker on a spring (the mockup's: stiffness 72/s², damping 12/s,

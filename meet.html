@@ -148,8 +148,9 @@ button,input{font:inherit;color:inherit}
   <div class="dark" id="dark"><button class="btn" id="wake" autofocus>Turn on the light</button></div>
 </main>
 
+<script src="auth.js"></script>
 <script src="buttons.js"></script>
-<script src="avatars.js"></script><script src="iris.js"></script>
+<script src="avatars.js"></script><script src="customize.js"></script><script src="iris.js"></script>
 <script src="talk.js"></script>
 <script>
 /* ---------- pixel art: avatars.js, shared with the office and the team ---------- */
@@ -252,7 +253,7 @@ async function ask(message){
   }catch{return null;}
 }
 // Finds a name in replies like "Sam", "call me Sam", "I'm Sam", "my name is Sam". Returns '' when unsure.
-const NOT_NAMES=/^(hi|hey|hello|yo|ok|okay|yes|no|why|what|who|how|um|uh|the|a|an|just|not|nice|good|fine|sure|nib|you|me|i|so|there|here|very|really|tired|great|well|bored|happy|sad|ready|back|new|from|in|at|on|going|doing|looking|trying|thanks|thank)$/i;
+const NOT_NAMES=/^(hi|hey|hello|yo|ok|okay|yes|no|why|what|who|how|um|uh|the|a|an|just|not|nice|good|fine|sure|nib|you|me|i|so|there|here|very|really|tired|great|well|bored|happy|sad|ready|back|new|from|in|at|on|going|doing|looking|trying|thanks|thank|i'm|im|i’m|am|my|name|is|call|it's|its)$/i;
 function guessName(text){
   const t=text.trim().replace(/[.!?,]+$/,'');
   const m=t.match(/(?:^|\s)(?:call me|i'?m|i am|my name(?:'s| is)|name(?:'s| is)|it'?s|this is)\s+(\p{L}[\p{L}'-]{0,23})/iu);
@@ -322,6 +323,8 @@ health.then(h=>{
   $('ai').title=h.error||'';
 });
 
+// Boot: signed in (auth.js) and, the first time, your look picked (customize.js), then the room starts.
+(async()=>{ if(window.Auth) await Auth.ready; await window.Customize?.ensure();
 if(mem.completedAt&&mem.playerName){
   // Returning player: skip the dark room and the introduction.
   $('dark').hidden=true; goal.classList.add('on'); beat='return';
@@ -341,6 +344,7 @@ if(mem.completedAt&&mem.playerName){
     input.placeholder='Type your name';
   });
 }
+})();
 </script>
 </body>
 </html>

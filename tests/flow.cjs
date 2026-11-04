@@ -12,7 +12,9 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => localStorage.setItem('first-office-guest', '1')); // play without an account, so the sign-in gate (auth.js) doesn't open
   await ctx.route('**/api/**', r => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false}' }));
+  await ctx.addInitScript(() => { if (!localStorage.getItem('first-office-look-v1')) localStorage.setItem('first-office-look-v1', '{"look":{}}'); }); // a look is picked, so the editor (customize.js) doesn't open
   const p = await ctx.newPage(), errors = [];
   p.on('pageerror', e => errors.push(e.message));
   p.on('dialog', d => d.accept());

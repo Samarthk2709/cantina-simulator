@@ -88,7 +88,7 @@ function validate(result,message='',knownName=''){
 }
 
 // provider: 'deepinfra' (Gemma 4, needs apiKey) or 'local' (llama-server at localUrl).
-function create({provider='local',apiKey='',localUrl='http://127.0.0.1:8088',fetchImpl=(...a)=>fetch(...a)}={}){
+function create({provider='local',apiKey='',localUrl='http://127.0.0.1:8088',fetchImpl=(...a)=>fetch(...a),quota=()=>true}={}){
  const hosted=provider==='deepinfra';
  const info={provider:hosted?'DeepInfra':'local',model:hosted?deepinfra.MODEL:LOCAL_MODEL};
  async function health(){
@@ -98,6 +98,7 @@ function create({provider='local',apiKey='',localUrl='http://127.0.0.1:8088',fet
  async function chat(body){
   const p=prepare(body);
   if(hosted&&!apiKey)throw new NibError('DEEPINFRA_API_KEY is not set.');
+  if(hosted&&!quota())throw new NibError('AI provider is busy.'); // the server's shared model quota
   const payload={model:info.model,messages:p.messages,response_format:{type:'json_schema',json_schema:{name:'nib',strict:true,schema:p.schema}},temperature:0.7,max_tokens:220,stream:false};
   if(!hosted)payload.chat_template_kwargs={enable_thinking:false};
   const start=performance.now();let data;

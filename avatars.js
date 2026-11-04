@@ -67,29 +67,61 @@
     }
   }
   // The founder: the same 16×21 footprint and outline, but a head on a body, so you read as the human.
+  // The look (skin, hair style and colour, shirt, pants, accessory) comes from setLook (customize.js), or o.outfit for a preview.
+  const LOOK0 = {skin: '#e9b88f', hair: 'fringe', hairColor: '#3b2416', shirt: '#f1e6c8', pants: '#2a3550', acc: 'scarf'};
+  let LOOK = LOOK0, lookId = 0;
+  const hex = /^#[0-9a-f]{6}$/i;
+  function setLook(l) { l = l || {}; LOOK = {}; for (const k in LOOK0) LOOK[k] = typeof l[k] === 'string' && (k === 'hair' || k === 'acc' || hex.test(l[k])) ? l[k] : LOOK0[k]; lookId++; }
+  const dark = (h, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(h.slice(i, i + 2), 16) * (k || 0.75)).toString(16).padStart(2, '0')).join('');
+  // Hair styles: [front, back] rects, without colour.
+  const FRINGE = [[3, 3, 10, 2], [3, 5, 1, 2], [12, 5, 1, 2], [9, 5, 2, 1]], BACK = [[3, 3, 10, 7], [4, 10, 8, 1]];
+  const HAIR = {
+    fringe: [FRINGE, BACK],
+    short: [[[3, 3, 10, 1], [3, 4, 1, 2], [12, 4, 1, 2]], [[3, 3, 10, 5]]],
+    long: [FRINGE.concat([[2, 4, 1, 8], [13, 4, 1, 8], [3, 5, 1, 6], [12, 5, 1, 6]]), [[3, 3, 10, 9], [2, 4, 1, 8], [13, 4, 1, 8]]],
+    spiky: [[[3, 3, 10, 1], [3, 4, 2, 1], [7, 4, 2, 1], [11, 4, 2, 1], [4, 0, 2, 2], [7, 0, 2, 2], [10, 0, 2, 2]], BACK.concat([[4, 0, 2, 2], [7, 0, 2, 2], [10, 0, 2, 2]])],
+    bun: [FRINGE.concat([[6, 0, 4, 2]]), BACK.concat([[6, 0, 4, 2]])],
+    bald: [[], []],
+  };
+  const HOODS = {hoodie: '#5a6578', gold: '#e8b54a'};
+  // Accessories, drawn last: front rects and back rects.
+  function wear(acc, back, J) {
+    const T = '#c4572b';
+    switch (acc) {
+      case 'scarf': return back ? [[3, 12, 10, 2, T]] : [[3, 12, 10, 2, T], [9, 14, 2, 2, T]];
+      case 'glasses': { const F = '#4a5a7a'; return back ? [[3, 6, 1, 1, F], [12, 6, 1, 1, F]] : [[4, 5, 8, 1, F], [4, 6, 1, 2, F], [7, 6, 2, 1, F], [11, 6, 1, 2, F]]; }
+      case 'shades': return back ? [[3, 6, 1, 1, INK], [12, 6, 1, 1, INK]] : [[3, 6, 1, 1, INK], [12, 6, 1, 1, INK], [4, 6, 8, 2, INK], [5, 6, 1, 1, '#5a6a8a'], [9, 6, 1, 1, '#5a6a8a']];
+      case 'cap': { const C = '#c84230'; return back ? [[4, 1, 8, 1, C], [3, 2, 10, 3, C], [6, 4, 4, 1, dark(C)]] : [[4, 1, 8, 1, C], [3, 2, 10, 2, C], [5, 2, 2, 1, '#e06a55'], [2, 4, 12, 1, dark(C)]]; }
+      case 'phones': { const B = '#d8dee8', P = '#2ec4a6'; return [[3, 0, 10, 1, B], [2, 1, 1, 3, B], [13, 1, 1, 3, B], [1, 4, 2, 4, P], [13, 4, 2, 4, P]]; }
+      case 'hoodie': case 'gold': return back ? [[4, 1, 8, 1, INK], [4, 2, 8, 1, J], [3, 3, 10, 8, J]] : [[4, 1, 8, 1, INK], [4, 2, 8, 1, J], [3, 3, 10, 1, J], [3, 4, 1, 6, J], [12, 4, 1, 6, J], [6, 13, 1, 2, '#e8e2d0'], [9, 13, 1, 2, '#e8e2d0']];
+      default: return [];
+    }
+  }
   function human(c, o) {
-    const mood = o.mood || 'idle', skin = c.skin, hair = c.hair, J = c.body, JS = c.shade, out = [];
+    const L = o.outfit ? Object.assign({}, LOOK0, o.outfit) : LOOK, mood = o.mood || 'idle', skin = L.skin, hc = L.hairColor;
+    const J = HOODS[L.acc] || L.shirt, JS = dark(J), P = L.pants, out = [];
     // head
     out.push([4, 1, 8, 1, INK], [3, 2, 1, 1, INK], [12, 2, 1, 1, INK], [2, 3, 1, 7, INK], [13, 3, 1, 7, INK], [3, 10, 1, 1, INK], [12, 10, 1, 1, INK], [4, 11, 8, 1, INK]);
-    out.push([4, 2, 8, 1, hair], [3, 3, 10, 7, skin], [4, 10, 8, 1, skin]);
-    if (o.back) out.push([3, 3, 10, 7, hair], [4, 10, 8, 1, hair]);
-    else {
-      out.push([3, 3, 10, 2, hair], [3, 5, 1, 2, hair], [12, 5, 1, 2, hair], [9, 5, 2, 1, hair]); // fringe and sideburns
+    out.push([4, 2, 8, 1, L.hair === 'bald' ? skin : hc], [3, 3, 10, 7, skin], [4, 10, 8, 1, skin]);
+    const covered = L.acc === 'cap' || HOODS[L.acc]; // a cap or hood hides what pokes out on top
+    for (const [x, y, w, h] of (HAIR[L.hair] || HAIR.fringe)[o.back ? 1 : 0]) if (!(covered && y < 2)) out.push([x, y, w, h, hc]);
+    if (!o.back) {
       const e = '#1b1b24', m = '#9a4a3e';
       if (mood === 'blink' || mood === 'sleep') out.push([5, 7, 2, 1, e], [9, 7, 2, 1, e]);
       else if (mood === 'happy') out.push([5, 7, 2, 1, e], [9, 7, 2, 1, e], [6, 9, 4, 1, m], [5, 8, 1, 1, m], [10, 8, 1, 1, m]);
       else out.push([5, 6, 2, 2, e], [9, 6, 2, 2, e], [7, 9, 2, 1, mood === 'talk' && (o.f || 0) % 2 ? m : '#c98a6a']);
     }
-    // body: jacket with the founder's red scarf
-    out.push([3, 12, 10, 1, INK], [2, 13, 1, 5, INK], [13, 13, 1, 5, INK], [3, 18, 10, 1, INK]);
-    out.push([3, 13, 10, 5, J], [12, 13, 1, 5, JS], [3, 12, 10, 2, c.trim], [9, 14, 2, 2, c.trim]);
+    // body: shirt over pants
+    out.push([3, 12, 10, 1, INK], [2, 13, 1, 6, INK], [13, 13, 1, 6, INK]);
+    out.push([3, 13, 10, 4, J], [12, 13, 1, 4, JS], [3, 17, 10, 2, P], [12, 17, 1, 2, dark(P)], [7, 18, 2, 1, INK]);
     out.push([1, 13, 1, 4, INK], [14, 13, 1, 4, INK]);
     const st = o.step || 0;
     out.push(...(st % 2 ? [[4, 19, 3, 1, INK], [9, 19, 3, 2, INK]] : st ? [[4, 19, 3, 2, INK], [9, 19, 3, 1, INK]] : [[4, 19, 3, 2, INK], [9, 19, 3, 2, INK]]));
+    out.push(...wear(L.acc, o.back, J));
     return out;
   }
 
-  // All rects for one frame. o: {mood, step, f, lit}
+  // All rects for one frame. o: {mood, step, f, lit, back, outfit (the founder's look, for previews)}
   function rects(id, o) {
     o = o || {};
     const c = CAST[id] || CAST.nib, mood = o.mood || 'idle';
@@ -127,7 +159,7 @@
     let f = HOP[0]; for (const k of HOP) if (ms >= k[0]) f = k;
     return {y: f[1], sx: f[2] / W, sy: f[3] / H};
   }
-  const api = {CAST, W, H, rects, svg, draw, hop};
+  const api = {CAST, W, H, rects, svg, draw, hop, setLook, LOOK0, get look() { return Object.assign({}, LOOK); }, get lookId() { return lookId; }};
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Avatars = api;
 })(typeof window !== 'undefined' ? window : null);

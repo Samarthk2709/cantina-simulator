@@ -15,7 +15,10 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
   const errors = [];
   async function page(w, h, mobile) {
     const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: !!mobile, isMobile: !!mobile });
+    await ctx.addInitScript(() => localStorage.setItem('first-office-guest', '1')); // play without an account, so the sign-in gate (auth.js) doesn't open
+    await ctx.route(/\/api\/(leaderboard|lag)/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"rows":[]}' })); // keep test runs off the real board
     await ctx.addInitScript(() => { if (!localStorage.getItem('first-office-nib-v1')) localStorage.setItem('first-office-nib-v1', JSON.stringify({ playerName: 'friend', facts: [], completedAt: '2026-10-25T00:00:00Z' })); });
+    await ctx.addInitScript(() => { if (!localStorage.getItem('first-office-look-v1')) localStorage.setItem('first-office-look-v1', '{"look":{}}'); }); // a look is picked, so the editor (customize.js) doesn't open
     const p = await ctx.newPage();
     p.on('pageerror', e => errors.push(e.message));
     p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

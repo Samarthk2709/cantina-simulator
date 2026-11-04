@@ -891,6 +891,14 @@
       if (e.code === 'KeyE' || e.code === 'Space' || e.key === 'e' || e.key === 'E' || e.key === ' ') eHeld = false;
     }
     function onVis() { if (document.hidden) clearInput(); else poke(); }
+    // Hovering your character shows its "You" tag (agents' tags do the same in stage3/crew.css).
+    var hoverOn = false, hoverK = 0;
+    function onHover(e) {
+      var rc = canvas.getBoundingClientRect(); if (!rc.width) return;
+      var wx = ((e.clientX - rc.left) * canvas.width / rc.width - view.ox) / view.s, wy = ((e.clientY - rc.top) * canvas.height / rc.height - view.oy) / view.s;
+      var on = Math.abs(wx - P.x) < 9 && wy > P.y - 26 && wy < P.y + 3;
+      if (on !== hoverOn) { hoverOn = on; poke(); }
+    }
     function onPointer(e) {
       if (!active()) return;
       var rc = canvas.getBoundingClientRect();
@@ -908,6 +916,35 @@
     }
     function faceToward(s) { var dx = s.x - P.x, dy = s.y - P.y; P.facing = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down'); }
     function walkable(x, y) { return isWalkable(x, y, cur.id, hid()); }
+    // Other characters (agents, Nib) get shoved: walk into one and it's pushed out of your way, sideways if a wall is
+    // behind it. Only if it can't move at all does your step stop. bodiesFn: [{x, y, push(x, y, ux, uy)}] (game.js).
+    // A personal-space ellipse (office px): side by side they keep a body's width apart, one above the other a bit more,
+    // so nobody sinks into anybody. It's checked every step, so an agent walking into you is moved aside as well.
+    var bodiesFn = null, RX = 13, RY = 15, playerHidden = false;
+    function shoveBodies(x0, y0) {
+      if (!bodiesFn || cur.id !== 'office') return;
+      var bs = bodiesFn() || [], mx = P.x - x0, my = P.y - y0, mn = Math.hypot(mx, my);
+      for (var i = 0; i < bs.length; i++) {
+        var b = bs[i], ex = (b.x - P.x) / RX, ey = (b.y - P.y) / RY, d = Math.hypot(ex, ey); if (d >= 1) continue;
+        if (d < 0.05) { if (mn) { ex = mx / mn; ey = my / mn; } else { ex = 1; ey = 0; } d = 1; }
+        var ux = ex / d, uy = ey / d, done = false; // the push direction, in ellipse space
+        var tries = [[ux, uy], [-uy, ux], [uy, -ux]];
+        for (var j = 0; j < tries.length && !done; j++) {
+          var nx = P.x + tries[j][0] * (RX + 0.5), ny = P.y + tries[j][1] * (RY + 0.5);
+          if (isWalkable(nx, ny, cur.id, hid()) && !crowded(bs, b, nx, ny)) { b.push(nx, ny, tries[j][0], tries[j][1]); b.x = nx; b.y = ny; done = true; }
+        }
+        if (!done && mn) { P.x = x0; P.y = y0; return; } // pinned (a wall or someone else behind them): you can't push through
+      }
+      // The others keep their space from each other too: an overlapping pair is eased apart, half a pixel a step each way.
+      for (var a = 0; a < bs.length; a++) for (var c2 = a + 1; c2 < bs.length; c2++) {
+        var p1 = bs[a], p2 = bs[c2], qx = (p2.x - p1.x) / RX, qy = (p2.y - p1.y) / RY, q = Math.hypot(qx, qy); if (q >= 1) continue;
+        if (q < 0.05) { qx = c2 % 2 ? 1 : -1; qy = 0; q = 1; }
+        var sx = qx / q * 0.5, sy = qy / q * 0.5;
+        if (isWalkable(p2.x + sx, p2.y + sy, cur.id, hid())) { p2.push(p2.x + sx, p2.y + sy, sx, sy); p2.x += sx; p2.y += sy; }
+        if (isWalkable(p1.x - sx, p1.y - sy, cur.id, hid())) { p1.push(p1.x - sx, p1.y - sy, -sx, -sy); p1.x -= sx; p1.y -= sy; }
+      }
+    }
+    function crowded(bs, me, x, y) { for (var i = 0; i < bs.length; i++) { var o = bs[i]; if (o !== me && Math.hypot((o.x - x) / RX, (o.y - y) / RY) < 1) return true; } return false; }
     function tryAxis(dx, dy) {
       if (walkable(P.x + dx, P.y + dy)) { P.x += dx; P.y += dy; return true; }
       // corner assist: slide toward the tile centre so doorways and aisles are easy to enter
@@ -948,6 +985,7 @@
           }
         }
       }
+      shoveBodies(x0, y0);
       var moved = Math.hypot(P.x - x0, P.y - y0);
       if (moved > 0.001) { moving = true; walk += moved; if (byPlayer) walkedByPlayer += moved; }
     }
@@ -1020,8 +1058,10 @@
         }
       });
       placed.forEach(function (q) {
+        c.globalAlpha = q.label.alpha != null ? q.label.alpha : 1;
         r(c, q.label.bg, q.x, q.y, q.w, q.h); c.fillStyle = q.label.col;
         c.fillText(q.label.s, Math.round(q.x + q.w / 2), Math.round(q.y + lh / 2 + 1));
+        c.globalAlpha = 1;
         if (q.label.progress != null) {
           var bx = Math.round(q.x + 5), by = Math.round(q.y + lh + 1), bw = q.w - 10;
           r(c, '#131820', bx, by, bw, 7);
@@ -1052,7 +1092,7 @@
       }
       var mainFounder=founders.founder;
       var stepN = mainFounder&&mainFounder.path.length?((mainFounder.walk/5)|0)%4:moving ? ((walk / 5) | 0) % 4 : 0;
-      /* First Office: the founder uses the shared avatar set (avatars.js) when it's loaded. */ if (window.Avatars) { c.fillStyle = 'rgba(10,15,30,.32)'; c.beginPath(); c.ellipse(Math.round(P.x), Math.round(P.y) + 1, 7, 3, 0, 0, 7); c.fill(); window.Avatars.draw(c, 'you', Math.round(P.x), Math.round(P.y) + 2, 1, { step: stepN, back: P.facing === 'up', flip: P.facing === 'left' }); } else standing(c, P.x, P.y, { body: '#f1e6c8', trim: '#c4572b', shirt: '#1f2a4a', skin: SKIN[0], hair: '#3b2416', facing: P.facing, step: stepN });
+      /* First Office: the founder uses the shared avatar set (avatars.js) when it's loaded. */ if (window.Avatars) { c.fillStyle = 'rgba(10,15,30,.32)'; c.beginPath(); c.ellipse(Math.round(P.x), Math.round(P.y) + 1, 7, 3, 0, 0, 7); c.fill(); if (!playerHidden) window.Avatars.draw(c, 'you', Math.round(P.x), Math.round(P.y) + 2, 1, { step: stepN, back: P.facing === 'up', flip: P.facing === 'left' }); } // playerHidden: crew.js draws you, depth-sorted with the team else standing(c, P.x, P.y, { body: '#f1e6c8', trim: '#c4572b', shirt: '#1f2a4a', skin: SKIN[0], hair: '#3b2416', facing: P.facing, step: stepN });
       Object.keys(founders).forEach(function(id){if(id==='founder')return;var actor=founders[id];standing(c,actor.x,actor.y,{body:'#f1e6c8',trim:id==='helper-1'?'#0071e3':'#926000',shirt:id==='helper-1'?'#0071e3':'#926000',skin:SKIN[0],hair:'#3b2416',facing:actor.facing,step:actor.path.length?((actor.walk/5)|0)%4:0});if(!actor.path.length&&anim&&!frozen&&!S.paused)r(c,'#ffffff',actor.x+6,actor.y-24-(f%2),2,2);});
       if (pulseT > 0 && anim) { c.strokeStyle = 'rgba(241,230,200,' + (pulseT * 2).toFixed(2) + ')'; c.lineWidth = 1; c.beginPath(); c.ellipse(P.x, P.y, 12 + (0.5 - pulseT) * 20, 5 + (0.5 - pulseT) * 8, 0, 0, 7); c.stroke(); }
       rings = rings.filter(function (q) { return t - q.at < RING; });
@@ -1076,7 +1116,7 @@
       function sx(x) { return (v.ox + x * sc) / D; }
       function sy(y) { return (v.oy + y * sc) / D; }
       Object.keys(founders).forEach(function(id){if(id!=='founder'){var actor=founders[id];list.push({s:id==='helper-1'?'B':'C',x:sx(actor.x),y:sy(actor.y-26)-lh,col:'#fff',bg:id==='helper-1'?'#0071e3':'#926000',tag:true});}});
-      list.push({ s: founders.founder?'A ★':'You', x: sx(P.x), y: sy(P.y - 26) - lh, col: '#fbf7ef', bg: '#18303a', tag: true });
+      if (hoverK > 0) list.push({ s: founders.founder?'A ★':'You', x: sx(P.x), y: sy(P.y - 26) - lh + Math.round((1 - hoverK) * 6), col: '#fbf7ef', bg: '#18303a', tag: true, alpha: Math.round(hoverK * 20) / 20 }); // only while hovered
       // Founders' sprites are keep-outs too, so a prompt or chip never covers them (their own tags may touch them).
       var bodies = [{ x: P.x, y: P.y }].concat(Object.keys(founders).filter(function (id) { return id !== 'founder'; }).map(function (id) { return founders[id]; }))
         .map(function (a) { return { x: sx(a.x - 7), y: sy(a.y - 22), w: 14 * scC, h: 24 * scC, keep: true, body: true }; });
@@ -1132,10 +1172,11 @@
       cam.k = cam.follow ? Math.min(1, cam.k + dt / 0.45) : Math.max(0, cam.k - dt / 0.45);
       if (mq && mq.matches) cam.k = cam.follow ? 1 : 0;
       step(dt); stepFounders(dt);
+      var hk0 = hoverK; hoverK = hoverOn ? Math.min(1, hoverK + dt / 0.14) : Math.max(0, hoverK - dt / 0.12); // the You tag fades and rises in
       var dpr = +window.devicePixelRatio; if ((dpr > 0 && isFinite(dpr) ? dpr : 1) !== D) resize();
       var anim = !still(), f = anim ? (t * 8) | 0 : 0, fx = rings.length || floats.length;
       var walkers = S && S.started && !S.paused && !frozen && Object.keys(founders).some(function (id) { return founders[id].path.length; });
-      var want = active() && (held() || route.length > 0) || walkers || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx || !!(window.StationFX && anim && window.StationFX.busy());
+      var want = active() && (held() || route.length > 0) || walkers || hoverK !== hk0 || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx || !!(window.StationFX && anim && window.StationFX.busy());
       if (dirty || want || moving !== wasMoving || P.x !== x0 || P.y !== y0 || cam.k !== k0 || pulseT !== p0 || f !== lastF || founderSig() !== f0 || now - lastDraw >= SAFETY) {
         dirty = false; wasMoving = moving; lastF = f; lastDraw = now;
         emitCtx(); draw();
@@ -1233,6 +1274,9 @@
       // below it and the space the dock and status line take at the bottom. Null fits the whole canvas.
       // follow: true holds the founder at the centre, zoomed in; false shows the whole room. Eases over 450 ms.
       setCamera: function (o) { if (o && 'follow' in o) cam.follow = !!o.follow; if (o && +o.zoom > 1) cam.zoom = +o.zoom; },
+      setPlayerHidden: function (v) { if (playerHidden !== !!v) { playerHidden = !!v; poke(); } },
+      playerPose: function () { return { room: cur.id, x: P.x, y: P.y, step: moving ? ((walk / 5) | 0) % 4 : 0, back: P.facing === 'up', flip: P.facing === 'left' }; },
+      setBodies: function (fn) { bodiesFn = typeof fn === 'function' ? fn : null; },
       camera: function () { return { follow: cam.follow, zoom: cam.zoom, moving: cam.k > 0 && cam.k < 1 }; },
       setInsets: function (v) {
         function n(x) { x = +x; return isFinite(x) ? Math.max(0, x) : 0; }
@@ -1247,7 +1291,7 @@
       destroy: function () {
         alive = false; raf(); clearInput(); clearTimeout(tmr);
         window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clearInput);
-        document.removeEventListener('visibilitychange', onVis); canvas.removeEventListener('pointerdown', onPointer);
+        document.removeEventListener('visibilitychange', onVis); canvas.removeEventListener('pointerdown', onPointer); window.removeEventListener('pointermove', onHover);
         if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       }
     };
@@ -1264,7 +1308,7 @@
       return out;
     };
     window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp); window.addEventListener('blur', clearInput);
-    document.addEventListener('visibilitychange', onVis); canvas.addEventListener('pointerdown', onPointer);
+    document.addEventListener('visibilitychange', onVis); canvas.addEventListener('pointerdown', onPointer); window.addEventListener('pointermove', onHover, { passive: true });
     var ro = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null;
     if (ro) ro.observe(canvas); else window.addEventListener('resize', resize);
     resize(); raf = window.Loop.add(frame);

@@ -81,15 +81,23 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 
 | File | Role |
 |---|---|
-| `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), quotas, same-origin and localhost checks |
+| `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), `/api/auth/*`, `/api/game` and `/api/act` (the server's copy of each game), the leaderboard, quotas, same-origin and host checks. Exports `handler` |
+| `auth.cjs` / `auth.js` | Accounts on the server (passwords, Google tokens, sessions) / the sign-in screen and account save sync in the page |
+| `store.cjs` | Server storage: JSON files in `data/` locally, Upstash Redis when hosted |
+| `sync.js` | Sends the page's engine actions to the server and resyncs if the copies disagree |
+| `customize.js` | The character editor and its unlocks |
+| `api/index.js`, `vercel.json`, `scripts/build-public.cjs`, `.vercelignore` | The Vercel deployment |
+| `about.html`, `privacy.html`, `terms.html`, `legal.css` | Public pages, linked from the sign-in screen and the menu |
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
 | `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. While awake it runs at the screen's rate (no cap). See **Performance** below |
+| `lag.js` | Lag log: slow frames, long tasks and call counts, sent to `data/lag.log`. See **Lag log** below |
 | `stations/fx.js`, `stations/<id>.js` | Animated office stations. `fx.js` is the hook world.js asks before drawing a station, plus events and the `?fx` picker; each station file holds three variants. See **Animated stations** |
 | `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
 | `index.html`, `game.js`, `nib.js`, `style.css`, `original/` | The office (Stage 2 rebuild), with Stage 3 hooks |
 | `data.js`, `engine.js` | Rules. `stage`, `won3`, agent finds (`guess(…, by)`), `penalize` |
 | `avatars.js` | The whole cast (Nib, Pip, Moss, Rook, Wren and you) as one pixel-avatar set. It's used by Stage 1, the office, the team view, the dock and the endings. Contact sheet: `tests/avatars-sheet.html`, rendered in `evidence/avatars-sheet.png` |
+| `customize.js` | Character customization: the editor, unlocks and the unlock toast. Sets your look on `avatars.js` (`Avatars.setLook`) |
 | `stage3/scope.js` | Out-of-scope rooms, strikes and bans, crew save, `seed()` for the chapter jump |
 | `stage3/harness.js` | Agents: brief parsing, sanitize/preflight, job routines, tools, stop conditions, movement, narration |
 | `stage3/crew.js`, `stage3/crew.css` | Agent sprites, the Office/Agents switch, the Codex-style Agents view, AGENTS.md |
@@ -100,7 +108,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 
 **Performance**: nothing redraws unless it changed. The world canvas redraws on movement, camera easing, its 8 fps sprite frame or an API call, with a 250 ms safety redraw. Nib's layer redraws on his own changes, and agent sprites write styles only when values change. Idle systems sleep on timers set to their next visible change (a blink, a sprite frame, a tool timer). Any new code that changes what a system shows must go through its API or call `Loop.wake()`. Numbers and method: `PERF_PLAN.md`.
 
-Saves (localStorage on this address): `first-office-nib-v1` (Stage 1 memory), `first-office-game-v1` (office), `first-office-crew-v1` (agents and rules).
+Saves (localStorage on this address): `first-office-nib-v1` (Stage 1 memory), `first-office-game-v1` (office), `first-office-crew-v1` (agents and rules), `first-office-look-v1` (your look and earned unlocks).
 
 ## Animated stations (2026-10-30)
 
@@ -129,6 +137,7 @@ node outputs/first-office/tests/pacing.cjs             # Stage 2 balance
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/browser.cjs   # Stage 2 playthrough → chapter 3 button (server running)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/flow.cjs      # Stage 1 → office → chapter 3 agents (model blocked)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs   # plays chapter 3 to Elite at 10× (model blocked)
+NODE_PATH=<dir with playwright> node outputs/first-office/tests/customize.cjs # character editor, unlocks, your look in the office and chapter 3
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
 node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/60fps/baseline.json   # median and % vs baseline
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
@@ -137,6 +146,74 @@ NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # 
 `stage3-play` reached Elite on day 9–10 in six of six runs after Parcelly was added (earlier: day 8–10 in four runs): 30–60 s at 10×, about 5–10 minutes at normal speed. Each run had 2–5 penalties before the rules went on.
 
 Verified 2026-10-25: all five pass. Gemma was also checked live in Stage 3: it parsed briefs, sanitize and auto-pick worked, and spend approval asked first. Live Gemma replies sometimes get numbers slightly wrong in chat. Game numbers come from code, never from the model.
+
+## Office touches (2026-10-31)
+
+- **Shoving and personal space:** everyone keeps an ellipse of personal space (13 px across, 15 px deep), so nobody sinks into anybody. Walk into Nib or an agent, or let one walk into you, and they're pushed out of your way, never onto someone else, and sideways if a wall is behind them. Other characters that overlap each other ease apart half a pixel a step (`shoveBodies` in `original/world.js`, fed by `world.setBodies` in `game.js`). An agent leans with the shove for 240 ms, and a walking one carries on from where it lands. Only someone pinned against a wall stops you.
+- **One depth for everyone:** whoever stands lower in the room is drawn in front. In chapter 3 the agents' layer also draws you and Nib (`body()` in `stage3/crew.js`, using `world.playerPose()` and `nib.pose()`, while `setPlayerHidden` and `setBodyHidden` keep the canvases from drawing them twice), with `z-index` set from each one's y. In chapter 2, Nib's canvas redraws you over Nib when you overlap and stand lower.
+- **Names on hover:** agent and Nib name tags, and your "You" tag, show only while hovered or focused. The tag fades in and rises 4 px with a slight overshoot, and the sprite lifts a pixel and brightens. Under reduced motion it's a plain fade.
+- **Vitals, three views:** mini (just the header), small (four rows) and big (today, lifetime, charts). Clicking the header folds the box to mini and back to whichever of small or big it was last; clicking the body switches small ↔ big. V and Esc still toggle small ↔ big, and the view is remembered.
+- **Window descriptions:** each window opens with one line saying what it shows and what you do there (`lede()` in `game.js`).
+
+## Review, 2026-10-31 (3 code reviewers, 3 playtesters)
+
+Fixed:
+- **Server:** dot paths (`.git`, `.gitignore`) are no longer served. Nib's Stage 1 chat counts against the model quota. Null or odd bodies get 400. Lag rows can't overwrite `at` or `page`. The leaderboard file falls back to `{}` if it holds anything else. Quiet IPs are pruned from the rate limiter.
+- **Tabs:** an older tab no longer saves at takeover (that write rolled the newer tab back), never persists the crew once frozen, and closes open dialogs so Play here is clickable. Taking over works both ways.
+- **Agents:** GPU slots are re-checked after an answer or ⌘↵. A brief being read counts as a task, so a second message can't drop it. A declined standing purchase ends. Standing orders that can't run today, or have no program left, wait until tomorrow instead of stalling, and "wherever there's work" re-picks its program each morning. A duplicate standing order or queued brief is ignored. A stalled queue restarts. Chain criticals count in agent pay and the standup. One fix button per rule. The 3 s save only runs when the crew changed. Nib gets at least 4 tries a night in chapter 3.
+- **UI:** the chapter 3 Goal board shows the Elite goal. The leaderboard fits its window. The Rig shows agents at once. Unmapped off-limits rooms are tagged. On phones the vitals box sits below the HUD. The subtitle has contrast. The vitals count-up never goes below its start, and negative money reads "−$". Stage 1 no longer takes "I'm" as a name. Nib's "that's the one we needed" line is chapter 2 only.
+
+Known, not fixed: two tasks in one brief (only the first runs); agent tags can overlap the dock; HUD cash trails the vitals box by about 1.5 s while a pay chip flies; a reload mid-night skips that morning's report; a double-click on a desk upgrade buys and returns it.
+
+## The official game: the server keeps the real save (2026-11-03)
+
+When you're signed in, nobody can edit their score: the server owns the game.
+- **How:** the page plays every action at once, so nothing waits on the network. Every 4 s `sync.js` sends the actions it played, by name: `engine.js` calls `E.record` for each mutating call on the live save, tagged with the agent context. The server replays them on its own copy with the same engine (`/api/act` → `E.act`). It answers with `E.digest` of its result. If that doesn't match the page's, or the server's copy moved on (another device), the page loads the server's copy and reloads.
+- **Everything that changes the save is an engine action** (`E.ACTIONS`): hunting, teaching, Finds, the shop, the rig, sleeping, chains, plus the chapter 3 rules that used to live in the page. Scope, strikes and bans (`E.OUT_OF_SCOPE`, `E.banned`), agents' focus (`s.energy`, `E.asAgent`), hiring (`E.hire`), coffee runs (`E.coffeeRun`), the Elite win (`checkWin3`), starting chapter 3 (`E.startStage3`) and names or tutorial flags (`E.meta`, cosmetic). `stage3/scope.js` keeps only the crew save and the penalty log.
+- **Server:** `GET /api/game` returns `{version, state}`. `POST /api/game/new` makes a run: `fresh` (the server picks the seed), `seed3` (chapter 3, ready-made), or `clear` (back to Stage 1). `POST /api/act` takes `{version, actions}` and returns `{version, digest}`, or `{conflict, version, state}`. Each request loads a fresh copy of the engine, because chapter 3 releases add slots to shared game data. Calendar releases run on the server's clock.
+- **Leaderboard:** rows are written by the server from its own copy after each batch. `POST /api/leaderboard` returns 410.
+- **Inputs:** `E.act` refuses anything but plain values, known agents and real programs, and prototype names. `tests/act-fuzz.cjs` sends 20,000 hostile actions and gets no throw and no corrupt numbers.
+- **Tests:** `tests/official.cjs` covers a game the server makes; chapter 2 by hand and chapter 3 with agents at 10×, staying in step with no resync; an edited localStorage save replaced on load; an in-memory edit caught and reloaded; the board unaffected; posted scores refused (410); and a second device.
+- **Limits:** this stops editing scores, not botting. A script could still play the actions well, and the answers are in `data.js`. Guests still play locally, off the board. Log lines the page writes outside actions are cosmetic and aren't replayed. Each sync round is 2 to 4 storage commands, so mind the Upstash free tier with many players.
+
+## Deploy (Vercel)
+
+### Public information and Google OAuth (2026-11-04)
+
+- Public pages: `/about.html` describes the game without a login; `/privacy.html` and `/terms.html` document accounts, saves, public scores, AI processing, and contact/deletion requests. They share `legal.css`, load no game or authentication scripts, and are linked from both account screens and the game menu. The existing static build includes them automatically.
+- Operator/support contact: `samarthk@cantina.security`. Keep these pages accurate when data practices or service providers change. There is no self-service account deletion; requests go to the operator.
+- Google Cloud project: **First Office** (`first-office-513721`, under `spearbit.com`), External audience. OAuth web client: **First Office web**. Client ID: `950529825927-b096l52jskbbhqfklnkij1cgqk2ajlum.apps.googleusercontent.com`.
+- JavaScript origins: `https://first-office-seven.vercel.app` and `http://localhost:55188`. Redirect URIs empty. No additional scopes added. No client secret is needed by the game. Billing was not enabled.
+- Verified in Google Console: **External · In production**. No non-sensitive, sensitive, or restricted scopes were manually added. Branding uses `https://first-office-seven.vercel.app/about.html`, `/privacy.html`, and `/terms.html`, with `first-office-seven.vercel.app` authorized.
+- The public pages and account/menu links were deployed and promoted on November 4, 2026: `first-office-acvarz9uy-samarthk-6445s-projects.vercel.app` (`dpl_5mreFfDVi665B8ziDCKsm5nyFJj8`). The public alias remains `https://first-office-seven.vercel.app`. Static build, JavaScript syntax, deployed file comparisons, and Chrome visual checks passed.
+- `GOOGLE_CLIENT_ID` remains an independent deployment setting; creating this client does not by itself enable Google sign-in in the game. No client secret was copied or stored for this setup.
+
+### Hosting
+
+- **Target:** the existing project `first-office` (https://first-office-seven.vercel.app) in `samarthk-6445s-projects`, the scope of the Cantina login samarthk@cantina.security. This replaces the older office-27 web release, which was deployed from `outputs/cantina-game`.
+- **How it runs:** `vercel.json` builds `public/` with `scripts/build-public.cjs`, which copies only browser files (HTML, JS, CSS, assets, `original/`, `stage3/`, `stations/`). Every `/api/*` request goes to `api/index.js`, which exports `server.cjs`'s `handler`. `.vercelignore` keeps `.env`, `data/`, tests, evidence and docs out of the upload.
+- **Storage:** Upstash Redis through the Vercel Marketplace (`store.cjs` uses `KV_REST_API_URL` and `KV_REST_API_TOKEN`). Vercel's disk doesn't keep files between requests, so the store is required.
+- **Env vars (production):** `DEEPINFRA_API_KEY` and `SESSION_SECRET` are set. `KV_REST_*` comes from the Upstash integration. `GOOGLE_CLIENT_ID` is optional.
+- **Deploy:** run `vercel deploy --prod --yes --scope samarthk-6445s-projects` from `outputs/first-office`, which is linked through `.vercel/`, gitignored.
+- **Live since 2026-11-02:** a preview, then production, were both checked end to end. Sign-up, a taken username, a wrong password, sign-in on a second browser with the save and look synced, and the leaderboard under the username all passed against Upstash. `server.cjs`, `.env`, `data/` and `.git/` return 404. POSTs accept an `https://` Origin, which the first deploy was missing. To call protected previews, use `vercel curl`, and pass bodies with `--data-raw`, because `-d` is the CLI's own debug flag.
+
+## Lag log and one tab at a time (2026-10-31)
+
+- **Lag log (`lag.js`):** the shared loop (`loop.js`) times every frame, and each tick by function name (`agentsFrame` = agents, `nibFrame` = Nib, `drawLayer` = agent sprites, `camTick`, the world, and so on). It also measures the gap between frames while the loop runs on: a gap over 50 ms is a hitch, whatever caused it. fps counts only the time the loop is awake. In Chrome, long animation frames name the scripts that ran. Long tasks (50 ms+) are caught with `PerformanceObserver`, and `render`, `drawWindow`, `save` and `agents.changed` count their calls. Every 5 s, a window with a hitch, a slow tick frame or a long task prints `[lag] …` in the console and is appended to `data/lag.log` through `POST /api/lag`. Each line has fps, the slowest frame and its per-tick split, the top ticks, call counts, DOM size, heap, chapter, day, the number of agents busy, and the open window. `Lag.report()` prints the last 50 windows; `Lag.now()` shows the current one.
+- **Saves only on change:** `save()` skips identical writes (`seenAt` refreshes at most once a minute), and a save received from another tab isn't written back. Before this, two copies of the game answered each other's writes about 30 times a second; your lag log showed about 150 renders and saves per 5 s. That made cash and focus flicker between the two copies and caused the lag.
+- **One tab:** two tabs used to run two copies of the agents, each overwriting the other's save. The bounty board's job, cash and focus flipped between the two, and every system ran twice. Now the newest tab wins (`BroadcastChannel('first-office')`). An older tab saves, stops, and shows "The game is open in another tab · Play here".
+
+## Real time and the leaderboard (2026-10-30)
+
+- **Away nights:** every save records the real time it was written (`s.seenAt`). If you open the game 8 or more real hours later, that night runs by itself once you've unlocked Sleep: "You were away 9h. Night 6 ran without you." Nib and the agents' standing orders work through it, and the morning report is waiting (`AWAY_NIGHT` in `game.js`). Game days still pass only when you sleep, so you can play for as long as you like.
+- **Calendar releases (chapter 3):** for each real calendar day since your last visit (up to 3), a program ships an update with new findings, on top of the nightly one (`s.realDay`, plus `E.shipRelease`).
+- **Leaderboard:** the menu or L opens it. There is one row per browser, keyed by a random id in `first-office-player-id`, showing name, rep, bugs, crits, earned, days and chapter. Click a column header to sort by it. The game posts a score on load, every morning, and when a job is won. `server.cjs` serves `GET /api/leaderboard`, which returns the top 100, and `POST /api/leaderboard`, which checks shape and size, allows 30 posts a minute per IP, and keeps 500 rows. Rows are stored in `data/leaderboard.json`, which is gitignored and not served. Scores are trusted from the browser, so this is a leaderboard for friends, not one that resists cheating. The server only answers on localhost, so other players need it hosted first: allow their host in the `Host` check and listen on `0.0.0.0`.
+
+## Chapter 3 loop: releases, standup, overtime (2026-10-30)
+
+- **Releases:** each night in chapter 3, one program you can take ships an update with 1–2 new findings, in rooms that are in scope and have fewer than 5 slots. Nib announces it in the morning. New slots are stored in `s.releases` and added back on load before `restore` filters ids (`shipRelease` and `addSlot` in `engine.js`). This keeps Elite reachable after the starting findings run out.
+- **Standup:** on the first step of each new day, Nib's chat gets a card with one row per agent that did anything the day before: bugs, pay, penalties, wasted trips, and a one-tap AGENTS.md fix for the rule that would have helped. A name links to that agent so you can brief or queue its day (`standup()` and `a.today` in `stage3/harness.js`).
+- **Overtime:** an agent that runs out of focus asks "Coffee run for $150? +40 focus", or rests until tomorrow. Each run on the same day costs $150 more, with at most 2 per agent per day. An unanswered offer lapses at the next morning.
 
 ## Team view: shortcuts, queue, standing orders (2026-10-30)
 
@@ -232,3 +309,32 @@ Seven review agents tested each part of the game: Stage 1, the early and late St
 - Agents don't advance the day. Tray candidates still come from Nib's night shift.
 - Stage 1 and the office are two pages on one server. The handoff is a fade to black.
 - About 16 in-scope findings remain after a typical first job, so reaching Elite needs good reports and the chains (Tracer).
+
+## Accounts (2026-11-01)
+
+- **Sign-in is on by default.** Before either page starts, a card offers **Sign in** / **Create account** (username + password), **Sign in with Google** (only when the server has `GOOGLE_CLIENT_ID`), and **Play without an account** (local only, no leaderboard). A new Google account picks a username before playing. If the server can't be reached, the game runs locally with no gate.
+- **Rules:** usernames are 3–16 of `a-z A-Z 0-9 _`, unique ignoring case, with a reserved list (admin, nib, pip, moss, …). Passwords need 8+ characters and are hashed with scrypt and a per-user salt. Sign-in and sign-up allow 10 tries a minute per IP; that limit lives in memory, so on Vercel each instance counts on its own (best effort).
+- **Session:** an HttpOnly cookie holding the account id, signed with `SESSION_SECRET` (or a secret the server keeps in the store). The leaderboard row and the cloud save are keyed by the account id, and the board shows the username. `window.Auth.user` is `{ id, name, email, picture }` once signed in.
+- **Storage (`auth.cjs`, through `store.cjs`):** `account:<id>`, `uname:<lowercase name>`, `google:<sub>`, `save:<hash>`, `secret`. Files in `data/` locally, Upstash Redis when hosted. Accounts from the earlier Google-only build (`data/users.json`, `data/saves/`) aren't carried over.
+- **Routes:** `GET /api/auth/config|me`, `POST /api/auth/signup|login|username|google|logout`, `GET|POST /api/save`.
+- **Deploy:** set `SESSION_SECRET` (32+ random characters) and the Redis vars (`KV_REST_API_URL` / `KV_REST_API_TOKEN`). `GOOGLE_CLIENT_ID` is optional.
+- **Tests:** `node --test tests/auth.cjs` (hashing, username rules, bad logins, rate limit, sessions, Google tokens, saves) and `tests/login.cjs` (end to end on its own port and temp data). The older browser tests set `first-office-guest` so the gate stays closed.
+
+## Character customization (2026-11-01)
+
+Flow: sign in (or play as a guest) → pick your look → play. The first visit to either page opens the editor full-screen (`Customize.ensure()` in `meet.html` and `game.js` boot, after `Auth.ready`); **Menu → Customize character** reopens it (Esc cancels).
+
+- **Options:** skin, hair (fringe, short, long, spiky, bun, bald), hair colour, shirt, pants, and one extra (none, scarf, glasses, hoodie, plus the locked ones). Live walking preview, plus happy, back and side poses. Randomize picks only unlocked items.
+- **Unlocks** (read from `first-office-game-v1`; once earned they stay, even after a restart):
+
+| Item | Needs |
+|---|---|
+| Cap | Find a critical (`crits ≥ 1`) |
+| Headphones | Find 10 bugs |
+| Sunglasses | Finish the first job (`won`) |
+| Gold hoodie | Reach Elite (`rep ≥ 60`) |
+| Neon hair | Finish chapter 3 (`won3`) |
+
+  Locked items are greyed with a lock and their requirement, and can't be picked. In the office a toast says "New look unlocked: Cap" (checked every 3 s).
+- **Drawing:** `Avatars.setLook(look)` sets the founder's look for every draw site (office canvas, `nib.js`, the chapter 3 layer); `o.outfit` overrides it for previews. Same 16×21 sprite, step frames, back view and flip. The body now has pants (rows 17–18); the old red scarf is the default extra. `crew.js` adds `Avatars.lookId` to its redraw key so a new look shows at once.
+- **Save:** `first-office-look-v1` = `{look, earned}`. Tests that skip the editor pre-set it to `{"look":{}}` (the default look).

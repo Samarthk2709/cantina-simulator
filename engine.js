@@ -4,7 +4,7 @@
   'use strict';
   const D = typeof module === 'object' && module.exports ? require('./data.js') : root.Stage2Data;
   const { CLASSES, TARGETS, ALL_TARGETS, TOOLS, RIGS, DESK, REP_TIERS, GRADES, COST, SECTIONS } = D;
-  const CH2_TRIES = 4; // chapter 2 has no rig: Nib gets a fixed few tries a night
+  const CH2_TRIES = 4; // chapter 2 has no rig: Nib gets a fixed few tries a night (and never fewer in chapter 3)
   const VERSION = 2, GOAL = { bugs: 5, crits: 1 };
   const targetById = Object.fromEntries(ALL_TARGETS.map(t => [t.id, t]));
   const FINDINGS = {};
@@ -25,15 +25,36 @@
       stage: 2, day: 1, focus: COST.focus, cups: COST.cups, cash: 0, rep: 0, bugs: 0, crits: 0,
       target: null, picked: Object.fromEntries(ALL_TARGETS.map(t => [t.id, t.picked])), lit: {},
       found: {}, misses: {}, lessons: {}, pendingTeach: null, tray: [], nextId: 1,
-      tools: ['proxy'], gpu: 0, desk: [], chains: {}, seen: {}, log: [], days: [], won: false, wonDay: 0, won3: false,
+      releases: [], seenAt: 0, realDay: '', strikes: {}, hired: ['nib', 'pip', 'moss'], energy: {}, ot: {}, tools: ['proxy'], gpu: 0, desk: [], chains: {}, seen: {}, log: [], days: [], won: false, wonDay: 0, won3: false,
       stats: { manual: 0, nib: 0, agent: 0, proven: 0, raw: 0, falseSubmits: 0, earned: 0 }
     };
     Object.keys(CLASSES).forEach(k => { s.lessons[k] = { clean: 0, noisy: 0 }; });
     return s;
   }
   function clean(v, d) { return typeof v === 'string' && v.trim() ? v.trim().slice(0, 24) : d; }
+  // Chapter 3: programs ship updates, so new findings appear over time. Each is a new slot in a room, recorded in the
+  // save (s.releases) and re-added on load before anything checks that its id exists.
+  function addSlot(x) {
+    const t = targetById[x.t], r = t && t.rooms.find(y => y[0] === x.room); if (!r || !CLASSES[x.cls]) return null;
+    const id = x.t + ':' + x.room + ':' + x.slot; if (FINDINGS[id]) return id;
+    if (r[5].length !== x.slot) return null; // out of order: skip rather than leave a gap
+    r.base ??= r[5].length; // the room's own slots, before any release (seed() uses only these)
+    r[5].push(x.cls); FINDINGS[id] = D.finding(t, r, x.slot); return id;
+  }
+  function shipRelease(s) {
+    const allowed = (t, rid) => allowedRoom(s, t, rid);
+    const ts = ALL_TARGETS.filter(t => canTake(s, t.id).ok && t.rooms.some(r => allowed(t.id, r[0]) && r[5].length < 5)); if (!ts.length) return null;
+    const t = ts[Math.floor(rand(s) * ts.length)], out = [];
+    for (let n = 1 + (rand(s) < 0.5 ? 1 : 0); n > 0; n--) {
+      const rooms = t.rooms.filter(r => allowed(t.id, r[0]) && r[5].length < 5); if (!rooms.length) break;
+      const r = rooms[Math.floor(rand(s) * rooms.length)], cls = r[5][Math.floor(rand(s) * r[5].length)];
+      const x = { t: t.id, room: r[0], slot: r[5].length, cls }; if (addSlot(x)) { (s.releases = s.releases || []).push(x); out.push(r[1]); }
+    }
+    return out.length ? { t: t.id, rooms: out } : null;
+  }
   function restore(o) {
     if (!o || o.v !== VERSION || typeof o.day !== 'number' || !o.found || !o.lessons) throw new Error('bad save');
+    (o.releases || []).forEach(addSlot);
     const s = create({}, 1);
     Object.keys(s).forEach(k => { if (o[k] !== undefined) s[k] = o[k]; });
     s.stats = Object.assign(create({}, 1).stats, o.stats);
@@ -119,7 +140,7 @@
       s.focus -= COST.miss; s.misses[fid] = (s.misses[fid] || 0) + 1;
       return { ok: true, hit: false, why: D.fill(L.ok, f.nouns) };
     }
-    if (s.focus < COST.find) return { ok: false, why: 'Too tired to write it up. Coffee or sleep.' };
+    if (s.focus < COST.find) return { ok: false, why: 'Too tired to file it. Coffee or sleep.' };
     s.focus -= COST.find;
     if (by) { s.found[fid] = { status: 'draft', source: 'agent', by, proven: false, report: {}, verdict: null }; return { ok: true, hit: true, why: D.fill(L.bad, f.nouns) }; }
     s.stats.manual++;
@@ -196,15 +217,16 @@
 
   // Nib's night: map one room next to what's lit, then try `tries` slots it knows how to look for.
   function sleep(s) {
-    const night = { day: s.day, mapped: [], tries: s.stage === 3 ? RIGS[s.gpu].tries : CH2_TRIES, made: 0, idle: '' };
+    const night = { day: s.day, mapped: [], tries: s.stage === 3 ? Math.max(CH2_TRIES, RIGS[s.gpu].tries) : CH2_TRIES, made: 0, idle: '' };
     // End-of-day totals for the vitals box: today's numbers are the change since the last entry.
     s.days.push({ day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned }); if (s.days.length > 60) s.days.shift();
     s.day++; s.focus = maxFocus(s); s.cups = maxCups(s);
+    (s.hired || []).forEach(id => { s.energy[id] = COST.focus; }); // the team wakes up rested too
     TARGETS.forEach(t => { if (!t.private) s.picked[t.id] = Math.min(0.9, +(s.picked[t.id] + COST.crowd).toFixed(2)); });
     const tid = s.target;
     if (tid) {
-      // api.roomFilter (Stage 3) keeps Nib out of off-limits rooms and banned programs.
-      const allowed = (t, rid) => !api.roomFilter || api.roomFilter(t, rid);
+      // Chapter 3 keeps Nib out of off-limits rooms and banned programs.
+      const allowed = (t, rid) => allowedRoom(s, t, rid);
       const dark = () => targetById[tid].rooms.map(r => r[0]).filter(rid => canMap(s, tid, rid) && allowed(tid, rid));
       const mapOne = () => { const d = dark(); if (!d.length) return false; const rid = d[Math.floor(rand(s) * d.length)]; s.lit[tid].push(rid); night.mapped.push(rid); return true; };
       mapOne(); // one room every night for free
@@ -229,6 +251,7 @@
       }
       if (!night.made) night.idle = s.tray.length >= COST.tray ? 'full' : taught ? 'nothing' : 'untaught';
     } else night.idle = 'nojob';
+    if (s.stage === 3) night.release = shipRelease(s);
     night.firsts = { rig: reveal(s, 'rig'), ops: night.made ? reveal(s, 'ops') : false };
     return { ok: true, night };
   }
@@ -268,7 +291,7 @@
     return { ok: true, first: id === 'dbg' || id === 'trace' ? reveal(s, 'hq') : false };
   }
   function setRig(s, level) {
-    if (!(level >= 0 && level < RIGS.length) || level === s.gpu) return { ok: false };
+    if (!Number.isInteger(level) || !(level >= 0 && level < RIGS.length) || level === s.gpu) return { ok: false };
     const diff = RIGS[level].cost - RIGS[s.gpu].cost;
     if (diff > s.cash) return { ok: false, why: 'Not enough cash.' };
     s.cash -= diff; s.gpu = level; return { ok: true, refund: diff < 0 ? -diff : 0 };
@@ -285,6 +308,7 @@
     return { a, b, haveA: acc(a), haveB: acc(b), done: !!s.chains[tid], ready: acc(a) && acc(b) && has(s, 'trace') && !s.chains[tid] };
   }
   function trace(s, tid, option) {
+    if (!Object.hasOwn(targetById, tid)) return { ok: false, why: 'No such program.' };
     const c = chainState(s, tid); if (!c.ready) return { ok: false, why: c.done ? 'Already chained.' : 'Needs both bugs accepted and the Tracer.' };
     if (option !== 0) return { ok: true, chained: false };
     const t = targetById[tid], pay = Math.round(t.base * 4 * tier(s).bonus);
@@ -297,8 +321,155 @@
   // Program penalties in Stage 3 (out of scope and so on) go through the same reputation log.
   const penalize = (s, n, why) => addRep(s, -n, why);
 
-  const api = { roomFilter: null, VERSION, GOAL, penalize, log, FINDINGS, targetById, create, restore, maxFocus, maxCups, tier, nextTier, precision, knows, unlocked, has, crowd, canTake, isLit, canMap, slotState, roomFindings, payout, gradeOf,
-    takeJob, mapRoom, guess, teach, setSection, submit, fileDraft, coffee, sleep, prove, submitRaw, toss, buyTool, setRig, toggleDesk, chainState, trace, nibDraft };
+
+  // ---------- chapter 3: scope, strikes and bans ----------
+  // Each program publishes rooms that are off limits. Touching one is a strike; three bans the company there.
+  const OUT_OF_SCOPE = { chat: ['bots'], inv: ['admin'], vault: ['crypto'], bank: ['core'], ship: ['hub'] };
+  const STRIKE_REP = 6, BAN_AT = 3;
+  const inScope = (t, room) => !(OUT_OF_SCOPE[t] || []).includes(room);
+  const banned = (s, t) => s.stage === 3 && ((s.strikes || {})[t] || 0) >= BAN_AT;
+  const allowedRoom = (s, t, rid) => s.stage !== 3 || (inScope(t, rid) && !banned(s, t));
+  const bannedWhy = t => ({ ok: false, why: targetById[t].name + ' banned the company after ' + BAN_AT + ' out-of-scope strikes.' });
+  function strike(s, tid, rid, what) {
+    const who = s.actor || 'You', n = ((s.strikes = s.strikes || {})[tid] || 0) + 1, t = targetById[tid], room = t.rooms.find(x => x[0] === rid)[1];
+    s.strikes[tid] = n; penalize(s, STRIKE_REP, 'out of scope · ' + who);
+    return { who, title: 'Out of scope', text: who + ' ' + what + ' ' + room + ', which is out of scope for ' + t.name + '. −' + STRIKE_REP + ' rep · strike ' + n + '/' + BAN_AT + '.', rep: STRIKE_REP, program: tid, strikes: n, banned: n >= BAN_AT };
+  }
+  const st3 = {
+    takeJob: (s, tid) => banned(s, tid) ? bannedWhy(tid) : takeJob(s, tid),
+    mapRoom(s, rid) {
+      if (s.target && banned(s, s.target)) return bannedWhy(s.target);
+      const r = mapRoom(s, rid);
+      if (r.ok && s.stage === 3 && !inScope(s.target, rid)) r.penalty = strike(s, s.target, rid, 'mapped');
+      return r;
+    },
+    // Only a find counts: the program sees the report, not the wrong guesses.
+    guess(s, fid, line, by) {
+      const f = FINDINGS[fid]; if (f && banned(s, f.target)) return bannedWhy(f.target);
+      const r = guess(s, fid, line, by);
+      if (r.ok && r.hit && s.stage === 3 && !inScope(f.target, f.room)) r.penalty = strike(s, f.target, f.room, 'hunted in');
+      return r;
+    },
+    submit: (s, fid, ...x) => FINDINGS[fid] && banned(s, FINDINGS[fid].target) ? bannedWhy(FINDINGS[fid].target) : submit(s, fid, ...x),
+    prove: (s, id) => { const c = s.tray.find(x => x.id === id); return c && banned(s, FINDINGS[c.fid].target) ? bannedWhy(FINDINGS[c.fid].target) : prove(s, id); },
+    submitRaw: (s, id) => { const c = s.tray.find(x => x.id === id); return c && banned(s, FINDINGS[c.fid].target) ? bannedWhy(FINDINGS[c.fid].target) : submitRaw(s, id); },
+    trace: (s, tid, o) => banned(s, tid) ? bannedWhy(tid) : trace(s, tid, o),
+  };
+
+  // ---------- chapter 3: the team (focus, hiring, overtime) ----------
+  const HIRES = { rook: 600, wren: 900 }, OT = { cost: 150, focus: 40, max: 2 };
+  const NAMES = { pip: 'Pip', moss: 'Moss', rook: 'Rook', wren: 'Wren' };
+  const agentName = (s, id) => id === 'nib' ? s.nib : NAMES[id] || id;
+  const energyOf = (s, id) => (s.energy || {})[id] ?? COST.focus;
+  function hire(s, id) {
+    if (s.stage !== 3 || !Object.hasOwn(HIRES, id) || s.hired.includes(id)) return { ok: false, why: 'Can\'t hire them.' };
+    if (s.cash < HIRES[id]) return { ok: false, why: 'Not enough cash.' };
+    s.cash -= HIRES[id]; s.hired.push(id); s.energy[id] = COST.focus; log(s, 'Hired ' + NAMES[id] + ' · −$' + HIRES[id], '');
+    return { ok: true, price: HIRES[id] };
+  }
+  // Overtime: a coffee run buys an out-of-focus agent more focus today. Each run the same day costs more.
+  function coffeeRun(s, id) {
+    if (!s.hired.includes(id)) return { ok: false, why: 'No such agent.' };
+    const o = s.ot[id], n = o && o.day === s.day ? o.n : 0, price = OT.cost * (n + 1);
+    if (n >= OT.max) return { ok: false, why: 'Two coffee runs a day is the limit.' };
+    if (s.cash < price) return { ok: false, why: 'Not enough cash.' };
+    s.cash -= price; s.energy[id] = energyOf(s, id) + OT.focus; s.ot[id] = { day: s.day, n: n + 1 };
+    return { ok: true, price, focus: OT.focus };
+  }
+  // An agent's engine calls run with its own focus and, if it has one, its own program. keep: a take_target keeps it.
+  let acting = null; // the agent context while fn runs (record() tags each call with it)
+  function asAgent(s, id, target, keep, fn) {
+    if (!s.hired.includes(id)) return { ok: false, why: 'No such agent.' };
+    if (target && (!Object.hasOwn(targetById, target) || banned(s, target) || !canTake(s, target).ok)) return { ok: false, why: 'Can\'t work there.' };
+    const saved = { target: s.target, focus: s.focus }, prev = acting;
+    if (target) { s.target = target; if (!s.lit[target]) s.lit[target] = [targetById[target].rooms[0][0]]; }
+    s.focus = energyOf(s, id); s.actor = agentName(s, id); acting = { actor: id, target: target || null, keep: !!keep };
+    try { return fn(s); } finally { s.energy[id] = s.focus; s.focus = saved.focus; if (!keep) s.target = saved.target; delete s.actor; acting = prev; }
+  }
+  // Chapter 3's goal: Elite reputation with at least 5 bugs landed by the team.
+  const TEAM_GOAL = 5;
+  function checkWin3(s) { if (s.stage === 3 && !s.won3 && s.rep >= 60 && (s.stats.agent || 0) >= TEAM_GOAL) { s.won3 = true; return true; } return false; }
+  function startStage3(s) {
+    if (!s.won) return { ok: false, why: 'Finish the first job first.' };
+    if (s.stage === 3) return { ok: true };
+    s.stage = 3; ['job', 'training', 'ops', 'forge', 'rig', 'stats', 'hq', 'rest', 'intro'].forEach(k => { s.seen[k] = true; });
+    s.hired = s.hired || ['nib', 'pip', 'moss']; s.hired.forEach(id => { s.energy[id] = COST.focus; });
+    return { ok: true };
+  }
+  // A finished first job, for jumping straight to chapter 3 from the chapter menu.
+  function seed3(profile) {
+    const s = create(profile || {}, 424242);
+    const lit = { chat: ['login', 'msgs', 'groups', 'media', 'search'], inv: ['acct', 'inv', 'up', 'pdf'], vault: ['sync', 'share', 'import', 'ext', 'login'] };
+    s.lit = JSON.parse(JSON.stringify(lit)); s.target = 'inv';
+    s.tools = ['proxy', 'fuzz', 'dbg']; s.gpu = 2; s.desk = ['coffee'];
+    s.lessons = { info: { clean: 3, noisy: 0 }, auth: { clean: 3, noisy: 1 }, inj: { clean: 2, noisy: 0 }, path: { clean: 2, noisy: 1 }, mem: { clean: 1, noisy: 0 }, race: { clean: 1, noisy: 1 } };
+    // Twenty accepted findings, all in scope, starting with ChatterBox's chain; the other chains' halves stay unfound.
+    const own = (t, r) => roomFindings(t, r).filter(fid => { const room = targetById[t].rooms.find(x => x[0] === r); return +fid.split(':')[2] < (room.base ?? Infinity); });
+    const ids = ['chat:login:0', 'chat:msgs:0'].concat(Object.keys(lit).flatMap(t => lit[t].flatMap(r => own(t, r))))
+      .filter((fid, i, a) => a.indexOf(fid) === i && inScope(FINDINGS[fid].target, FINDINGS[fid].room))
+      .filter(fid => { const f = FINDINGS[fid], c = targetById[f.target].chain; return f.target === 'chat' || ![c.a, c.b].includes(f.room + ':' + f.slot); }).slice(0, 20);
+    let earned = 0;
+    ids.forEach((fid, i) => {
+      const pay = payout(s, fid, i % 3 ? 'A' : 'B', i < 11, false); earned += pay;
+      s.found[fid] = { status: 'accepted', source: i < 11 ? 'manual' : 'nib', proven: i < 11, report: { title: 0, impact: 0, steps: 0, proof: 0, fix: 0 }, verdict: null, grade: i % 3 ? 'A' : 'B', pay, crit: false, day: 1 + (i >> 2) };
+    });
+    const chainPay = Math.round(targetById.chat.base * 4 * 1.1);
+    Object.assign(s, { bugs: 20, crits: 1, chains: { chat: true }, rep: 34, day: 7, cash: 2400, won: true, wonDay: 6,
+      stats: Object.assign(s.stats, { manual: 11, nib: 9, proven: 6, raw: 3, falseSubmits: 1, earned: earned + chainPay }) });
+    Object.keys(s.picked).forEach(t => { if (!targetById[t].private) s.picked[t] = Math.min(0.9, +(s.picked[t] + 0.12).toFixed(2)); });
+    log(s, 'CRITICAL chain: ' + targetById.chat.chain.name + ' · $' + chainPay, 'crit');
+    log(s, 'First job done, with a critical.', 'good');
+    startStage3(s);
+    return restore(JSON.parse(JSON.stringify(s)));
+  }
+  // Names and tutorial flags: cosmetic, so the page may set them (the server checks only their shape).
+  function meta(s, m) {
+    m = m && typeof m === 'object' ? m : {};
+    if (typeof m.player === 'string') s.player = clean(m.player, s.player);
+    if (typeof m.nib === 'string') s.nib = clean(m.nib, s.nib);
+    if (m.seen && typeof m.seen === 'object') for (const k of Object.keys(m.seen)) if (/^[a-z0-9]{1,16}$/.test(k) && m.seen[k] === true) s.seen[k] = true;
+    if (Number.isFinite(m.seenAt)) s.seenAt = m.seenAt;
+    return { ok: true };
+  }
+
+  // ---------- actions: everything that changes the save, by name, so a server can replay it ----------
+  // The page plays them locally at once and sends them up; the server replays them on its own copy (which is the real
+  // save). record(): the page's hook, told about every call to one of these, with the agent context if any.
+  const ACTIONS = { takeJob: st3.takeJob, mapRoom: st3.mapRoom, guess: st3.guess, teach, setSection, submit: st3.submit, fileDraft, coffee, sleep, prove: st3.prove,
+    submitRaw: st3.submitRaw, toss, buyTool, setRig, toggleDesk, trace: st3.trace, hire, coffeeRun, startStage3, meta };
+  // What a replayed action may carry: plain values only (meta's one object aside), no prototype names, known agents
+  // and programs. Anything else is refused before it reaches the rules.
+  const BAD_KEYS = ['__proto__', 'constructor', 'prototype'];
+  const plain = v => v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 80 && !BAD_KEYS.includes(v));
+  function validAction(a) {
+    if (!a || typeof a !== 'object' || typeof a.fn !== 'string' || !Object.hasOwn(ACTIONS, a.fn)) return false;
+    const args = a.args == null ? [] : a.args; if (!Array.isArray(args) || args.length > 6) return false;
+    if (!args.every((v, i) => plain(v) || (a.fn === 'meta' && i === 0 && v && typeof v === 'object' && !Array.isArray(v)))) return false;
+    if (a.actor != null && !(typeof a.actor === 'string' && (a.actor === 'nib' || Object.hasOwn(NAMES, a.actor)))) return false;
+    if (a.target != null && !(typeof a.target === 'string' && Object.hasOwn(targetById, a.target))) return false;
+    return true;
+  }
+  function act(s, a) {
+    if (!validAction(a)) return { ok: false, why: 'Bad action.' };
+    const run = s2 => ACTIONS[a.fn](s2, ...(a.args || []));
+    const r = a.actor ? asAgent(s, a.actor, a.target, a.keep, run) : run(s);
+    checkWin3(s);
+    return r;
+  }
+  // A fingerprint of what matters, so the page and the server can tell if their copies still agree.
+  const digest = s => [s.day, s.cash, s.rep, s.bugs, s.crits, s.focus, s.cups, s.rng, s.tray.length, Object.keys(s.found).length, s.stage, s.won, s.won3, s.gpu, s.tools.length, s.stats.agent || 0].join('|');
+  const recorded = {};
+  let depth = 0;
+  Object.keys(ACTIONS).forEach(name => {
+    recorded[name] = function (s, ...args) {
+      depth++;
+      try { const r = ACTIONS[name](s, ...args); checkWin3(s); if (depth === 1 && api.record) api.record(s, { fn: name, args, ...(acting || {}) }, r); return r; }
+      finally { depth--; }
+    };
+  });
+
+  const api = { shipRelease, act, digest, asAgent, seed3, banned, inScope, OUT_OF_SCOPE, STRIKE_REP, BAN_AT, HIRES, OT, TEAM_GOAL, energyOf, checkWin3, ACTIONS: Object.keys(ACTIONS), record: null, VERSION, GOAL, penalize, log, FINDINGS, targetById, create, restore, maxFocus, maxCups, tier, nextTier, precision, knows, unlocked, has, crowd, canTake, isLit, canMap, slotState, roomFindings, payout, gradeOf,
+    chainState, nibDraft, ...recorded };
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Stage2Engine = api;
 })(typeof window !== 'undefined' ? window : null);

@@ -79,7 +79,9 @@
     const show = !!w && !open && w.getState().room === 'office';
     if (layer.hidden !== !show) layer.hidden = !show;
     const night = !$('night')?.hidden && $('night').classList.contains('on');
-    if (layer.classList.contains('night') !== night) layer.classList.toggle('night', night); // agents dim with the office (crew.css)
+    if (layer.classList.contains('s3-night') !== night) layer.classList.toggle('s3-night', night); // agents dim with the office (crew.css)
+    // While the layer shows, it draws you and Nib too, so everyone is stacked by how far down the room they stand.
+    G.world.setPlayerHidden?.(show); G.nib.setBodyHidden?.(show);
     if (!show) { shown = false; return false; }
     const back = !shown; shown = true; // a hidden layer drops its CSS animations: shown again, each hop starts over
     let more = false;
@@ -91,16 +93,17 @@
       // Walk bob is offset 3 frames (50 ms) per agent; during the wind-up the agent crouches a pixel and leans back.
       // Reduced motion: neither, the agent just walks.
       const i = A.list().indexOf(a), h = 21 * k, wd = 16 * k, crouch = a.crouch && !calm;
-      const bob = crouch ? -k : a.moving && !calm ? Math.round(Math.sin((now + i * 50) / 90) * k) : 0, lean = crouch ? -(a.facing || 1) * k : 0;
+      const bumpK = a.bump && !calm ? Math.max(0, 1 - (now - a.bump.t) / 240) : 0; if (bumpK) more = true; // shoved: a quick lean that settles
+      const bob = crouch ? -k : a.moving && !calm ? Math.round(Math.sin((now + i * 50) / 90) * k) : 0, lean = crouch ? -(a.facing || 1) * k : bumpK ? Math.round(a.bump.dir * 2 * bumpK * k) : 0;
       const st = state(a), busyNow = st === 'working' || st === 'waiting' || st === 'thinking', lift = st === 'waiting' && a.id !== 'nib' && !calm ? 9 * k : 0;
       if (el.classList.contains('flip') !== a.facing < 0) el.classList.toggle('flip', a.facing < 0);
       put(el, 'transform', `translate(${px(rect.left + a.pos.x * k + lean - wd / 2)}px,${px(rect.top + a.pos.y * k - h + 2 * k - bob)}px)`);
-      put(el, 'width', wd + 'px'); put(el, 'height', h + 'px'); put(el, '--lift', lift + 'px');
+      put(el, 'width', wd + 'px'); put(el, 'height', h + 'px'); put(el, '--lift', lift + 'px'); put(el, 'z-index', String(10 + Math.round(a.pos.y)));
       // Nib's body is drawn by the game; here it only gets the bubble saying what it's doing.
       const ph = A.phrase(a), key = `${st}|${i}|${a.name}|${busyNow ? ph : ''}`;
       if (el.__key !== key) {
         el.__key = key;
-        setHTML(el, `${a.id === 'nib' ? '' : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(ph))}</span>` : ''}`);
+        setHTML(el, `${a.id === 'nib' ? `<span class="s3-tag">${esc(a.name)}</span>` : avatar(a) + `<span class="s3-tag">${esc(a.name)}</span>`}${busyNow ? `<span class="s3-bubble ${st === 'waiting' ? 'need' : ''}">${esc(short(ph))}</span>` : ''}`);
         el.__bubble = el.querySelector('.s3-bubble');
         if (DUST[a.id]) DUST[a.id].hop = null; // a new svg: its hop (if any) starts now
       }
@@ -113,8 +116,25 @@
     // Standing bubbles oldest first, then walkers: a newcomer stacks above its neighbours instead of pushing them up.
     const rank = a => a.path.length || a.nibWalking ? 2e9 : since[a.id] ?? 1e9;
     jobs.sort((p, q) => rank(p[0]) - rank(q[0])).forEach(j => { if (followThrough(...j)) more = true; });
+    if (body('you', G.world.playerPose?.(), rect, k)) more = true;
+    if (body('nib', G.nib.pose?.(), rect, k)) more = true;
     for (const id of Object.keys(sprites)) if (!A.get(id)) { sprites[id].remove(); delete sprites[id]; }
     return more;
+  }
+  // You and Nib, drawn here in chapter 3 (the game's canvases skip them, see drawLayer). p: the pose each game draws
+  // with (world.playerPose, nib.pose), in office pixels. The svg is rebuilt only when the pose's frame changes.
+  const bodies = {};
+  function body(id, p, rect, k) {
+    let el = bodies[id];
+    if (!p || p.room && p.room !== 'office') { if (el) el.hidden = true; return false; }
+    if (!el) { el = bodies[id] = document.createElement('div'); el.className = 's3-body'; $('s3-layer').appendChild(el); }
+    el.hidden = false;
+    const h = 21 * k, wd = 16 * k, opts = {mood: p.mood, step: p.step, f: p.f, lit: p.lit, back: p.back, breath: p.breath, look: p.look};
+    const key = JSON.stringify(opts) + (id === 'you' ? window.Avatars.lookId : ''); // a new look redraws you
+    if (el.__key !== key) { el.__key = key; el.innerHTML = window.Avatars.svg(id, opts); }
+    put(el, 'transform', `translate(${px(rect.left + p.x * k - wd / 2)}px,${px(rect.top + (p.y + 2) * k - h - (p.bob || 0) * k)}px) scale(${p.flip ? -1 : 1}, 1)${p.sx ? ` scale(${p.sx}, ${p.sy})` : ''}`);
+    put(el, 'width', wd + 'px'); put(el, 'height', h + 'px'); put(el, 'z-index', String(10 + Math.round(p.y)));
+    return false;
   }
   const short = t => t.length > 34 ? t.slice(0, 32) + '…' : t;
   // Footstep dust & landing puffs (#10): a footfall every 10 px walked (step frames 0 and 2 of Nib's walk/5 cycle) and a
@@ -150,7 +170,8 @@
     const top = y - h + 2 * k - 15 - lift - bh, tx = Math.max(lo, Math.min(hi, x)); // its top on the anchor (.s3-bubble: 15px above the sprite)
     if (a.path.length || a.nibWalking) delete since[a.id]; else since[a.id] ??= ++born;
     let up = 0; // how far it rises to clear the bubbles of neighbours (a desk's width) placed before it this frame
-    for (let j = 0; j < placed.length; j++) { const [px, pt, pw, ph, ax, ay] = placed[j]; if (Math.abs(ax - x) <= 64 * k && Math.abs(ay - y) <= 24 * k && Math.abs(px - tx) < (pw + bw) / 2 + 2 && top - up < pt + ph + 2 && top - up + bh + 2 > pt) { up = top + bh + 2 - pt; j = -1; } }
+    // Only ever rises (a lower neighbour can't pull it back down into one it already cleared), so this always ends.
+    for (let j = 0, guard = 0; j < placed.length && guard < 64; j++) { const [px, pt, pw, ph, ax, ay] = placed[j]; if (Math.abs(ax - x) <= 64 * k && Math.abs(ay - y) <= 24 * k && Math.abs(px - tx) < (pw + bw) / 2 + 2 && top - up < pt + ph + 2 && top - up + bh + 2 > pt) { up = Math.max(up, top + bh + 2 - pt); j = -1; guard++; } }
     up = Math.min(up, Math.max(0, top - m)); placed.push([tx, top - up, bw, bh, x, y]);
     if (calm) { put(b, 'translate', `${Math.round(tx - x - dx)}px ${Math.round(-up - dy)}px`); return false; }
     const tr = trails[a.id] || (trails[a.id] = window.BubbleTrail()), now = performance.now(), box = [Math.max(-far, lo - tx), Math.min(far, hi - tx), Math.max(-far, Math.min(0, m - top + up)), up];
@@ -186,7 +207,7 @@
   function floatFind(id, text, kind, after) {
     if (after?.then) return void after.then(() => floatFind(id, text, kind)); // a payout's chip leaves first
     const a = A.get(id), el = sprites[id], w = G.world;
-    if (!a?.pos || !el || open || document.hidden || $('s3-layer').hidden || $('s3-layer').classList.contains('night') || w?.getState().room !== 'office') return;
+    if (!a?.pos || !el || open || document.hidden || $('s3-layer').hidden || $('s3-layer').classList.contains('s3-night') || w?.getState().room !== 'office') return;
     if (floats.filter(f => f.id === id).length >= FLOAT_MAX) { const q = floatQ[id] || (floatQ[id] = []); if (q.length < FLOAT_WAIT) q.push([text, kind]); return; }
     const f = {id, x: a.pos.x, y: a.pos.y, off: 0, box: document.createElement('div')};
     f.box.className = 's3-float'; f.box.innerHTML = `<span class="${kind || 'find'}">${esc(text)}</span>`;
@@ -203,7 +224,7 @@
     else if (!floatLoop) { floatLoop = true; requestAnimationFrame(floatFrame); }
     const rect = G.world.roomRect(), k = rect.width / window.CantinaWorld.allRooms.find(r => r.id === 'office').width, t = performance.now(), sc = calm ? 0 : Math.max(.5, Math.min(1, k / 3));
     const obs = [], hud = document.querySelector('.hud')?.getBoundingClientRect(), placed = [];
-    for (const a of A.list()) { const el = sprites[a.id]; if (el && a.pos) for (const n of [el, ...el.querySelectorAll('.s3-tag,.s3-bubble')]) { const r = n.getBoundingClientRect(); if (r.width) obs.push([r, a.pos.x, a.pos.y]); } }
+    for (const a of A.list()) { const el = sprites[a.id]; if (el && a.pos) for (const n of [el, ...el.querySelectorAll(el.matches(':hover') ? '.s3-tag,.s3-bubble' : '.s3-bubble')]) { const r = n.getBoundingClientRect(); if (r.width) obs.push([r, a.pos.x, a.pos.y]); } }
     if (hud?.height) obs.push([hud, -1e4, -1e4]);
     for (let i = floats.length - 1; i >= 0; i--) { // newest first: it takes the spot over the desk, older ones move up
       const f = floats[i], p = A.get(f.id)?.pos; if (p) { f.x = p.x; f.y = p.y; } // a walker carries its label
@@ -280,7 +301,7 @@
     morph($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
       ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
       <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
-      <div class="s3-foot">${w.rep}/60 rep to Elite · ${money(w.cash)}<span class="s3-keys">↑↓ switch · ↵ send · ⌘↵ now · Esc office</span></div>`);
+      <div class="s3-foot">${w.rep >= 60 ? 'Elite · ' + w.rep + ' rep' : w.rep + '/60 rep to Elite'} · ${money(w.cash)}<span class="s3-keys">↑↓ switch · ↵ send · ⌘↵ now · Esc office</span></div>`);
   }
 
   // ---------- one agent's timeline ----------
@@ -305,6 +326,7 @@
   const STEP = new Set(['tool', 'rule', 'typing', 'sys']);
   function timeline(a) {
     const out = [], log = a.log;
+    lastFix = {}; log.forEach(m => { if (m.fix) lastFix[m.fix] = m.id; }); // one fix button per rule: on its newest card
     for (let i = 0; i < log.length; i++) {
       const m = log[i];
       if (STEP.has(m.kind)) {
@@ -326,9 +348,10 @@
     else if (A.live(a) || a.status === 'queued') out.push(`<div class="m-now">${esc(A.phrase(a))}</div>`);
     return out.join('');
   }
+  let lastFix = {};
   function fixBtn(a, m) {
     const r = m.fix && A.RULES.find(x => x.k === m.fix);
-    return r && !A.rule(a, r.k) ? `<button class="s3-link" data-fix="${r.k}">Add to AGENTS.md: “${esc(r.text)}”</button>` : '';
+    return r && !A.rule(a, r.k) && lastFix[m.fix] === m.id ? `<button class="s3-link" data-fix="${r.k}">Add to AGENTS.md: “${esc(r.text)}”</button>` : '';
   }
   function msg(a, m) {
     switch (m.kind) {
@@ -339,6 +362,8 @@
       case 'bad': return `<div class="m-say muted">${esc(m.text)}</div>`;
       case 'note': return `<div class="m-say muted">${esc(m.text)}${fixBtn(a, m)}</div>`;
       case 'ask': return '';
+      case 'standup': return `<div class="m-card standup"><b>Standup · ${esc(m.text)}</b>${(m.rows || []).map(r => { const fx = r.fix && A.RULES.find(x => x.k === r.fix);
+        return `<div class="su-row"><button class="s3-link" data-go="agent:${r.id}">${esc(r.name)}</button><span>${r.bugs} bug${r.bugs === 1 ? '' : 's'} · ${money(r.earned)}${r.pens ? ` · ${r.pens} penalt${r.pens === 1 ? 'y' : 'ies'}` : ''}${r.wasted ? ` · ${r.wasted} wasted trip${r.wasted === 1 ? '' : 's'}` : ''}</span>${fx && !A.rule(A.get(r.id) || a, fx.k) ? `<button class="s3-link" data-fix="${fx.k}">Turn on “${esc(fx.text)}”</button>` : ''}</div>`; }).join('')}<small class="muted">Click a name to brief or queue its day.</small></div>`;
       case 'refuse': return `<div class="m-card"><b>Didn't start</b>${esc(m.text)}</div>`;
       case 'pen': return `<div class="m-card pen"><b>${esc(m.title || 'Penalty')}</b>${esc(m.text)}${fixBtn(a, m)}</div>`;
       case 'brief': { const b = m.task || {}; return `<div class="m-task">${esc(b.label)} · stops when ${esc(b.stop)}${b.budget != null ? ` · budget ${money(b.budget)}` : ''}</div>`; }
@@ -421,7 +446,7 @@
   function rulesView() {
     const rules = A.crew().rules;
     const rows = A.RULES.map(r => { const on = !!rules.all?.[r.k]; return `<label class="rule"><input type="checkbox" data-rule="${r.k}" ${on ? 'checked' : ''}><span>${esc(r.text)}<small class="${on ? '' : 'without'}">${on ? esc(r.cost) : 'Without it: ' + esc(r.without)}</small></span></label>`; }).join('');
-    const oos = D.ALL_TARGETS.map(t => `${t.name}: ${C.outOfScope(t.id).map(id => t.rooms.find(x => x[0] === id)[1]).join(', ')}${A.crew().strikes[t.id] ? ` (${A.crew().strikes[t.id]}/${C.BAN_AT} strikes)` : ''}${C.banned(t.id) ? ' · banned' : ''}`).join(' · ');
+    const oos = D.ALL_TARGETS.map(t => `${t.name}: ${C.outOfScope(t.id).map(id => t.rooms.find(x => x[0] === id)[1]).join(', ')}${C.strikes(t.id) ? ` (${C.strikes(t.id)}/${C.BAN_AT} strikes)` : ''}${C.banned(t.id) ? ' · banned' : ''}`).join(' · ');
     return `<div class="s3-doc"><h2>AGENTS.md</h2><p class="muted">Every agent reads this before every step. Each rule switches on one thing they'd otherwise skip.</p>${rows}<p class="muted small">Off limits · ${esc(oos)}</p></div>`;
   }
 
@@ -447,6 +472,7 @@
   // ↑↓ (or Alt+↑↓ while typing) walk the roster, AGENTS.md last; Alt+1–9 jump straight to an agent.
   function go(delta, index) {
     const ids = A.list().map(a => 'agent:' + a.id).concat('rules:all'), cur = view.kind + ':' + view.id;
+    if (index != null && index >= A.list().length) return; // Alt+N is agents only
     const i = index != null ? index : (ids.indexOf(cur) + delta + ids.length) % ids.length; if (!ids[i]) return;
     const [kind, id] = ids[i].split(':'); view = {kind, id}; renderMain(); update();
     document.querySelector(`#s3-side [data-go="${ids[i]}"]`)?.scrollIntoView({block: 'nearest'});
