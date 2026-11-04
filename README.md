@@ -83,6 +83,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 |---|---|
 | `server.cjs` | Static files, `/api/nib/*` (Stage 1 chat), `/api/agents/*` (briefs and lines), `/api/auth/*`, `/api/game` and `/api/act` (the server's copy of each game), the leaderboard, quotas, same-origin and host checks. Exports `handler` |
 | `auth.cjs` / `auth.js` | Accounts on the server (passwords, Google tokens, sessions) / the sign-in screen and account save sync in the page |
+| `account.js` | The Account window: rename, password, Google link, other devices, data export, delete |
 | `store.cjs` | Server storage: JSON files in `data/` locally, Upstash Redis when hosted |
 | `sync.js` | Sends the page's engine actions to the server and resyncs if the copies disagree |
 | `customize.js` | The character editor and its unlocks |
@@ -91,6 +92,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
 | `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. While awake it runs at the screen's rate (no cap). See **Performance** below |
+| `log.js`, `scripts/sessions.cjs` | Session log: everything the player does and says, errors and API calls, sent to `/api/log` / the reader. See **Session log** |
 | `lag.js` | Lag log: slow frames, long tasks and call counts, sent to `data/lag.log`. See **Lag log** below |
 | `stations/fx.js`, `stations/<id>.js` | Animated office stations. `fx.js` is the hook world.js asks before drawing a station, plus events and the `?fx` picker; each station file holds three variants. See **Animated stations** |
 | `talk.js`, `iris.js`, `buttons.js` | Shared motion helpers: typed speech (#11), the chapter iris (#17), button press and nudges (#14, #15) |
@@ -140,6 +142,9 @@ NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs 
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/customize.cjs # character editor, unlocks, your look in the office and chapter 3
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
 node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/60fps/baseline.json   # median and % vs baseline
+NODE_PATH=<dir with playwright> node outputs/first-office/tests/session-log.cjs   # session log: clicks, dialogue, AI calls, actions, errors, no passwords (server running)
+node --test outputs/first-office/tests/ai-limit.cjs   # 30 AI messages / 90 calls an hour per player
+node outputs/first-office/tests/abuse-eval.cjs        # live: 100 abuse prompts + 10 controls (about 330 calls, ~$0.02)
 NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
 ```
 
@@ -164,6 +169,17 @@ Fixed:
 - **UI:** the chapter 3 Goal board shows the Elite goal. The leaderboard fits its window. The Rig shows agents at once. Unmapped off-limits rooms are tagged. On phones the vitals box sits below the HUD. The subtitle has contrast. The vitals count-up never goes below its start, and negative money reads "−$". Stage 1 no longer takes "I'm" as a name. Nib's "that's the one we needed" line is chapter 2 only.
 
 Known, not fixed: two tasks in one brief (only the first runs); agent tags can overlap the dock; HUD cash trails the vitals box by about 1.5 s while a pay chip flies; a reload mid-night skips that morning's report; a double-click on a desk upgrade buys and returns it.
+
+## Account management (2026-11-04)
+
+Signed in, open **Menu → Account** (`account.js`, served by `/api/account*` in `server.cjs` → `auth.cjs`):
+- **Username:** rename. The old name is freed and the leaderboard row follows.
+- **Password:** change it, which needs the current one, or add one to a Google-only account. A change signs out every other device.
+- **Google:** link it, which also works for recovery since there's no email reset, or unlink it. Unlinking needs a password on the account. A Google account links to only one First Office account.
+- **Devices:** sign out everywhere except here. Sessions carry a version, so the cookie is `<id>.<version>.<expiry>.<hmac>`, and bumping the account's version ends the others. Old three-part cookies still count as version 0.
+- **Your data:** `GET /api/account/export` downloads the account details, cloud save and game as JSON, never the password hash.
+- **Delete:** type the username, and the password if there is one. This removes the account, the username and the Google link, the cloud save, the game and the leaderboard row, and this browser forgets them.
+- **Tests:** `tests/account.cjs` covers each of these end to end, on its own port with temp data and a stand-in for Google.
 
 ## The official game: the server keeps the real save (2026-11-03)
 
@@ -196,6 +212,17 @@ When you're signed in, nobody can edit their score: the server owns the game.
 - **Env vars (production):** `DEEPINFRA_API_KEY` and `SESSION_SECRET` are set. `KV_REST_*` comes from the Upstash integration. `GOOGLE_CLIENT_ID` is optional.
 - **Deploy:** run `vercel deploy --prod --yes --scope samarthk-6445s-projects` from `outputs/first-office`, which is linked through `.vercel/`, gitignored.
 - **Live since 2026-11-02:** a preview, then production, were both checked end to end. Sign-up, a taken username, a wrong password, sign-in on a second browser with the save and look synced, and the leaderboard under the username all passed against Upstash. `server.cjs`, `.env`, `data/` and `.git/` return 404. POSTs accept an `https://` Origin, which the first deploy was missing. To call protected previews, use `vercel curl`, and pass bodies with `--data-raw`, because `-d` is the CLI's own debug flag.
+
+## Session log (2026-11-04)
+
+Every tab records what the player does, so you can replay a session and debug what went wrong (`log.js`, loaded first on both pages).
+
+- **What's logged:** every click (element, its text, position), game shortcut keys and Enter/Esc in fields, changed toggles and selects, windows opened and closed, every engine action on the live save (with the agent who did it, and the engine's reason if it refused), what the player said to Nib and each agent, every line Nib and the agents said, how each brief was read into a task, each AI request and answer (`/api/nib/chat`, `/api/agents/*`), every `/api` call's status and time (sync conflicts flagged), JS errors with stacks, rejected promises, console errors and warnings, page loads, hides and leaves. Each batch carries the game's state (chapter, day, cash, rep, bugs, open window).
+- **Never logged:** password fields, keys typed into text fields (only what was sent), auth and save request bodies.
+- **Sessions:** one id per tab (`sessionStorage`, so it survives chapter reloads), plus a browser id (`localStorage`) that links a guest's sessions. The server adds the username when signed in.
+- **Transport:** batched every 10 s, at 100 events, and on hide, via `sendBeacon` to `POST /api/log` (64 KB per batch, 150 events, 6 KB per event). Stored with `store.log`: locally `data/session_<id>.log` plus a `data/sessions.log` index; hosted, Redis lists capped at 20,000 events per session and deleted 30 days after the last write (the index too). Each batch costs 2–3 Upstash commands.
+- **Read:** `node scripts/sessions.cjs` lists the latest sessions (`--all`, `--user NAME`); `node scripts/sessions.cjs <id>` prints one as a timeline (`--json` for raw). For the hosted game: `vercel env pull .env.vercel --environment production && node --env-file=.env.vercel scripts/sessions.cjs`.
+- **Add events:** `SessionLog.event(type, data)` from any page code.
 
 ## Lag log and one tab at a time (2026-10-31)
 
@@ -338,3 +365,11 @@ Flow: sign in (or play as a guest) → pick your look → play. The first visit 
   Locked items are greyed with a lock and their requirement, and can't be picked. In the office a toast says "New look unlocked: Cap" (checked every 3 s).
 - **Drawing:** `Avatars.setLook(look)` sets the founder's look for every draw site (office canvas, `nib.js`, the chapter 3 layer); `o.outfit` overrides it for previews. Same 16×21 sprite, step frames, back view and flip. The body now has pants (rows 17–18); the old red scarf is the default extra. `crew.js` adds `Avatars.lookId` to its redraw key so a new look shows at once.
 - **Save:** `first-office-look-v1` = `{look, earned}`. Tests that skip the editor pre-set it to `{"look":{}}` (the default look).
+
+## AI limits and abuse tests (2026-11-04)
+
+- **Per-player limit** (`spend` in `server.cjs`): 30 typed AI messages an hour (Nib chat, agent briefs, agent chat) and 90 model calls an hour including narration, per account (signed out: per IP). Kept in the store (Redis when hosted, with a 1 h TTL), so it holds across Vercel instances. An agent chat sent right after a brief with the same words counts once. Over the limit: 429 "You've used this hour's 30 AI messages. Try again in N min."; the page falls back to its scripted lines. The older in-memory quota (40/min, 800/day) still applies per server instance.
+- **Scope:** Nib's and the agents' prompts allow only game talk; anything else (homework, code, real facts, real hacking, other personas, long text) gets a one-line in-character decline. Output caps (120–220 tokens, 22–45 words) and the existing validators still apply.
+- **Abuse set:** `tests/abuse/prompts.jsonl`, 100 prompts in 10 categories (off-topic, real hacking, injection, prompt extraction, persona break, harmful, token abuse, disguised off-topic, game exploits, obfuscated), written by Codex (gpt-6.1-sol). Plus 10 normal-play controls in `controls.jsonl`. `node tests/abuse-eval.cjs` runs them live against Nib's chat and an agent (brief, then chat) and writes `results.jsonl`; `grades.jsonl` holds the graded run.
+- **Result:** abuse 100/100 on Nib and 100/100 on agents. 8 Nib abuse replies were rejected by the validator, so the scripted line showed instead. Controls were 8/10 for Nib and 7/10 for agents. The misses are "I don't have that info" answers, because the eval gives the model empty game facts. Briefs turned 2 "free rig" prompts into `buy rig, budget 0`; the engine still charges or refuses, so nothing is free.
+- **Cost:** about 460 input + 40 output tokens per call, at DeepInfra's $0.07/M in and $0.34/M out, comes to about $0.00005 per call. A player at the 90-call cap costs at most about $0.0045 an hour.

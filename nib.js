@@ -230,6 +230,7 @@
       if (finish) finish(false); // a newer line replaces whatever Nib was saying
       const body = bubble.querySelector('.nib-text'), foot = bubble.querySelector('.nib-foot');
       const id = ++sayN, typed = sayType(body, text); foot.innerHTML = '';
+      window.SessionLog?.event('nib', {text: String(text).slice(0, 400), choices: o.choices ? o.choices.map(c => c.label) : undefined});
       bubble.hidden = false; bubbleOpen = true; bubbleSide = o.side || 'left';
       bubble.classList.toggle('asks', !!(o.choices || o.next));
       setMood(o.mood || 'talk');

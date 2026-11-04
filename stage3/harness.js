@@ -78,7 +78,7 @@
   const blankDay = () => ({bugs: 0, earned: 0, pens: 0, wasted: 0, fix: null});
   const blankStats = () => ({accepted: 0, earned: 0, pens: 0, repLost: 0, asked: 0, guessed: 0, spent: 0, wasted: 0});
   let seq = 0;
-  function push(a, kind, text, extra) { a.log.push({id: ++seq, kind, text, ...extra}); if (a.log.length > 160) a.log.shift(); a.ver++; return a.log[a.log.length - 1]; }
+  function push(a, kind, text, extra) { if (kind !== 'typing') window.SessionLog?.event('agent', {agent: a.id, kind, text: String(text).slice(0, 400)}); a.log.push({id: ++seq, kind, text, ...extra}); if (a.log.length > 160) a.log.shift(); a.ver++; return a.log[a.log.length - 1]; }
   const say = (a, t) => push(a, 'say', t), tool = (a, t) => push(a, 'tool', t), good = (a, t) => push(a, 'good', t), bad = (a, t) => push(a, 'bad', t), ruled = (a, t) => push(a, 'rule', t);
   function persist() {
     if (G.frozen()) return; // another tab took over, or the page is leaving: never write an old crew back
@@ -314,6 +314,7 @@
     const problem = preflight(a, task);
     // A standing order on an empty tray (or no drafts) isn't refused: it just waits for tomorrow's.
     if (problem && !task.forever) { push(a, 'refuse', problem); persist(); changed(); return false; }
+    window.SessionLog?.event('task', {agent: a.id, brief: text, fromAI, task: {job: task.job, program: task.program, item: task.item, until: task.until, value: task.value, budget: task.budget, forever: !!task.forever}, notes});
     start(a, task, text, fromAI, notes);
     if (problem) finish(a, problem); // a standing order that can't run today waits for tomorrow instead of being refused
     return true;

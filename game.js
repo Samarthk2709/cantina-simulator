@@ -487,6 +487,7 @@
     if (!ST[id] || !shown(id) || ui.night) return;
     if (id === 'hunt' && !s.target) ui.view = 'board';
     ui.win = id; ui.result = null; ui.traceMsg = null;
+    window.SessionLog?.event('window', {open: id});
     window.StationFX?.emit(id, 'open');
     const d = $('panel-dialog'), fresh = !d.open || !!winFx?.shut;
     if (!d.open) d.show();
@@ -497,7 +498,7 @@
     const b = $('nib-bubble'), wait = !b.hidden && b.classList.contains('asks') && (!nib.typing && b.querySelector('.nib-next') || b); // #11: Next is hidden while typing
     (wait || $('panel-body')).focus({ preventScroll: true });
   }
-  function closeWindow() { const id = ui.win; ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
+  function closeWindow() { const id = ui.win; if (id) window.SessionLog?.event('window', {close: id}); ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
   // One sentence at the top of each window: what it shows and what you do there.
   function lede() {
     return {
@@ -1299,7 +1300,7 @@
   // ---------- menu ----------
   function openMenu() {
     const au = window.Auth;
-    $('settings-body').innerHTML = `${au?.configured ? `<div class="menu-row account">${au.user ? `<span>Signed in as <b>${esc(au.user.name)}</b><small>${esc(au.user.email)}</small></span><button id="sign-out" class="quiet">Sign out</button>` : `<span>Playing without an account</span><button id="sign-in" class="accent">Sign in</button>`}</div>` : ''}<div class="menu-row"><button id="open-board" class="accent">Leaderboard (L)</button><button id="customize" class="quiet">Customize character</button></div><div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
+    $('settings-body').innerHTML = `${au?.configured ? `<div class="menu-row account">${au.user ? `<span>Signed in as <b>${esc(au.user.name)}</b><small>${esc(au.user.email)}</small></span><button id="account" class="quiet">Account</button><button id="sign-out" class="quiet">Sign out</button>` : `<span>Playing without an account</span><button id="sign-in" class="accent">Sign in</button>`}</div>` : ''}<div class="menu-row"><button id="open-board" class="accent">Leaderboard (L)</button><button id="customize" class="quiet">Customize character</button></div><div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
       <div class="field"><label for="nname">Partner's name</label><input id="nname" value="${esc(s.nib)}" maxlength="24"></div>
       <div class="menu-row"><button id="save-names" class="accent">Save names</button></div>
       <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H O B G</dt><dd>Desk, Finds, Shop, Goal</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl></details>
@@ -1311,6 +1312,7 @@
     $('restart').onclick = restart;
     $('open-board').onclick = () => { $('settings-dialog').close(); openBoard(); };
     $('customize').onclick = () => { $('settings-dialog').close(); window.Customize?.open(); };
+    if ($('account')) $('account').onclick = () => { $('settings-dialog').close(); window.Account?.open(); };
     if ($('sign-out')) $('sign-out').onclick = () => { save(); frozen = true; window.Auth.signOut(); }; // frozen: nothing writes the old save back while it's cleared
     if ($('sign-in')) $('sign-in').onclick = () => window.Auth.signIn();
     $('ch1').onclick = async () => { if (!confirm('Replay Stage 1? Nib forgets you, and the office starts over.')) return; await newRun('clear'); wipe(); frozen = true; location.href = '/meet.html'; };

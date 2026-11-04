@@ -5,7 +5,8 @@
 //   published keys, audience = our client id, issuer, expiry, verified email). A first Google sign-in makes an account
 //   with no username yet; the player picks one before playing.
 // - Usernames: 3–16 of [a-zA-Z0-9_], unique ignoring case, some reserved.
-// - Session: an HttpOnly cookie "<account id>.<expiry>.<hmac>" signed with SESSION_SECRET (or a secret kept in the store).
+// - Session: an HttpOnly cookie "<account id>.<session version>.<expiry>.<hmac>" signed with SESSION_SECRET (or a secret kept
+//   in the store). Bumping the account's version (a password change, "sign out everywhere") ends every other session.
 // Everything lives in `store` (store.cjs: files locally, Redis when hosted), so nothing depends on local disk or memory:
 //   account:<id> → { id, username, pass: {salt, hash} | null, google: sub | null, email, picture, at }
 //   uname:<lowercase username> → id      google:<sub> → id      save:<hash of id> → the cloud save      secret → cookie key
@@ -132,18 +133,19 @@ function create({ clientId = '', store, sessionSecret = process.env.SESSION_SECR
   // ---------- sessions ----------
   const sign = async v => crypto.createHmac('sha256', await secret()).update(v).digest('base64url');
   async function cookieFor(acc, secure) {
-    const exp = Math.floor(now() / 1000) + SESSION_DAYS * 86400, v = `${acc.id}.${exp}`;
+    const exp = Math.floor(now() / 1000) + SESSION_DAYS * 86400, v = `${acc.id}.${acc.sv || 0}.${exp}`;
     return `fo_session=${v}.${await sign(v)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${secure ? '; Secure' : ''}`;
   }
   // The signed-in account for a request, or null. `sub` is the stable account id (the leaderboard keys rows by it).
   async function userFrom(req) {
     const m = /(?:^|;\s*)fo_session=([^;]+)/.exec(req.headers.cookie || ''); if (!m) return null;
-    const [id, exp, sig] = m[1].split('.'); if (!id || !exp || !sig) return null;
-    const want = await sign(`${id}.${exp}`);
+    const parts = m[1].split('.'), [id, sv, exp, sig] = parts.length === 4 ? parts : [parts[0], '0', parts[1], parts[2]]; // 3 parts: a cookie from before versions
+    if (!id || !exp || !sig || !/^\d{1,9}$/.test(sv)) return null;
+    const want = await sign(parts.length === 4 ? `${id}.${sv}.${exp}` : `${id}.${exp}`);
     if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return null;
     if (!(+exp >= now() / 1000)) return null;
     const acc = await getAccount(id);
-    return acc ? toUser(acc) : null;
+    return acc && (acc.sv || 0) === +sv ? toUser(acc) : null;
   }
   const toUser = acc => ({ sub: acc.id, id: acc.id, name: acc.username || '', email: acc.email || '', picture: acc.picture || '', google: !!acc.google, account: acc });
   const public_ = u => u && { id: u.id, name: u.name, email: u.email, picture: u.picture, needsName: !u.name };
@@ -160,7 +162,57 @@ function create({ clientId = '', store, sessionSecret = process.env.SESSION_SECR
     return { ok: true, at: out.at };
   }
 
-  return { signup, login, google, setUsername, verify, cookieFor, userFrom, toUser, public: public_, getSave, putSave, checkName, hashPassword, checkHash,
+  // ---------- account management (the signed-in account only) ----------
+  const put = async acc => { await store.set('account:' + acc.id, acc); return acc; };
+  const info = acc => ({ id: acc.id, username: acc.username, created: acc.at, password: !!acc.pass, google: acc.google ? { email: acc.email || '' } : null, googleAvailable: !!clientId });
+  // Anything sensitive asks for the password again (if the account has one).
+  async function reauth(acc, password, ip) {
+    if (!acc.pass) return;
+    limit(ip);
+    if (!(await checkHash(typeof password === 'string' ? password.slice(0, 200) : '', acc.pass))) throw fail('Wrong password.', 401);
+  }
+  async function rename(acc, name) {
+    checkName(name);
+    if (acc.username && acc.username.toLowerCase() === name.toLowerCase() && acc.username !== name) return claimName(acc, name); // only the capitals change
+    if (acc.username === name) return acc;
+    const old = acc.username, next = await claimName(acc, name);
+    if (old && (await store.get('uname:' + old.toLowerCase())) === acc.id) await store.del('uname:' + old.toLowerCase());
+    return next;
+  }
+  // Change (needs the current one) or add a password. Every other session ends.
+  async function setPassword(acc, current, next, ip) {
+    await reauth(acc, current, ip); checkPassword(next);
+    if (!acc.username) throw fail('Pick a username first.', 409);
+    return put({ ...acc, pass: await hashPassword(next), sv: (acc.sv || 0) + 1 });
+  }
+  async function linkGoogle(acc, credential) {
+    const p = await verify(credential), sub = String(p.sub), owner = await store.get('google:' + sub);
+    if (owner && owner !== acc.id) throw fail('That Google account is already linked to another First Office account.', 409);
+    if (acc.google && acc.google !== sub) await store.del('google:' + acc.google);
+    await store.set('google:' + sub, acc.id);
+    return put({ ...acc, google: sub, email: String(p.email || '').slice(0, 120), picture: /^https:\/\//.test(p.picture || '') ? p.picture.slice(0, 400) : '' });
+  }
+  async function unlinkGoogle(acc, password, ip) {
+    if (!acc.google) return acc;
+    if (!acc.pass) throw fail('Add a password first, or you couldn\'t sign in any more.', 409);
+    await reauth(acc, password, ip);
+    if ((await store.get('google:' + acc.google)) === acc.id) await store.del('google:' + acc.google);
+    return put({ ...acc, google: null, email: '', picture: '' });
+  }
+  const signOutAll = acc => put({ ...acc, sv: (acc.sv || 0) + 1 });
+  // Delete: type the username to confirm (and the password, if there is one). The caller removes the game and the board row.
+  async function remove(acc, confirm, password, ip) {
+    if (typeof confirm !== 'string' || !acc.username || confirm.toLowerCase() !== acc.username.toLowerCase()) throw fail('Type your username to confirm.', 400);
+    await reauth(acc, password, ip);
+    if ((await store.get('uname:' + acc.username.toLowerCase())) === acc.id) await store.del('uname:' + acc.username.toLowerCase());
+    if (acc.google && (await store.get('google:' + acc.google)) === acc.id) await store.del('google:' + acc.google);
+    await store.del(saveKey({ id: acc.id })); await store.del('account:' + acc.id);
+    return { ok: true };
+  }
+  const exportData = async acc => ({ account: info(acc), save: await getSave({ id: acc.id }) });
+
+  return { info, rename, setPassword, linkGoogle, unlinkGoogle, signOutAll, remove, exportData,
+    signup, login, google, setUsername, verify, cookieFor, userFrom, toUser, public: public_, getSave, putSave, checkName, hashPassword, checkHash,
     configured: true, googleConfigured: !!clientId, clientId };
 }
 function fail(msg, status) { return Object.assign(new Error(msg), { status }); }

@@ -148,6 +148,7 @@ button,input{font:inherit;color:inherit}
   <div class="dark" id="dark"><button class="btn" id="wake" autofocus>Turn on the light</button></div>
 </main>
 
+<script src="log.js"></script>
 <script src="auth.js"></script>
 <script src="buttons.js"></script>
 <script src="avatars.js"></script><script src="customize.js"></script><script src="iris.js"></script>
@@ -196,7 +197,7 @@ async function speak(lines,end='idle'){
   for(let i=0;i<lines.length;i++){
     const l=lines[i];
     if(typeof l==='function'){l();continue;}
-    history.push({role:'nib',text:l});
+    history.push({role:'nib',text:l}); window.SessionLog?.event('nib',{text:l});
     const last=!lines.slice(i+1).some(x=>typeof x==='string');
     await typeLine(l,last?end:'idle');
     if(!last) await waitNext();
@@ -306,7 +307,7 @@ async function decide(text){
 async function submit(text){
   text=text.trim().slice(0,200); if(!text||input.disabled||beat==='done') return;
   input.value=''; lock(true); chips.innerHTML='';
-  history.push({role:'player',text});
+  history.push({role:'player',text}); window.SessionLog?.event('player',{to:'nib',beat,text});
   box.classList.add('thinking'); line.textContent='Nib is thinking…'; setMood('think');
   const [r]=await Promise.all([decide(text),wait(500)]);
   box.classList.remove('thinking');

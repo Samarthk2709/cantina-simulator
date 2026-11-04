@@ -1,5 +1,5 @@
 'use strict';
-// Where the server keeps its data: accounts, saves, the leaderboard, the lag log.
+// Where the server keeps its data: accounts, saves, the leaderboard, the lag log, session logs.
 // - Locally: JSON files in a folder (data/, gitignored, never served).
 // - Hosted (Vercel): Upstash Redis over its REST API, when KV_REST_API_URL / KV_REST_API_TOKEN (or the UPSTASH_REDIS_REST_*
 //   pair) are set. The disk there doesn't keep anything between requests.
@@ -8,17 +8,22 @@ const fs = require('node:fs'), path = require('node:path');
 
 function fileStore(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  const file = k => path.join(dir, k.replace(/[^a-z0-9_.-]/gi, '_') + '.json');
+  const file = k => path.join(dir, k.replace(/[^a-z0-9_.-]/gi, '_') + '.json'), logFile = k => path.join(dir, k.replace(/[^a-z0-9_.-]/gi, '_') + '.log');
   return {
     kind: 'files',
     async get(k) { try { return JSON.parse(fs.readFileSync(file(k), 'utf8')); } catch { return null; } },
     async set(k, v) { const f = file(k); fs.writeFileSync(f + '.tmp', JSON.stringify(v)); fs.renameSync(f + '.tmp', f); },
     async del(k) { try { fs.unlinkSync(file(k)); } catch {} },
-    // An append-only log, capped: one JSON line per entry.
-    async log(k, lines, max = 2e6) {
-      const f = path.join(dir, k.replace(/[^a-z0-9_.-]/gi, '_') + '.log');
-      try { if (fs.statSync(f).size > max) fs.renameSync(f, f + '.old'); } catch {}
+    // An append-only log, capped (bytes, here): one JSON line per entry. Locally nothing expires.
+    async log(k, lines, { bytes = 2e6 } = {}) {
+      const f = logFile(k);
+      try { if (fs.statSync(f).size > bytes) fs.renameSync(f, f + '.old'); } catch {}
       fs.appendFileSync(f, lines.map(l => JSON.stringify(l)).join('\n') + '\n');
+    },
+    // A log's entries, oldest first (the rotated-out part too).
+    async read(k) {
+      const text = [logFile(k) + '.old', logFile(k)].map(f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } }).join('');
+      return text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     },
   };
 }
@@ -33,9 +38,15 @@ function redisStore(url, token, fetchImpl = (...a) => fetch(...a)) {
   return {
     kind: 'redis',
     async get(k) { const v = await cmd('GET', 'fo:' + k); return v == null ? null : JSON.parse(v); },
-    async set(k, v) { await cmd('SET', 'fo:' + k, JSON.stringify(v)); },
+    async set(k, v, { ttl = 0 } = {}) { await cmd('SET', 'fo:' + k, JSON.stringify(v), ...(ttl ? ['EX', ttl] : [])); }, // ttl: seconds until Redis drops the key
     async del(k) { await cmd('DEL', 'fo:' + k); },
-    async log(k, lines) { if (!lines.length) return; await cmd('LPUSH', 'fo:log:' + k, ...lines.map(l => JSON.stringify(l))); await cmd('LTRIM', 'fo:log:' + k, 0, 4999); },
+    // Capped by entries (keep) and, if days is set, deleted that many days after the last write.
+    async log(k, lines, { keep = 5000, days = 0 } = {}) {
+      if (!lines.length) return;
+      await cmd('LPUSH', 'fo:log:' + k, ...lines.map(l => JSON.stringify(l))); await cmd('LTRIM', 'fo:log:' + k, 0, keep - 1);
+      if (days) await cmd('EXPIRE', 'fo:log:' + k, days * 86400);
+    },
+    async read(k) { return ((await cmd('LRANGE', 'fo:log:' + k, 0, -1)) || []).reverse().map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean); },
   };
 }
 

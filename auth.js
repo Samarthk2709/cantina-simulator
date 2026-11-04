@@ -158,14 +158,19 @@ ${cfg.clientId ? '<span class="auth-or">OR</span><div id="auth-google"></div>' :
     gate('login');
   }
   async function signOut() {
-    await push(); await post('/api/auth/logout', {}).catch(() => {});
-    await window.Sync?.flush(); for (const k of ALL.concat(SYNCED, ACCOUNT)) ls.del(k); // the next person on this browser starts clean
+    await push(); await window.Sync?.flush(); // the last moves go up while still signed in
+    await post('/api/auth/logout', {}).catch(() => {});
+    forget();
+  }
+  // This browser forgets the account (after sign-out, or once the account is deleted): the next person starts clean.
+  function forget() {
+    for (const k of ALL.concat(SYNCED, ACCOUNT)) ls.del(k);
     try { window.google && window.google.accounts.id.disableAutoSelect(); } catch {}
     location.href = '/meet.html';
   }
   function signIn() { ls.del(GUEST); location.reload(); }
 
   // Auth.user: { id, name (the username), email, picture } once signed in; null as a guest.
-  window.Auth = { ready, get user() { return user; }, get configured() { return !!cfg; }, get google() { return !!(cfg && cfg.clientId); }, signOut, signIn, push };
+  window.Auth = { ready, get user() { return user; }, get configured() { return !!cfg; }, get google() { return !!(cfg && cfg.clientId); }, get clientId() { return cfg && cfg.clientId || ''; }, signOut, signIn, push, forget, loadGoogle };
   document.body ? start() : addEventListener('DOMContentLoaded', start);
 })();
