@@ -21,7 +21,8 @@ const store = require('../store.cjs').create({ dir: process.env.FIRST_OFFICE_DAT
 
   await p.goto(BASE); await p.waitForURL(/meet\.html/);
   const session = await p.evaluate(() => SessionLog.session);
-  await p.click('#wake'); await p.waitForTimeout(3600);
+  for (let i = 0; i < 20 && await p.$eval('#dark', e => getComputedStyle(e).display !== 'none'); i++) { await p.click('#wake').catch(() => {}); await p.waitForTimeout(500); } // over a slow network the page may not be ready yet
+  await p.waitForTimeout(3600);
   for (let i = 0; i < 30 && await p.$eval('#msg', e => e.disabled); i++) { await p.click('#box'); await p.waitForTimeout(250); }
   await p.fill('#msg', 'Sam'); await p.press('#msg', 'Enter');
   for (let i = 0; i < 30 && !(await p.$('#chips button:not([disabled])')); i++) { await p.click('#box'); await p.waitForTimeout(250); }

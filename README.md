@@ -222,6 +222,7 @@ Every tab records what the player does, so you can replay a session and debug wh
 - **Sessions:** one id per tab (`sessionStorage`, so it survives chapter reloads), plus a browser id (`localStorage`) that links a guest's sessions. The server adds the username when signed in.
 - **Transport:** batched every 10 s, at 100 events, and on hide, via `sendBeacon` to `POST /api/log` (64 KB per batch, 150 events, 6 KB per event). Stored with `store.log`: locally `data/session_<id>.log` plus a `data/sessions.log` index; hosted, Redis lists capped at 20,000 events per session and deleted 30 days after the last write (the index too). Each batch costs 2–3 Upstash commands.
 - **Read:** `node scripts/sessions.cjs` lists the latest sessions (`--all`, `--user NAME`); `node scripts/sessions.cjs <id>` prints one as a timeline (`--json` for raw). For the hosted game: `vercel env pull .env.vercel --environment production && node --env-file=.env.vercel scripts/sessions.cjs`.
+- **Who can read it:** only holders of the storage credentials (the Vercel/Upstash team, or the local `data/` folder). The log is write-only from the game: `/api/log` accepts POSTs and answers `{ok: true}`, no endpoint returns logs, `data/` and `.cjs` files are never served, and the Vercel upload excludes `data/`. `tests/session-log.cjs` checks this. Don't add a read endpoint or dashboard without admin-only sign-in.
 - **Add events:** `SessionLog.event(type, data)` from any page code.
 
 ## Lag log and one tab at a time (2026-10-31)
