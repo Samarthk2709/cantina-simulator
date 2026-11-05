@@ -317,7 +317,7 @@ button.small{min-height:32px;padding:0 10px;font-size:12px}
    light; buttons.js springs it back on release with a 1px overshoot (--tap-over). `translate`, not `transform`, so it
    rides on top of entrances (dock-in, decide-btn) and #15's wiggle. Rooms (centred by translate), floor sprites and
    code lines keep the published 1px; disabled buttons don't move. Release is instant here: buttons.js owns it. */
-button:is(:active,.pressing):not(:disabled,.room,.s3-agent,.code-line){transform:none;translate:0 2px;filter:brightness(.85);transition:background .15s,border-color .15s,translate 70ms ease-out,filter 70ms ease-out,box-shadow 70ms ease-out}
+button:is(:active,.pressing):not(:disabled,.room,.s3-agent,.code-line){transform:none;translate:0 2px;scale:.97;filter:brightness(.85);transition:background .15s,border-color .15s,translate 70ms ease-out,scale 70ms ease-out,filter 70ms ease-out,box-shadow 70ms ease-out}
 /* Floating chrome with a drop shadow sinks onto the floor: the shadow tightens as it goes down. */
 :is(#settings,#goal-open):is(:active,.pressing):not(:disabled){box-shadow:0 4px 10px rgba(0,0,0,.3)}
 /* Roster rows press, never dim: the avatar inside keeps its colours, and 3px is 2 art px, the overshoot 1 (24px = 16 art px). */
@@ -413,9 +413,9 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .vitals{position:absolute;left:18px;top:64px;z-index:6;width:var(--vw,168px);padding:12px 14px 13px;box-sizing:border-box;
   background:linear-gradient(180deg,rgba(24,48,58,.92),rgba(14,30,38,.92));border:1px solid var(--line-2);border-radius:12px;color:var(--ink-2);font-size:12px;cursor:pointer;
   box-shadow:0 10px 28px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);
-  transition:width .32s cubic-bezier(.2,.8,.2,1),border-color .2s,box-shadow .2s,transform .12s ease-out}
+  transition:width .32s cubic-bezier(.65,0,.35,1),border-color .2s,box-shadow .2s,transform .12s ease-out}
 .vitals:not(.open):hover{border-color:rgba(127,240,216,.55);box-shadow:0 12px 30px rgba(0,0,0,.32),0 0 0 3px rgba(127,240,216,.07)}
-.vitals:not(.open):active{transform:scale(.98)}
+.vitals:not(.open):active{transform:scale(.97)}
 .vitals:focus-visible{outline:none;border-color:var(--nib)}
 .vitals.open{cursor:default;max-height:calc(100% - 64px - var(--dock-top,90px) - 12px);overflow:auto;scrollbar-width:thin;border-color:rgba(127,240,216,.4)}
 .vitals.over.open{box-shadow:0 18px 44px rgba(0,0,0,.5)}
@@ -475,9 +475,11 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
   background:linear-gradient(180deg,rgba(24,48,58,.94),rgba(14,30,38,.94));border:1px solid var(--line-2);border-radius:999px;color:var(--ink-2);font:500 12.5px var(--sans);
   box-shadow:0 8px 22px rgba(0,0,0,.3);cursor:pointer;transition:border-color .2s,color .2s,transform .12s ease-out}
 .view-toggle:hover{border-color:rgba(127,240,216,.55);color:var(--ink)}
-.view-toggle:active{transform:scale(.96)}
+.view-toggle:active{transform:scale(.97)}
 .view-toggle svg{width:17px;height:17px;fill:none;stroke:var(--nib);stroke-width:1.7;stroke-linecap:round}
-.view-toggle .plus{transition:opacity .2s;opacity:0}.view-toggle.out .plus{opacity:1}
+/* #18 icon crossfade: the plus blurs and shrinks out / sharpens in, never a hard swap. */
+.view-toggle .plus{transform-box:fill-box;transform-origin:center;opacity:0;scale:.4;filter:blur(2px);transition:opacity .2s ease-out,scale .2s ease-out,filter .2s ease-out}.view-toggle.out .plus{opacity:1;scale:1;filter:none}
+.view-toggle .was{position:absolute;white-space:nowrap;pointer-events:none}
 @media (max-width:700px){.view-toggle span{display:none}.view-toggle{padding:0 10px;right:12px}}
 
 /* Dock groups (game.js GROUPS): a group's button, then its menu, which rises above it on hover, focus or a tap (.open).
@@ -492,9 +494,9 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .dock-menu::before{content:"";position:absolute;left:calc(50% + var(--notch,0px));bottom:-6px;width:10px;height:10px;margin-left:-5px;background:#11232b;border:solid var(--line-2);border-width:0 1px 1px 0;transform:rotate(45deg)}
 .dock-menu::after{content:"";position:absolute;left:-8px;right:-8px;top:100%;height:22px} /* hover bridge down to the button */
 .dock-menu.open,.dock-menu:focus-within,.dock>button[data-group]:focus-visible+.dock-menu{opacity:1;visibility:visible;pointer-events:auto;transform:translate(-50%,0) scale(1);
-  transition:opacity .16s ease-out,transform .28s var(--settle,ease-out),visibility 0s}
+  transition:opacity .16s ease-out,transform .2s var(--settle,ease-out),visibility 0s}
 @media (hover:hover){.dock>button[data-group]:hover+.dock-menu,.dock-menu:hover{opacity:1;visibility:visible;pointer-events:auto;transform:translate(-50%,0) scale(1);
-  transition:opacity .16s ease-out,transform .28s var(--settle,ease-out),visibility 0s}
+  transition:opacity .16s ease-out,transform .2s var(--settle,ease-out),visibility 0s}
   .dock>button[data-group]:hover::after{opacity:.9;transform:translateY(-2px) rotate(45deg)}
   .dock>button[data-group]:hover{color:var(--ink)}}
 .dock .dock-menu.hush{opacity:0;visibility:hidden;pointer-events:none;transform:translate(-50%,4px) scale(.97);transition:opacity .1s ease-in,transform .1s ease-in,visibility 0s linear .1s}
@@ -510,7 +512,7 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 /* items follow the menu up, one after another */
 .dock-menu:is(.open,:focus-within,:hover)>button,.dock>button[data-group]:focus-visible+.dock-menu>button{opacity:1;transform:none;transition:background .15s,color .15s,opacity .18s ease-out,transform .3s var(--settle,ease-out)}
 @media (hover:hover){.dock>button[data-group]:hover+.dock-menu>button{opacity:1;transform:none;transition:background .15s,color .15s,opacity .18s ease-out,transform .3s var(--settle,ease-out)}}
-.dock-menu>button:nth-child(2){transition-delay:0s,0s,40ms,40ms!important}
+.dock-menu>button:nth-child(2){transition-delay:0s,0s,30ms,30ms!important}.dock-menu>button:nth-child(3){transition-delay:0s,0s,60ms,60ms!important}.dock-menu>button:nth-child(4){transition-delay:0s,0s,90ms,90ms!important}
 .dock .dock-menu.hush>button{opacity:0}
 @media (max-width:600px){.dock>button[data-group]::after{top:5px;right:5px;width:4px;height:4px}}
 @media (prefers-reduced-motion:reduce){.dock-menu,.dock-menu>button,.dock .dock-menu.hush{transform:translate(-50%,0)!important;transition:opacity .1s,visibility 0s!important}.dock-menu>button{transform:none!important}}
@@ -564,3 +566,15 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .menu-row.account{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .menu-row.account span{display:grid;font-size:13px}
 .menu-row.account small{opacity:.65}
+
+/* ---- UI polish (polish.js, README → UI polish) ---- */
+/* #17 masks: a toast is revealed from its middle out as it rises (game.js toast() masks it away at the end). */
+.toast{animation:rise .34s,toast-reveal .3s ease-out}
+@keyframes toast-reveal{from{clip-path:inset(0 30% 0 30% round 999px)}to{clip-path:inset(0 0 0 0 round 999px)}}
+/* #20 one mark for the open window: it slides between dock buttons instead of each button lighting up on its own. */
+.dock-mark{position:absolute;left:0;top:0;width:0;height:2px;border-radius:2px;background:var(--nib);box-shadow:0 0 8px rgba(127,240,216,.6);pointer-events:none;z-index:1;opacity:0;scale:.4 1;transition:opacity .16s ease-in,scale .16s ease-in}
+.dock-mark.on{opacity:1;scale:1 1;transition:opacity .2s ease-out,scale .2s ease-out}
+/* #8 pulse to confirm success: a ring leaves the goal button when progress goes up. */
+#goal-open.ok-pulse{animation:ok-pulse .6s ease-out}
+@keyframes ok-pulse{from{box-shadow:var(--shadow),0 0 0 0 rgba(127,240,216,.6)}to{box-shadow:var(--shadow),0 0 0 12px rgba(127,240,216,0)}}
+@media (prefers-reduced-motion:reduce){.toast,#goal-open.ok-pulse{animation:none}.dock-mark{transition:none}}

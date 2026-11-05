@@ -29,7 +29,9 @@
     const cs = getComputedStyle(el), y = parseFloat(cs.translate.split(' ')[1]) || 0, over = parseFloat(cs.getPropertyValue('--tap-over')) || -1;
     el.classList.remove('pressing'); if (y <= 0 || reduced) return;
     // The pop starts where the press left the button; its end is implicit, so it settles onto whatever the button rests at.
-    const kf = [{ translate: `0 ${y}px`, filter: cs.filter, boxShadow: cs.boxShadow, easing: 'ease-out' }, { translate: `0 ${over}px`, offset: .55, easing: 'ease-in-out' }, { translate: '0 0' }];
+    // The press also scales to .97 (style.css); it eases back to 1 by the overshoot, which is translate only.
+    const sc = cs.scale === 'none' ? '1' : cs.scale;
+    const kf = [{ translate: `0 ${y}px`, scale: sc, filter: cs.filter, boxShadow: cs.boxShadow, easing: 'ease-out' }, { translate: `0 ${over}px`, scale: '1', offset: .55, easing: 'ease-in-out' }, { translate: '0 0', scale: '1' }];
     last = { el, key: key(el), kf, t: clock() }; tapPop(el, kf, last.t);
     // A click that re-renders (the dock, a window redraw) replaces the button: the pop carries on in its successor.
     requestAnimationFrame(() => { const r = last; if (!r || r.el.isConnected || !r.key) return; const n = document.querySelector(r.key); if (n && n.matches(TAP)) tapPop(n, r.kf, r.t); });

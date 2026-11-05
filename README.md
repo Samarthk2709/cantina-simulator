@@ -73,6 +73,25 @@ Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), buil
 | 16 | Floating labels | "+1 bug", grade and rep, "CRITICAL chain" or "−N rep" rise above the agent. The pay chip carries the dollars |
 | 17 | Pixel iris | A blocky circle closes onto Nib when leaving Stage 1 or changing chapters, then opens on the office (`iris.js`) |
 
+### UI polish (2026-11-05)
+
+From [charles.unemployed's "20 ways" reel](https://www.instagram.com/reel/DfXKRDQRBS_/). Where each tip landed (`polish.js` plus small timing changes):
+
+| Tip | Where |
+|---|---|
+| Ease-out entrances · popovers start at 0.95 · enter from / exit to the trigger · exits 20% shorter | The menu and modal dialogs scale up from 0.95 out of the button that opened them (200 ms) and shrink back toward it (160 ms), Esc included. The office window's shrink is 208 ms against its 260 ms grow. Toasts leave in 270 ms against a 340 ms entrance |
+| Dropdowns at 150–250 ms | Dock group menus open in 200 ms (was 280) and close in 160 ms |
+| Stagger list rows by 30 ms | Window rows (up to the 7th) and dock menu items |
+| Scale to 0.97 on press | Every tactile button, the vitals box and the zoom toggle |
+| Ease-in-out for moves | Toasts making room, the vitals box resizing, the dock mark sliding |
+| Stretch moving knobs 12% · reuse the same layoutId | One cyan mark under the dock button of the open window. It slides to the next button and stretches 12% mid-move |
+| Pulse to confirm success | A ring leaves the goal button when its count goes up |
+| Overlap old and new states · crossfade icons with blur | The zoom toggle's label and its plus icon crossfade with a little blur |
+| Masks for reveals | Toasts open from the middle out and close the same way |
+| No bounce on everyday UI | Agent name tags and the hover lift lose their overshoot. Game moments (hops, stamps, window grows) keep theirs |
+| Arcs · stagger details as they settle | Already there: pay chips arc, and vitals sections and window rows settle in turn |
+| Don't tween while held · rubber band past bounds | Not used: the game has nothing to drag, and scrolling uses the browser's own overscroll |
+
 Everything respects `prefers-reduced-motion`: final states are instant, and only blinks remain.
 
 The founder doesn't wind up: you control it, so it reacts on the frame you press. Fades, blinks, the lamp flicker and bar fills aren't motion, so the rules don't apply to them.
@@ -91,6 +110,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 | `about.html`, `privacy.html`, `terms.html`, `legal.css` | Public pages, linked from the sign-in screen and the menu |
 | `nib-chat.cjs` | Nib's Stage 1 prompt and validator (copied from `cantina-game/nib/nib.cjs`) |
 | `meet.html` | Stage 1 |
+| `polish.js` | UI polish: dialogs from their trigger, the sliding dock mark, the goal pulse, the zoom label crossfade. See **UI polish** |
 | `loop.js` | The one animation loop. World, Nib, the camera lamps, the agent harness and the crew layer each `Loop.add(tick)`. A tick returns true while it needs frames; when none do, the loop sleeps until `Loop.wake()` or input. While awake it runs at the screen's rate (no cap). See **Performance** below |
 | `log.js`, `scripts/sessions.cjs` | Session log: everything the player does and says, errors and API calls, sent to `/api/log` / the reader. See **Session log** |
 | `lag.js` | Lag log: slow frames, long tasks and call counts, sent to `data/lag.log`. See **Lag log** below |

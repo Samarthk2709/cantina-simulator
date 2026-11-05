@@ -331,7 +331,12 @@
     if (!box.children.length) box.classList.toggle('top', matchMedia('(max-width:700px)').matches && $('panel-dialog').open && (b.hidden || !b.classList.contains('docked')));
     toastShift(() => { box.appendChild(el); while (box.children.length > 3) box.firstChild.remove(); });
     requestAnimationFrame(() => { el.shown = true; }); // toasts that arrive together just rise; only ones already up slide
-    setTimeout(() => toastShift(() => el.remove()), 3600);
+    // Leaves by masking in from both ends, 20% shorter than its 340 ms entrance; the stack closes up after.
+    setTimeout(() => {
+      if (!el.isConnected) return; const go = () => toastShift(() => el.remove());
+      if (reduced) return go();
+      el.animate([{ opacity: 1, clipPath: 'inset(0 0 0 0 round 999px)' }, { opacity: 0, clipPath: 'inset(0 14% 0 14% round 999px)' }], { duration: 270, easing: 'ease-in', fill: 'forwards' }).onfinish = go;
+    }, 3600);
   }
   // Phones: if Nib's strip docks at the top while toasts sit there, the stack slides down to the dock so his question stays readable.
   new MutationObserver(() => { const box = $('toasts'), b = $('nib-bubble'); if (box.classList.contains('top') && !b.hidden && b.classList.contains('docked')) toastShift(() => box.classList.remove('top')); })
@@ -341,7 +346,7 @@
   function toastShift(change) {
     const was = reduced ? [] : [...$('toasts').children].filter(t => t.shown).map(t => [t, t.getBoundingClientRect().top]);
     change();
-    was.forEach(([t, y]) => { const dy = Math.round(y - t.getBoundingClientRect().top); if (t.isConnected && dy) t.animate([{ translate: `0 ${dy}px` }, { translate: '0 0' }], { duration: 220, easing: SETTLE }); });
+    was.forEach(([t, y]) => { const dy = Math.round(y - t.getBoundingClientRect().top); if (t.isConnected && dy) t.animate([{ translate: `0 ${dy}px` }, { translate: '0 0' }], { duration: 220, easing: 'cubic-bezier(.65,0,.35,1)' }); }); // a move on screen: ease-in-out
   }
   function floatAt(text, station) { world.float(text, station); window.StationFX?.emit(station, 'float', { text }); }
 
@@ -689,18 +694,18 @@
     winRowsAt = [document.timeline.currentTime, pre]; winRows();
     winRideOn(fx);
   }
-  // Rows follow 3 frames apart, capped so the last is in by ~350 ms. Each redraw during the open (drawWindow) gives its
+  // Rows follow 30 ms apart (list rows stagger tighter than --stagger), capped at the 7th row so the last is in by ~350 ms. Each redraw during the open (drawWindow) gives its
   // new rows the same stagger, pinned to the open's start, so rows from an agent's redraw carry on instead of jumping in.
   // Each row fades up to its own opacity (dimmed rows stay dimmed).
-  let winRowsAt = null;
+  let winRowsAt = null; const ROW = 30;
   function winRows() {
     if (!winRowsAt) return;
     const [t0, pre] = winRowsAt, d = $('panel-dialog');
-    if (document.timeline.currentTime - t0 > pre + 3 * STAGGER + 160) { winRowsAt = null; return; }
+    if (document.timeline.currentTime - t0 > pre + 6 * ROW + 160) { winRowsAt = null; return; }
     const rows = [d.querySelector('.bar'), ...[...$('panel-body').children].flatMap(el => el.matches('ul,ol,.programs') ? [...el.children] : [el])];
     rows.forEach((el, i) => {
       el.getAnimations().forEach(a => { if (a.id === 'win-row') a.cancel(); }); // the bar survives redraws: one stagger at a time
-      el.animate([{ opacity: 0, translate: '0 6px' }, { translate: '0 0' }], { id: 'win-row', duration: 140, delay: pre + Math.min(i, 3) * STAGGER, easing: SETTLE, fill: 'backwards' }).startTime = t0;
+      el.animate([{ opacity: 0, translate: '0 6px' }, { translate: '0 0' }], { id: 'win-row', duration: 140, delay: pre + Math.min(i, 6) * ROW, easing: SETTLE, fill: 'backwards' }).startTime = t0;
     });
   }
   // Nib's strip docks to the resting rect and rides the grow and the shrink with the window: same scale and offset, same centre.
@@ -725,8 +730,8 @@
     d.inert = true; d.style.transformOrigin = winOrigin(d, R);
     // Anticipation: a small swell in place (~5 frames), then it shrinks into its button, blurred only on the way.
     const a = d.animate([{ translate: '0 0', scale: '1', opacity: 1, filter: 'blur(0)', easing: 'ease-out' }, { translate: '0 0', scale: '1.02', opacity: 1, filter: 'blur(0)', offset: .35, easing: WIND },
-      { ...(src ? winFrom(R, src.getBoundingClientRect()) : { translate: '0 0', scale: '.9' }), opacity: 0, filter: 'blur(1.5px)' }], { duration: 240, fill: 'forwards' });
-    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [1, 0] }, { duration: 240, fill: 'forwards', pseudoElement: '::after' }));
+      { ...(src ? winFrom(R, src.getBoundingClientRect()) : { translate: '0 0', scale: '.9' }), opacity: 0, filter: 'blur(1.5px)' }], { duration: 208, fill: 'forwards' }); // exits 20% shorter than the 260 ms grow
+    fx.anims.push(a, document.querySelector('.playfield').animate({ opacity: [1, 0] }, { duration: 208, fill: 'forwards', pseudoElement: '::after' }));
     a.onfinish = () => { if (winFx === fx) { winStop(); d.close(); } };
     winRideOn(fx);
   }
