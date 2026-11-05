@@ -42,7 +42,7 @@ body.stage3 #founder-chips{display:none}
 @media (prefers-reduced-motion:reduce){.s3-av svg{animation:none!important}}
 
 /* On the office floor */
-#s3-layer{position:fixed;inset:0;z-index:2;pointer-events:none;contain:strict} /* viewport-sized: sprite moves never re-lay out the page; nothing off screen to clip */
+#s3-layer{position:fixed;inset:0;z-index:2;pointer-events:none;contain:strict;clip-path:inset(0 0 var(--dock-top,0px) 0)} /* viewport-sized: sprite moves never re-lay out the page. Clipped at the dock's top edge (--dock-top, game.js layout): nobody is drawn over the bottom bar */
 /* Under the (opaque) team view the floor can't be seen: drop it at once so its bob/sway/hop loops stop, even before crew.js hides it. */
 body.s3-agents-open #s3-layer{display:none}
 .s3-agent{position:absolute;pointer-events:auto;border:0;background:none;padding:0;cursor:pointer}
