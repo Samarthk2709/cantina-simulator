@@ -578,3 +578,7 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 #goal-open.ok-pulse{animation:ok-pulse .6s ease-out}
 @keyframes ok-pulse{from{box-shadow:var(--shadow),0 0 0 0 rgba(127,240,216,.6)}to{box-shadow:var(--shadow),0 0 0 12px rgba(127,240,216,0)}}
 @media (prefers-reduced-motion:reduce){.toast,#goal-open.ok-pulse{animation:none}.dock-mark{transition:none}}
+/* #18 Penalty (game.js penalty()): a wrong line's ✗, the red "−8 focus" chip, the vignette on repeated misses */
+.code-line .x{flex:none;margin-left:auto;font:700 16px/1.2 var(--mono);color:var(--danger-ink)}
+.pay-chip.pen{border-color:var(--danger-ink);background:#3a1a1c;color:var(--danger-ink)}
+.pen-vignette{position:fixed;inset:0;z-index:14;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(249,112,102,.55))}

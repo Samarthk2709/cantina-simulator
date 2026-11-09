@@ -487,6 +487,41 @@
     if (!reduced && !w.hidden && now - lastLand > 160) { w.classList.remove('land'); void w.offsetWidth; w.classList.add('land'); lastLand = now; } // a small squash, not one per chip
   }
 
+  // ---------- #18 penalty: a wrong pick hurts where you clicked ----------
+  // The line (or rejected result) flashes red and holds 3 frames (hit-stop), then shakes; a wrong line's ✗ stamps in.
+  // A red "−8 focus" chip pops off it, pulls back and arcs into the meter it came out of, which flashes red as it lands,
+  // and Nib winces on his dock portrait. n is the misses on this bug: from the 2nd the whole window shakes and a red
+  // vignette flashes, harder on the 3rd, so spamming lines feels worse each time. ~700 ms in all. Reduced motion: colour only.
+  const PEN = 'rgba(249,112,102,';
+  function penalty(src, text, to, n) {
+    if (!src || document.hidden) return;
+    const k = Math.min(n || 1, 3), tint = a => ({ boxShadow: `inset 0 0 0 999px ${PEN}${a})` });
+    const shake = (el, px, ms, delay) => el.animate([0, -1, .8, -.6, .4, -.2, 0].map(x => ({ translate: Math.round(x * px) + 'px 0' })), { duration: ms, delay, easing: 'linear', composite: 'add' });
+    src.animate([tint(.5), { ...tint(.5), offset: .1 }, tint(0)], { duration: 500, easing: 'ease-out' });
+    const x = src.querySelector('.x');
+    if (x) x.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [{ scale: 2.4, rotate: '-14deg', opacity: 0 }, { scale: .85, rotate: '0deg', opacity: 1, offset: .55 }, { scale: 1, rotate: '0deg', opacity: 1 }], { duration: 260, easing: 'ease-out' });
+    if (k >= 2) {
+      const v = document.body.appendChild(document.createElement('div')); v.className = 'pen-vignette';
+      v.animate([{ opacity: 0 }, { opacity: .45 + .25 * (k - 2), offset: .15 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' }).onfinish = () => v.remove();
+    }
+    faceWince();
+    const t = to && !to.hidden && to.getBoundingClientRect();
+    const hit = () => { if (!t || !t.width) return; to.animate([tint(.5), tint(0)], { duration: 240, easing: 'ease-out' }); if (!reduced) shake(to, 3, 180, 0); };
+    if (reduced) return void setTimeout(hit, 300);
+    shake(src, 3 + k, 220, 50); // after the hit-stop
+    if (k >= 2) shake($('panel-dialog'), 2 + 2 * k, 260, 50);
+    const s0 = src.getBoundingClientRect(), el = document.body.appendChild(document.createElement('div'));
+    el.className = 'pay-chip pen'; el.textContent = text;
+    const hw = el.offsetWidth / 2, hh = el.offsetHeight / 2, p0 = { x: Math.min(innerWidth - hw - 8, s0.right - hw - 12), y: s0.top + s0.height / 2 };
+    const at = (x, y, sc, o) => ({ transform: `translate(${Math.round(x - hw)}px,${Math.round(y - hh)}px) scale(${sc})`, opacity: o ?? 1 });
+    const kf = [{ ...at(p0.x, p0.y, .6, 0) }, { ...at(p0.x, p0.y - 4, 1.25), offset: .16 }, { ...at(p0.x, p0.y - 6, 1), offset: .26 }, { ...at(p0.x, p0.y - 2, 1), offset: .36 }]; // pop, then pull back
+    if (t && t.width) { // arc into the meter, shrinking, blurred only mid-flight
+      const p2 = { x: t.left + t.width / 2, y: t.top + t.height / 2 }, p1 = { x: (p0.x + p2.x) / 2, y: Math.max(12, Math.min(p0.y, p2.y) - 60) };
+      for (let j = 1; j <= 6; j++) { const e = j / 6, u = 1 - e; kf.push({ ...at(u * u * p0.x + 2 * u * e * p1.x + e * e * p2.x, u * u * (p0.y - 2) + 2 * u * e * p1.y + e * e * p2.y, 1 - .4 * e, j === 6 ? 0 : 1), filter: j > 1 && j < 6 ? 'blur(1.5px)' : 'none', offset: .36 + .64 * e }); }
+    } else kf.push({ ...at(p0.x, p0.y - 30, 1, 0), offset: 1 }); // nowhere to fly: it rises and fades (#16)
+    el.animate(kf, { duration: 460, easing: 'linear', fill: 'forwards' }).onfinish = () => { el.remove(); hit(); };
+  }
+
   // ---------- windows ----------
   function openStation(id) {
     if (!ST[id] || !shown(id) || ui.night) return;
@@ -826,7 +861,7 @@
     const room = t.rooms.find(r => r[0] === f.room);
     const code = lines.map((l, i) => {
       const state = ui.hit === i ? 'hit' : ui.miss && ui.miss.lines.includes(i) ? 'miss' : '';
-      return `<button class="code-line ${state}" data-act="line" data-id="${i}" ${ui.hit != null ? 'disabled' : ''}><span class="ln">${String(i + 1).padStart(2, '0')}</span><code>${esc(D.fill(l.t, f.nouns))}</code></button>`;
+      return `<button class="code-line ${state}" data-act="line" data-id="${i}" ${ui.hit != null ? 'disabled' : ''}><span class="ln">${String(i + 1).padStart(2, '0')}</span><code>${esc(D.fill(l.t, f.nouns))}</code>${state === 'miss' ? '<span class="x" aria-hidden="true">✗</span>' : ''}</button>`;
     }).join('');
     const fb = ui.hit != null ? `<div class="feedback hit"><b>Found it.</b> ${esc(D.fill(lines[ui.hit].bad, f.nouns))}</div>`
       : ui.miss ? `<div class="feedback miss"><b>Line ${ui.miss.last + 1} is fine.</b> ${esc(ui.miss.why)} <span class="cost">−${D.COST.miss} focus</span></div>` : '';
@@ -1074,7 +1109,9 @@
     if (ui.hit != null || (ui.miss && ui.miss.lines.includes(i))) return; // a line already marked fine costs nothing twice
     const r = E.guess(s, ui.fid, i);
     if (!r.ok) { toast(r.why, 'bad'); return; }
-    if (!r.hit) { const m = ui.miss || { lines: [] }; m.lines.push(i); m.last = i; m.why = r.why; ui.miss = m; noteFocus(); drawWindow(); if (m.lines.length === 2) nibSay(C[F[ui.fid].cls].hint, { ms: 4200 }); return; }
+    if (!r.hit) { const m = ui.miss || { lines: [] }; m.lines.push(i); m.last = i; m.why = r.why; ui.miss = m; noteFocus(); drawWindow();
+      penalty($('panel-body').querySelector(`.code-line[data-id="${i}"]`), '−' + D.COST.miss + ' focus', $('focus'), m.lines.length); // #18
+      if (m.lines.length === 2) nibSay(C[F[ui.fid].cls].hint, { ms: 4200 }); return; }
     ui.hit = i; ui.miss = null; noteFocus(); s.seen.rest = s.seen.rest || s.stats.manual >= 1; drawWindow();
     if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
     await teachMoment(ui.fid, r.first);
@@ -1137,6 +1174,7 @@
     if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm. −3 reputation.` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
     else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} ${paidTag(r.fid)}` }; paid(r, 'contract', r.fid); }
     drawWindow();
+    if (!r.real) penalty($('panel-body').querySelector('.feedback.miss'), '−' + -r.repDelta + ' rep', $('rep').parentNode, 2); // #18: rep hurts more than focus
   }
   function buyTool(id) {
     const r = E.buyTool(s, id); if (!r.ok) return toast(r.why, 'bad');
@@ -1405,12 +1443,23 @@
   // Nib's face on the dock chip: the avatar cropped to its head. When he can't be seen in the office, a payout's happy hop
   // (#1) plays here, on the same held whole-pixel frames, the lift halved so his face stays in the frame.
   const face = $('nib-face').getContext('2d');
-  function chipFace(o) { face.clearRect(0, 0, 16, 14); window.Avatars.draw(face, 'nib', 8, 17, 1, o || {}); }
+  function chipFace(o, dx) { face.clearRect(0, 0, 16, 14); window.Avatars.draw(face, 'nib', 8 + (dx || 0), 17, 1, o || {}); }
   let faceAt = null;
   function faceHop() {
     if (reduced) return;
     const go = faceAt === null; faceAt = performance.now(); // a second payout mid-hop starts it over
     if (go) requestAnimationFrame(function f(t) { const p = window.Avatars.hop(Math.max(0, t - faceAt)); chipFace(p && { mood: 'happy', bob: Math.round(p.y / 2), sx: p.sx, sy: p.sy }); if (p) requestAnimationFrame(f); else faceAt = null; });
+  }
+  // #18: on a penalty Nib winces there instead: a sad face shaking his head (just the sad face under reduced motion).
+  let winceT = null, winceN = 0;
+  function faceWince() {
+    if (faceAt !== null) return; // mid-hop: let it finish
+    clearTimeout(winceT); const t0 = performance.now(), me = ++winceN; // a newer wince replaces this one
+    if (reduced) { chipFace({ mood: 'sad' }); winceT = setTimeout(() => chipFace(), 700); return; }
+    requestAnimationFrame(function f(t) {
+      if (faceAt !== null || me !== winceN) return; const i = Math.max(0, Math.floor((t - t0) / 70)); // a hop that starts takes over
+      if (i < 6) { chipFace({ mood: 'sad' }, [-1, 1, -1, 1, 0, 0][i]); requestAnimationFrame(f); } else winceT = setTimeout(() => faceAt === null && chipFace(), 250);
+    });
   }
   chipFace();
 
