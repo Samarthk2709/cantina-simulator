@@ -26,6 +26,8 @@ const store = require('../store.cjs').create({ dir: process.env.FIRST_OFFICE_DAT
   for (let i = 0; i < 30 && await p.$eval('#msg', e => e.disabled); i++) { await p.click('#box'); await p.waitForTimeout(250); }
   await p.fill('#msg', 'Sam'); await p.press('#msg', 'Enter');
   for (let i = 0; i < 30 && !(await p.$('#chips button:not([disabled])')); i++) { await p.click('#box'); await p.waitForTimeout(250); }
+  await p.fill('#msg', 'hmm, tell me more'); await p.press('#msg', 'Enter'); // free-form: Nib asks the model (keywords like "let's do it" don't)
+  for (let i = 0; i < 30 && !(await p.$('#chips button:not([disabled])')); i++) { await p.click('#box'); await p.waitForTimeout(250); }
   await p.fill('#msg', "Let's do it"); await p.press('#msg', 'Enter');
   for (let i = 0; i < 40 && !/index|\/$/.test(new URL(p.url()).pathname); i++) { if (await p.$('#chips button:not([disabled])')) await p.click('#chips button:not([disabled])').catch(() => {}); else await p.click('#box').catch(() => {}); await p.waitForTimeout(300); }
   await p.waitForFunction(() => window.Stage2 && window.SessionLog, null, { timeout: 15000 });

@@ -33,7 +33,7 @@
   function refresh(keep) {
     const s = read(SAVE) || {}, had = new Set((data && data.earned) || []), fresh = [];
     for (const id in NEED) if (!had.has(id) && NEED[id][1](s)) { had.add(id); fresh.push(id); }
-    if (keep && data && fresh.length) { data.earned = [...had]; write(data); }
+    if (keep && data && fresh.length) { const cur = read(KEY) || data; cur.earned = [...new Set([...(cur.earned || []), ...had])]; data = cur; write(cur); } // onto the stored look (another tab may have changed it), new unlocks added
     return { earned: had, fresh };
   }
   const allowed = (key, v, earned) => { const it = ROWS.find(r => r[0] === key)[2].find(i => i[0] === v); return !!it && (!it[2] || earned.has(it[2])); };
@@ -68,7 +68,10 @@
 #look-editor .lk-actions .lk-go{border-color:#7ff0d8;background:#7ff0d8;color:#0d2f33}
 @media (max-width:620px){#look-editor .lk-card{grid-template-columns:1fr}#look-editor .lk-big svg{width:120px;height:158px}}`;
   const LOCK = '<svg class="lk-lock" viewBox="0 0 5 6" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="0" width="3" height="1" fill="#e8b54a"/><rect x="1" y="1" width="1" height="2" fill="#e8b54a"/><rect x="3" y="1" width="1" height="2" fill="#e8b54a"/><rect x="0" y="3" width="5" height="3" fill="#e8b54a"/></svg>';
-  let box = null;
+  let box = null, unshut = null;
+  // While this window is open, the page behind it can't be tabbed to or clicked (inert); returns the undo.
+  // The ending's #modal stays live: shown meanwhile, it opens above this window and must work.
+  const shut = box => { const off = [...document.body.children].filter(el => el !== box && !el.inert && el.id !== 'modal'); off.forEach(el => { el.inert = true; }); return () => off.forEach(el => { el.inert = false; }); };
 
   function open(first) {
     if (box) return Promise.resolve();
@@ -79,7 +82,7 @@
     box.innerHTML = `<div class="lk-card"><b class="lk-title">YOUR CHARACTER</b>
 <div class="lk-stage"><div class="lk-big"></div><div class="lk-poses"></div></div><div class="lk-rows"></div>
 <div class="lk-actions"><button type="button" data-act="random">Randomize</button>${first ? '' : '<button type="button" data-act="cancel">Cancel</button>'}<button type="button" class="lk-go" data-act="save">${first ? 'Start' : 'Save'}</button></div></div>`;
-    document.body.appendChild(box);
+    document.body.appendChild(box); unshut = shut(box);
     const big = box.querySelector('.lk-big'), poses = box.querySelector('.lk-poses'), rows = box.querySelector('.lk-rows');
     const pose = o => A.svg('you', Object.assign({ outfit: draft }, o));
     function paint() {
@@ -94,7 +97,7 @@
     const walk = setInterval(() => { step++; big.innerHTML = pose({ step: [0, 1, 0, 2][step % 4] }); }, 220);
     return new Promise(done => {
       const close = save => {
-        clearInterval(walk); removeEventListener('keydown', keys, true); box.remove(); box = null;
+        clearInterval(walk); removeEventListener('keydown', keys, true); box.remove(); box = null; unshut?.(); unshut = null;
         if (save) { data = { look: draft, earned: [...earned] }; write(data); A.setLook(draft); window.Loop?.wake(); }
         done();
       };
@@ -116,7 +119,7 @@
 
   // New unlocks during play: a toast in the office (#toasts), checked every few seconds against the save.
   setInterval(() => {
-    if (!data || box) return;
+    if (!data || box || window.Stage2?.frozen?.()) return; // a frozen tab (another has the game) writes nothing
     const { fresh } = refresh(true), el = document.getElementById('toasts');
     if (!el) return;
     for (const id of fresh) { const t = document.createElement('div'); t.className = 'toast good'; t.textContent = 'New look unlocked: ' + NAMES[id]; el.appendChild(t); setTimeout(() => t.remove(), 3600); }

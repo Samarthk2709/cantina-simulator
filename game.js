@@ -41,18 +41,42 @@
   // One tab plays at a time. Two tabs would each run the agents and overwrite each other's save (the board flips between
   // their jobs, and everything runs twice). The newest tab wins; an older one stops and offers to take over.
   const TAB = Math.random().toString(36).slice(2);
+  // Signed in, an older tab may hold moves the server hasn't confirmed. It doesn't race this tab to send them: it sets them
+  // aside (Sync.park: localStorage, under their batch id), writes its save and answers {flushed: Infinity}; this tab then
+  // reloads, and the load posts them first (auth.js postPending), so nothing is lost or applied twice. An older tab with
+  // nothing pending answers with its version; with no older tab, this tab waits 300 ms and plays.
+  let bc = null, heard = null, handing = false;
   try {
-    const bc = new BroadcastChannel('first-office');
-    bc.onmessage = e => { if (e.data?.open && e.data.open !== TAB && !frozen) elsewhere(); };
+    // No BroadcastChannel (Safari before 15.4): the same messages through localStorage's storage event (Infinity as 1e15).
+    bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel('first-office') : { onmessage: null, postMessage(m) { try { localStorage.setItem('first-office-tab', JSON.stringify({ ...m, flushed: m.flushed === Infinity ? 1e15 : m.flushed, n: Math.random() })); } catch {} } };
+    if (typeof BroadcastChannel !== 'function') addEventListener('storage', e => { if (e.key === 'first-office-tab' && e.newValue) try { bc.onmessage?.({ data: JSON.parse(e.newValue) }); } catch {} });
+    bc.onmessage = e => {
+      if (e.data?.open && e.data.open !== TAB && !frozen) elsewhere(e.data.open);
+      if (e.data?.to === TAB) heard?.(e.data);
+    };
     bc.postMessage({ open: TAB });
   } catch {}
-  function elsewhere() {
-    // No save here: everything is already saved, and a late write from this older tab would roll the new one back.
+  if (bc && window.Sync?.on) await new Promise(ok => {
+    handing = true;
+    let newest = 0; // every older tab answers: the most any of them moved the server on (Infinity: moves set aside)
+    const reload = () => { frozen = true; window.Sync.stop(); location.reload(); }; // stopped: this tab sets nothing aside on the way out (an older tab's set-aside moves stay as they are)
+    let at = -1; // the version this tab started playing from: a late answer only reloads it while it hasn't moved the server on (else the older moves can't land anyway)
+    heard = m => { newest = Math.max(newest, m.flushed); if (!handing && newest > window.Sync.version && window.Sync.version === at && window.Sync.idle && !frozen) reload(); }; // not with moves of its own to lose // a late answer (a busy tab) still counts
+    setTimeout(() => { handing = false; at = window.Sync.version; if (newest > window.Sync.version && !frozen) reload(); else ok(); }, 300); // frozen: a newer tab took over meanwhile
+  });
+  // Back to a page left frozen (Replay Stage 1, a new run): the copy in the page cache is stale, so load afresh.
+  addEventListener('pageshow', e => { if (e.persisted && frozen && !$('other-tab')) location.reload(); });
+  function elsewhere(to) {
     frozen = true; window.Stage3Agents?.pause(true);
+    if (window.Sync?.on) {
+      const parked = handing ? null : window.Sync.park(); window.Sync.stop(); // still waiting: this tab hasn't played, and an older tab's set-aside moves mustn't be overwritten
+      if (parked) try { localStorage.setItem(KEY, JSON.stringify(s)); localStorage.setItem('first-office-game-version', String(window.Sync.version)); } catch {} // the save the moves were played on
+      bc?.postMessage({ to, flushed: parked || handing ? Infinity : window.Sync.version }); // still waiting on an older tab itself: the newest reloads too
+    }
     ['settings-dialog', 'modal'].forEach(id => { if ($(id)?.open) $(id).close(); }); // the top layer would cover the overlay
     const d = document.createElement('div'); d.id = 'other-tab';
     d.innerHTML = '<div><b>The game is open in another tab.</b><button class="accent">Play here</button></div>';
-    d.addEventListener('click', e => { if (e.target.closest('button')) location.reload(); }); document.body.appendChild(d); // on the box: buttons.js may rebuild the button
+    d.addEventListener('click', e => { if (e.target.closest('button')) location.reload(); }); document.body.appendChild(d); window.Auth_noteOnly?.(d); // on the box: buttons.js may rebuild the button; the keyboard reaches it (auth.js)
   }
 
   // ---------- stations ----------
@@ -166,7 +190,7 @@
   // Drafts nobody is working on: an agent gave up on them, or they come from an old save. One click files them.
   function leftoverDrafts() {
     const busy = new Set((window.Stage3Agents ? window.Stage3Agents.list() : []).filter(a => window.Stage3Agents.live(a)).flatMap(a => a.task?.drafts || []));
-    return Object.keys(s.found).filter(fid => s.found[fid].status === 'draft' && s.pendingTeach !== fid && !busy.has(fid));
+    return Object.keys(s.found).filter(fid => s.found[fid].status === 'draft' && s.pendingTeach !== fid && !busy.has(fid) && !E.banned(s, F[fid].target)); // a banned program takes nothing
   }
 
   // ---------- objective: always one clear next step ----------
@@ -184,7 +208,7 @@
     if (s.tray.length >= D.COST.tray) return 'Finds is full, so I can\'t work tonight. Prove or send some.';
     if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove or send them.';
     if (draft) return 'A find is waiting to be filed at Finds.';
-    if (s.focus < E.maxFocus(s) * 0.1) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
+    if (s.focus < D.COST.find) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
     const tid = s.target, t = T[tid];
     const open = s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).filter(fid => E.slotState(s, fid) === 'open');
     if (open.length) return 'Hunt in ' + t.rooms.find(r => r[0] === F[open[0]].room)[1] + '.' + (s.bugs >= E.GOAL.bugs ? ' Bugs done. Now a critical: ' + critHint() : s.bugs ? ' ' + s.bugs + '/' + E.GOAL.bugs + ' so far.' : '');
@@ -201,8 +225,9 @@
     if (s.pendingTeach) return 'Tell me why that was a bug.';
     const A = window.Stage3Agents, busy = A ? A.busy() : 0, need = A ? A.list().filter(a => a.q).length : 0;
     if (need) return need === 1 ? 'An agent is waiting on you. Open Team.' : need + ' agents are waiting on you. Open Team.';
-    if (s.tray.length && !busy) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove them, or brief someone to.';
-    if (!busy && A && A.list().some(a => a.status === 'resting')) return 'The team is out of focus. Sleep, and they start fresh tomorrow.';
+    if (s.tray.length && !busy) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove ' + (s.tray.length > 1 ? 'them' : 'it') + ', or brief someone to.';
+    if (!busy && A && A.list().some(a => a.status === 'resting' && a.task?.standbyDay == null) && !A.list().some(a => a.status === 'idle' || a.status === 'done')) return 'The team is out of focus. Sleep, and they start fresh tomorrow.';
+    if (!busy && Object.keys(T).every(id => E.banned(s, id))) return 'Every program has banned the company. There is nothing left to hunt: start a new run from the menu.'; // 3 out-of-scope strikes each
     if (!busy) return (60 - s.rep) + ' rep to Elite. Open Team and give someone a job.';
     return busy + ' working · ' + s.rep + '/60 rep. Hunt too, or sleep and I\'ll fill the tray.';
   }
@@ -281,8 +306,9 @@
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
     document.body.classList.toggle('stage3', stage3());
-    // Elite: the engine sets won3 (so the server agrees); the ending shows once, the first render after.
-    if (stage3() && s.won3 && !s.seen.elite) { E.meta(s, { seen: { elite: true } }); setTimeout(postScore, 0); const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
+    // Elite: the engine sets won3 (so the server agrees); the ending shows once, the first render after. seen.elite is
+    // saved when it opens (ending3), so a reload in between still shows it.
+    if (stage3() && s.won3 && !s.seen.elite && !eliteDue) { eliteDue = true; setTimeout(postScore, 0); const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
     $('stats-open').title = stage3() ? 'Reputation (I)' : 'Cash · Shop (B)';
@@ -518,13 +544,13 @@
   }
   function drawWindow(top) {
     if (!ui.win) return; window.Lag?.count('drawWindow');
-    const body = $('panel-body'), y = body.scrollTop;
+    const body = $('panel-body'), pane = $('panel-dialog'), y = pane.scrollTop; // the dialog is what scrolls
     const html = (ui.win === 'hunt' && ui.view === 'hunt' ? '' : `<p class="win-lede">${esc(lede())}</p>`) + { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
     if (top) body.innerHTML = html; else morph(body, html); // a new view starts fresh; a redraw of the same view patches it in place
     stampFx(body);
     $('panel-title').textContent = crumbs();
     $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'map'));
-    body.scrollTop = top ? 0 : y;
+    pane.scrollTop = top ? 0 : y;
     winRows(); // a redraw during the open keeps the rows' stagger (#5)
     render();
   }
@@ -600,7 +626,7 @@
   }
   // world.js turns its insets (CSS px) into canvas px by the canvas's on-screen width, so a zoomed canvas would refit the
   // room inside it. The insets scale with the zoom instead: punchK is the scale world.js sees on its next draw.
-  let punchFx = null, punchK = 1, punchBase = null, lastPay = null;
+  let punchFx = null, punchK = 1, punchBase = null, lastPay = null, eliteDue = false, introing = false; // introing: chapter 3's team intro is talking (sleep waits for it)
   function punchIns(v) { punchBase = v; const k = punchK; return k === 1 ? v : { top: v.top * k, bottom: v.bottom * k, left: (v.left || 0) * k, hud: v.hud && { left: v.hud.left * k, bottom: v.hud.bottom * k } }; }
   function punchFor(r, station, who, key) {
     lastPay = { station, who, t: performance.now() };
@@ -768,14 +794,14 @@
 
   // Desk: board → map → hunt → report.
   function deskView() {
-    if (ui.view === 'hunt' && ui.fid && (E.slotState(s, ui.fid) === 'open' || ui.hit != null)) return huntView();
+    if (ui.view === 'hunt' && ui.fid && (E.slotState(s, ui.fid) === 'open' && F[ui.fid].target === s.target || ui.hit != null)) return huntView(); // an agent may have switched the active program meanwhile
     if (ui.view === 'board' || !s.target) return boardView();
     return mapView();
   }
   function stars(n) { return '<span class="stars">' + '★'.repeat(n) + '<i>' + '★'.repeat(5 - n) + '</i></span>'; }
   function boardView() {
     const cards = (stage3() ? D.ALL_TARGETS : D.TARGETS).map(t => {
-      const lock = E.canTake(s, t.id), cur = s.target === t.id;
+      const lock = E.banned(s, t.id) ? { ok: false, why: 'Banned the company after ' + E.BAN_AT + ' out-of-scope strikes.' } : E.canTake(s, t.id), cur = s.target === t.id && lock.ok;
       const all = t.rooms.flatMap(r => r[5]), tools = all.filter(k => C[k].tool && !E.unlocked(s, k)).length;
       const done = Object.keys(s.found).filter(fid => F[fid].target === t.id && s.found[fid].status === 'accepted').length;
       return `<article class="program ${cur ? 'current' : ''} ${lock.ok ? '' : 'locked'}">
@@ -809,7 +835,7 @@
       const right = st === 'open' ? `<button data-act="hunt" data-id="${fid}" class="accent">Hunt</button>`
         : st === 'locked' ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === cls.tool).name)}</span>`
         : st === 'tray' ? `<button data-act="go" data-id="contract">At Finds</button>`
-        : st === 'draft' ? (leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
+        : st === 'draft' ? (E.banned(s, tid) ? '<span class="tag">banned</span>' : leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
         : paidTag(fid);
       return `<li class="slot ${st}"><span class="dot ${st}"></span><div><b>${st === 'open' || st === 'locked' ? 'Something off' : esc(cls.name)}</b><small>${st === 'open' ? 'about ' + money(t.base * cls.mult * E.crowd(s, tid)) : st === 'locked' ? esc(cls.name) : st === 'tray' ? 'Nib thinks it\'s ' + esc(cls.name.toLowerCase()) : found && found.source === 'nib' ? 'found by Nib' : found && found.source === 'agent' ? 'found by ' + esc(found.by) : 'found by you'}</small></div>${right}</li>`;
     }).join('');
@@ -876,8 +902,8 @@
   function rigView() {
     const known = Object.keys(C).filter(k => E.knows(s, k) && E.unlocked(s, k));
     const avg = known.length ? known.reduce((a, k) => a + E.precision(s, k), 0) / known.length : 0;
-    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${r.tries} ${r.tries === 1 ? 'try' : 'tries'} a night</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
-    const tries = D.RIGS[s.gpu].tries;
+    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${E.nightTries(s, i)} ${E.nightTries(s, i) === 1 ? 'try' : 'tries'} a night</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
+    const tries = E.nightTries(s);
     return `<div class="estimate"><div><span>Tries a night</span><b>${tries}</b></div>${stage3() ? `<div><span>Agents at once</span><b>${[2, 3, 4, 6][s.gpu] || 2}</b></div>` : ''}<div><span>Precision</span><b>${known.length ? pct(avg) : '—'}</b></div><div><span>Real finds</span><b>≈ ${(tries * avg).toFixed(1)}</b></div></div>
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
       <ul class="shoplist">${tiers}</ul>`;
@@ -908,7 +934,7 @@
   });
 
   // ---------- vitals box ----------
-  // A slim list under the chapter title: bugs today, crits, cash and focus. A click (or V) opens today's and lifetime
+  // A slim list under the chapter title: bugs and crits so far, cash and focus. A click (or V) opens today's and lifetime
   // totals and per-day charts. "Today" is the current game day, measured against the snapshot engine.sleep() saves.
   // The room keeps a margin clear for the box (layout → vitalsGutter); on screens too narrow for that it overlaps.
   const VIT = { w: 168, left: 18, gap: 14, openW: 340 };
@@ -998,7 +1024,7 @@
     else setVitals(vmode === 'big' ? 'small' : 'big');
   });
   requestAnimationFrame(() => { $('vitals').classList.toggle('mini', vmode === 'mini'); if (vmode === 'big') setVitals('small'); }); // opens small at most: big is a peek
-  $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
+  $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
   document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals') && vmode === 'big') setVitals('small'); });
 
   function ledgerView() {
@@ -1022,6 +1048,7 @@
       const tr = ui.traceMsg && ui.traceMsg.tid === t.id ? ui.traceMsg : null;
       let act = '';
       if (c.done) act = `<span class="tag good crit" data-stamp="chain:${t.id}">CRITICAL · chained</span>`;
+      else if (c.ready && E.banned(s, t.id)) act = '<span class="tag">banned</span>';
       else if (c.ready) act = `<p class="fine"><b>Chain them:</b> pick why the two together are critical.</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
       else {
         const need = [!c.haveA || !c.haveB ? 'Find both bugs at the Desk.' : '', !E.has(s, 'trace') ? 'Chaining needs the Tracer.' : ''].filter(Boolean).join(' ');
@@ -1057,7 +1084,7 @@
       prove: () => prove(+id), raw: () => raw(+id), toss: () => { E.toss(s, +id); ui.result = null; drawWindow(); },
       tool: () => buyTool(id),
       desk: () => { const r = E.toggleDesk(s, id); if (!r.ok) return toast(r.why, 'bad'); toast(r.sold ? 'Returned. Money back.' : 'Installed. Sleep to use it.'); drawWindow(); },
-      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast(r.refund ? 'Returned for ' + money(r.refund) + '.' : 'Rig upgraded: ' + D.RIGS[s.gpu].tries + ' tries a night.'); floatAt(D.RIGS[s.gpu].tries + ' tries', 'rig'); drawWindow(); },
+      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast(r.refund ? 'Returned for ' + money(r.refund) + '.' : 'Rig upgraded: ' + E.nightTries(s) + ' tries a night.'); floatAt(E.nightTries(s) + ' tries', 'rig'); drawWindow(); },
       trace: () => traceChain(b.dataset.tid, +id)
     }[act] || (() => {}))();
   });
@@ -1089,13 +1116,15 @@
       : first ? 'You saw that. I didn\'t. Why is it a bug? Teach me and I\'ll look for it myself.' : 'Why is that one a bug?';
     for (;;) {
       const v = await nibSay(ask, { choices, mood: 'talk' });
+      if (frozen) { ui.busy = false; return; } // the game moved to another tab: never spin on a dead answer
+      if (v === false) continue; // hushed (the ending): ask again
       const r = E.teach(s, v);
       if (!r.learned) { ask = 'Hm. I don\'t think that\'s it. Look again?'; nib.setMood('sad'); continue; }
       ui.busy = false;
       if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
       else nibSay('OK, I\'ll remember that. ' + (r.after < r.before ? 'Though I feel less sure: ' + pct(r.before) + ' → ' + pct(r.after) + '.' : 'Feels thin, but it\'s a start: ' + pct(r.after) + '.'), { mood: 'think', ms: 4200 });
       if (first && stage3()) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
-      paid(r.paid, 'hunt', fid); // your explanation is the report: it's filed and paid now
+      if (r.paid) paid(r.paid, 'hunt', fid); else toast(T[f.target].name + ' banned the company: that find isn\'t paid.', 'bad'); // your explanation is the report: it's filed and paid now
       break;
     }
     nibWalk(nibHome());
@@ -1134,13 +1163,14 @@
   function raw(id) {
     const c = s.tray.find(x => x.id === id), r = E.submitRaw(s, id); if (!r.ok) return toast(r.why, 'bad');
     const name = esc(C[F[c.fid].cls].name);
-    if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm. −3 reputation.` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
+    if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm.${r.repDelta < 0 ? ` −${-r.repDelta} reputation.` : ''}` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
     else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} ${paidTag(r.fid)}` }; paid(r, 'contract', r.fid); }
     drawWindow();
   }
   function buyTool(id) {
     const r = E.buyTool(s, id); if (!r.ok) return toast(r.why, 'bad');
     const t = D.TOOLS.find(x => x.id === id); floatAt(t.name, 'forge'); toast(t.name + ' bought. ' + t.opens, 'good');
+    if (id === 'dbg' && r.first && !stage3() && !s.crits) { world.pulseAt('hq'); chainTip(); } // bought before the 3rd bug opened the Goal board: its tip plays here
     if (id === 'trace') { world.pulseAt('hq'); nibSay(chainHalves() ? 'Tracer\'s in. Open the Goal board (G) and link the two bugs.' : 'Tracer\'s in. Find both chain bugs, then link them on the Goal board (G).', { ms: 4200 }); }
     drawWindow();
   }
@@ -1198,7 +1228,7 @@
   // away: you were gone 8+ real hours, so the night ran without you (see boot).
   async function sleep(o) {
     const away = o && o.away === true;
-    if (ui.night || ui.busy || ui.morning) return;
+    if (ui.night || ui.busy || ui.morning || introing) return;
     if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad');
     closeWindow(); nib.hush(); tip = null; ui.night = true; ui.nightP = 0; render();
     const night = $('night'); night.hidden = false; $('night-text').textContent = (away ? 'You were away ' + Math.floor(awayMs / 3600000) + 'h. Night ' + s.day + ' ran without you. ' : 'Night ' + s.day + '. ') + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
@@ -1221,8 +1251,9 @@
     if (r.release) { const n = r.release.rooms.length; bits.push(T[r.release.t].name + ' shipped an update overnight: ' + (n > 1 ? n + ' new bugs' : 'a new bug') + ' in ' + [...new Set(r.release.rooms)].join(' and ') + '.'); }
     if (r.made) await nibWalk(SPOT.ops);
     if (r.firsts.ops) world.pulseAt('contract');
-    await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
-    if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('That laptop gives me one try a night. A GPU would give me more tries. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
+    const heard = await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
+    if (heard === false) { ui.morning = false; render(); return; } // hushed by the ending: no tips behind it
+    if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('A bigger rig gives me more tries a night and lets more of the team work at once. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
     if (r.firsts.ops) await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' });
     ui.morning = false; render(); postScore();
     if (!ui.busy) nibWalk(nibHome());
@@ -1249,18 +1280,25 @@
   // mode: 'fresh' (a new first job), 'seed3' (chapter 3 with a ready-made first job) or 'clear' (no game: Stage 1 next).
   const profile = () => ({ playerName: s.player, nibName: s.nib, facts: s.memories });
   async function newRun(mode) {
-    if (window.Sync?.on) { const p = profile(); frozen = true; await window.Sync.newGame(mode, p).catch(() => toast('Couldn\'t reach the server. Try again.', 'bad')); return; }
+    if (window.Sync?.on) { const p = profile(); frozen = true; try { await window.Sync.newGame(mode, p); return true; } catch { if (window.Sync.stopped) { location.reload(); return false; } frozen = false; toast('Couldn\'t reach the server. Try again.', 'bad'); return false; } } // stopped meanwhile (a refused sync): reload to the server's copy // false: nothing changed, so callers wipe nothing
     if (mode === 'seed3') s = E.seed3(profile()); else if (mode === 'fresh') s = E.create(profile(), crypto.getRandomValues(new Uint32Array(1))[0]);
+    return true;
   }
   async function startStage3(seeded) {
-    if (seeded) { wipe(true); await newRun('seed3'); }
-    else { E.startStage3(s); await window.Sync?.flush(); }
+    if (seeded) { if (!await newRun('seed3')) return; wipe(true); }
+    else {
+      E.startStage3(s);
+      // Offline: keep trying, and only reload once the server has chapter 3 (a reload now would load its chapter 2).
+      while (window.Sync?.on && !await window.Sync.flush()) { if (frozen) return; toast('Couldn\'t reach the server. Retrying…', 'bad'); await new Promise(r => setTimeout(r, 4000)); }
+      if (frozen) return; // another tab took the game meanwhile
+    }
     leave();
   }
   function ending3() {
+    E.meta(s, { seen: { elite: true } });
     closeWindow(); nib.hush(); tip = null; // a tutorial line must not sit on top of the ending
     const A = window.Stage3Agents, team = A ? A.list().filter(a => a.id !== 'nib') : [];
-    const byTeam = s.stats.agent || 0, pens = A ? A.crew().pens.length : 0;
+    const byTeam = s.stats.agent || 0, pens = A ? A.crew().pens.filter(p => p.who !== 'You').length : 0; // your own strikes aren't the team's
     $('modal-body').innerHTML = `<div class="ending"><canvas id="end-nib" width="16" height="21"></canvas>
       <h1 id="modal-title">Elite.</h1>
       <p class="lede">Elite reputation on day ${s.day}. The team landed ${byTeam} bug${byTeam === 1 ? '' : 's'}${pens ? ' and took ' + pens + ' penalt' + (pens === 1 ? 'y' : 'ies') : ' without a single penalty'}.</p>
@@ -1318,10 +1356,10 @@
     $('open-board').onclick = () => { $('settings-dialog').close(); openBoard(); };
     $('customize').onclick = () => { $('settings-dialog').close(); window.Customize?.open(); };
     if ($('account')) $('account').onclick = () => { $('settings-dialog').close(); window.Account?.open(); };
-    if ($('sign-out')) $('sign-out').onclick = () => { save(); frozen = true; window.Auth.signOut(); }; // frozen: nothing writes the old save back while it's cleared
+    if ($('sign-out')) $('sign-out').onclick = () => { save(); window.Auth.signOut(); }; // signOut freezes the game once committed (it may ask first)
     if ($('sign-in')) $('sign-in').onclick = () => window.Auth.signIn();
-    $('ch1').onclick = async () => { if (!confirm('Replay Stage 1? Nib forgets you, and the office starts over.')) return; await newRun('clear'); wipe(); frozen = true; location.href = '/meet.html'; };
-    $('ch2').onclick = async () => { if (!confirm('Start the first job over? Names stay.')) return; await newRun('fresh'); wipe(true); leave(); };
+    $('ch1').onclick = async () => { if (!confirm('Replay Stage 1? Nib forgets you, and the office starts over.')) return; if (!await newRun('clear')) return; wipe(); frozen = true; location.href = '/meet.html'; };
+    $('ch2').onclick = async () => { if (!confirm('Start the first job over? Names stay.')) return; if (!await newRun('fresh')) return; wipe(true); leave(); };
     // A finished first job goes into chapter 3 as it is; otherwise the jump uses a ready-made finished job.
     $('ch3').onclick = () => {
       if (stage3()) return toast('You\'re already in chapter 3.');
@@ -1349,9 +1387,9 @@
     try { [KEY, POS, 'first-office-crew-v1'].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
   }
   async function restart() {
-    if (stage3()) { if (!confirm('Restart chapter 3? Agents, rules and progress since the first job are cleared.')) return; startStage3(true); return; }
+    if (stage3()) { if (!confirm('Restart chapter 3 from a ready-made first job? Your current save, agents and rules are replaced.')) return; startStage3(true); return; }
     if (!confirm('Restart the first job? Your names stay.')) return;
-    await newRun('fresh');
+    if (!await newRun('fresh')) return;
     try { localStorage.removeItem(POS); } catch {} posSaved = null;
     leave();
   }
@@ -1384,7 +1422,7 @@
     if (!bubble.hidden && e.key === 'Enter' && !e.target.closest('button')) { const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
     if (!bubble.hidden && /^[1-3]$/.test(e.key)) { const b = bubble.querySelectorAll('.nib-choice')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
     if (e.key === 'Escape' && (dockOpen || document.activeElement.closest?.('.dock-menu'))) { const g = dockOpen; setMenu(null); const b = document.querySelector(`#dock [data-group="${g || document.activeElement.closest('.dock-menu').dataset.menu}"]`); b && b.focus(); return; }
-    if (e.key === 'Escape' && ui.win && !$('modal').open) { e.preventDefault(); closeWindow(); return; }
+    if (e.key === 'Escape' && ui.win && !$('modal').open && !$('settings-dialog').open) { e.preventDefault(); closeWindow(); return; } // the menu closes first
     if (e.repeat || $('modal').open || $('settings-dialog').open || ui.night) return;
     const id = ORDER.find(k => ST[k].key === e.key.toLowerCase());
     if (id && shown(id) && !(ui.win && e.target.closest('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
@@ -1395,7 +1433,7 @@
   });
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
-  window.addEventListener('storage', e => { if (!frozen && e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); lastSaved = JSON.stringify(s); render(); if (ui.win) drawWindow(); } catch {} } }); // lastSaved: don't echo what we just received
+  window.addEventListener('storage', e => { if (!frozen && !window.Sync?.on && e.key === KEY && e.newValue) { try { s = E.restore(JSON.parse(e.newValue)); lastSaved = JSON.stringify(s); render(); if (ui.win) drawWindow(); } catch {} } }); // lastSaved: don't echo what we just received
   // Where you stand: written only when it changed (not every second while idle), and on leaving or hiding the tab.
   const savePos = () => { if (frozen) return; const v = JSON.stringify(world.getState()); if (v === posSaved) return; try { localStorage.setItem(POS, v); posSaved = v; } catch {} };
   let posTimer = setInterval(savePos, 1000); // you can't move in a hidden tab: no timer there
@@ -1418,9 +1456,16 @@
   // Nib and the agents are solid: you walk around them (world.js clearOfBodies).
   // Nib and the agents get shoved out of your way when you walk into them (world.js shoveBodies). An agent leans
   // with the shove for a moment (crew.js reads a.bump).
+  // A walking agent whose next waypoint is under you would be shoved back from it every frame and never arrive:
+  // it skips the points you stand on (world.js keeps a 13×15 px personal space).
+  function skipBlocked(a) {
+    const me = world.getState(); while (a.path?.length && Math.hypot((a.path[0].x - me.x) / 13, (a.path[0].y - me.y) / 15) < 1) a.path.shift();
+    // Still heading straight through you (you're in line between it and its next point): a step aside lets the shove turn it round you.
+    const p = a.path?.[0]; if (p && (p.x - me.x) * (a.pos.x - me.x) + (p.y - me.y) * (a.pos.y - me.y) < 0) { if (Math.abs(p.y - a.pos.y) < 1) a.pos.y += 1; else if (Math.abs(p.x - a.pos.x) < 1) a.pos.x += 1; }
+  }
   world.setBodies(() => {
-    const out = [], n = nib.pos(); if (n && isFinite(n.x)) out.push({ x: n.x, y: n.y, push: (x, y) => nib.nudge(x, y) });
-    for (const a of window.Stage3Agents?.list() || []) if (a.id !== 'nib' && a.pos) out.push({ x: a.pos.x, y: a.pos.y, push: (x, y, ux) => { if (Math.hypot(x - a.pos.x, y - a.pos.y) > 1) a.bump = { t: performance.now(), dir: ux < 0 ? -1 : 1 }; a.pos.x = x; a.pos.y = y; window.Loop.wake(); } });
+    const out = [], n = nib.pos(); if (n && isFinite(n.x)) out.push({ x: n.x, y: n.y, push: (x, y, ux, uy) => { const b = { path: nib.path(), pos: { x, y } }; skipBlocked(b); nib.nudge(b.pos.x, b.pos.y, Math.hypot(ux, uy) > 0.9); } }); // byYou: your shoves are length 1, two bodies easing apart 0.5 (world.js) // same as the agents below
+    for (const a of window.Stage3Agents?.list() || []) if (a.id !== 'nib' && a.pos) out.push({ x: a.pos.x, y: a.pos.y, push: (x, y, ux) => { if (Math.hypot(x - a.pos.x, y - a.pos.y) > 1) a.bump = { t: performance.now(), dir: ux < 0 ? -1 : 1 }; a.pos.x = x; a.pos.y = y; skipBlocked(a); window.Loop.wake(); } });
     return out;
   });
   syncWorld();
@@ -1440,16 +1485,18 @@
     // Reloaded mid-lesson: reopen the code with the found line marked, so the question has its context.
     const fid = s.pendingTeach, f = F[fid];
     ui.fid = fid; ui.view = 'hunt'; ui.miss = null; ui.hit = C[f.cls].variants[f.variant].findIndex(l => l.bad);
-    setTimeout(() => { openStation('hunt'); teachMoment(fid, false, ui.hit); }, 600);
-  } else if (stage3() && !s.seen.team) {
-    (async () => {
+    setTimeout(async () => { openStation('hunt'); await teachMoment(fid, false, ui.hit); if (stage3() && !s.seen.team) teamIntro(); }, 600); // chapter 3 began mid-lesson: the team intro follows it
+  } else if (stage3() && !s.seen.team) teamIntro();
+  else if (awayNight) setTimeout(() => sleep({ away: true }), 900);
+  else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
+  async function teamIntro() { // chapter 3's first visit: Nib introduces the team, then opens Team
+      introing = true; try {
       await wait(700);
       await nibSay('We have a team now, ' + s.player + '. Pip and Moss. They walk the office and use the same desks you do.', { next: true });
       await nibSay('Tell them what to do in Team, at the top, in plain words. The goal: Elite, 60 rep, with at least 5 bugs from the team.', { next: true, nextLabel: 'Open Team' });
       E.meta(s, { seen: { team: true } }); render(); window.Stage3UI?.open('nib');
-    })();
-  } else if (awayNight) setTimeout(() => sleep({ away: true }), 900);
-  else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
+      } finally { introing = false; }
+  }
   try { postScore(); } catch {}
 
   // Agents change the save while you have a window open. Redraw it, but never between your mousedown and mouseup,

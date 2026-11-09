@@ -14,6 +14,8 @@
   let crew;
   try { crew = JSON.parse(localStorage.getItem(CREW)) || blankCrew(); } catch { crew = blankCrew(); }
   if (crew.version !== 1) crew = blankCrew();
+  // Signed in, the cloud save is merged into localStorage after this file runs: read the crew again first (game.js waits for the same promise).
+  window.Auth?.ready.then(() => { try { const c = JSON.parse(localStorage.getItem(CREW)); crew = c?.version === 1 ? c : blankCrew(); } catch { crew = blankCrew(); } });
   const listeners = [];
   let frozen = false; // set by reset(), which is always followed by a reload: nothing may write the old crew back
   const Scope = {

@@ -6,7 +6,7 @@
   const { CLASSES, TARGETS, ALL_TARGETS, TOOLS, RIGS, DESK, REP_TIERS, GRADES, COST, SECTIONS } = D;
   const CH2_TRIES = 4; // chapter 2 has no rig: Nib gets a fixed few tries a night (and never fewer in chapter 3)
   const VERSION = 2, GOAL = { bugs: 5, crits: 1 };
-  const targetById = Object.fromEntries(ALL_TARGETS.map(t => [t.id, t]));
+  const targetById = Object.assign(Object.create(null), Object.fromEntries(ALL_TARGETS.map(t => [t.id, t]))); // no prototype: an id like 'toString' is unknown
   const FINDINGS = {};
   ALL_TARGETS.forEach(t => t.rooms.forEach(r => r[5].forEach((_, i) => { const f = D.finding(t, r, i); FINDINGS[f.id] = f; })));
 
@@ -21,7 +21,7 @@
     profile = profile || {};
     const s = {
       v: VERSION, rng: (seed >>> 0) || 1, player: clean(profile.playerName, 'friend'), nib: clean(profile.nibName, 'Nib'),
-      memories: Array.isArray(profile.facts) ? profile.facts.filter(x => typeof x === 'string').slice(0, 3).map(x => x.slice(0, 80)) : [],
+      memories: Array.isArray(profile.facts) ? profile.facts.filter(x => typeof x === 'string').slice(0, 3).map(x => whole(x.slice(0, 80))) : [],
       stage: 2, day: 1, focus: COST.focus, cups: COST.cups, cash: 0, rep: 0, bugs: 0, crits: 0,
       target: null, picked: Object.fromEntries(ALL_TARGETS.map(t => [t.id, t.picked])), lit: {},
       found: {}, misses: {}, lessons: {}, pendingTeach: null, tray: [], nextId: 1,
@@ -31,7 +31,8 @@
     Object.keys(CLASSES).forEach(k => { s.lessons[k] = { clean: 0, noisy: 0 }; });
     return s;
   }
-  function clean(v, d) { return typeof v === 'string' && v.trim() ? v.trim().slice(0, 24) : d; }
+  const whole = v => v.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // no half emoji: Redis's Lua JSON (store.cjs setIf) can't read one
+  function clean(v, d) { return typeof v === 'string' && v.trim() ? whole(v.trim().slice(0, 24)) || d : d; }
   // Chapter 3: programs ship updates, so new findings appear over time. Each is a new slot in a room, recorded in the
   // save (s.releases) and re-added on load before anything checks that its id exists.
   function addSlot(x) {
@@ -59,8 +60,9 @@
     Object.keys(s).forEach(k => { if (o[k] !== undefined) s[k] = o[k]; });
     s.stats = Object.assign(create({}, 1).stats, o.stats);
     s.picked = Object.assign(create({}, 1).picked, o.picked); // programs added later get their starting crowd
+    s.player = clean(s.player, 'friend'); s.nib = clean(s.nib, 'Nib'); s.memories = (Array.isArray(s.memories) ? s.memories : []).filter(x => typeof x === 'string').map(whole); // a save from before whole(): the next write repairs it
     // Drop anything that no longer exists in data.js, so an old save can't crash the page.
-    s.tray = s.tray.filter(c => FINDINGS[c.fid]);
+    s.tray = s.tray.filter(c => FINDINGS[c.fid] && !banned(s, FINDINGS[c.fid].target)); // a banned program's finds can't be sent
     Object.keys(s.found).forEach(fid => { if (!FINDINGS[fid]) delete s.found[fid]; });
     if (s.pendingTeach && !s.found[s.pendingTeach]) s.pendingTeach = null;
     Object.keys(s.lit).forEach(t => { if (!targetById[t]) delete s.lit[t]; else s.lit[t] = s.lit[t].filter(r => targetById[t].rooms.some(x => x[0] === r)); });
@@ -110,7 +112,8 @@
     return Math.round(t.base * CLASSES[f.cls].mult * GRADES[grade].m * crowd(s, t.id) * tier(s).bonus * (proven ? 1.25 : 1) * (crit ? 3 : 1));
   }
   function log(s, text, kind) { s.log.unshift({ day: s.day, text, kind: kind || '' }); s.log.length = Math.min(s.log.length, 30); }
-  function addRep(s, n, why) { const before = tier(s).name; s.rep = Math.max(0, s.rep + n); log(s, (n >= 0 ? '+' : '') + n + ' rep · ' + why, n >= 0 ? 'good' : 'bad'); return tier(s).name !== before ? tier(s) : null; }
+  // Logs what really moved: rep stops at 0.
+  function addRep(s, n, why) { const before = tier(s).name, was = s.rep; s.rep = Math.max(0, s.rep + n); const d = s.rep - was; log(s, (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d) + ' rep · ' + why, n >= 0 ? 'good' : 'bad'); return tier(s).name !== before ? tier(s) : null; }
   function reveal(s, id) { if (s.seen[id]) return false; s.seen[id] = true; return true; }
 
   // ---- actions: each returns {ok, ...}; failures carry a short reason ----
@@ -135,12 +138,11 @@
     if (s.pendingTeach && !by) return { ok: false, why: 'Nib is waiting to hear why the last one was a bug.' };
     const lines = CLASSES[f.cls].variants[f.variant], L = lines[line];
     if (!L) return { ok: false, why: 'No such line.' };
+    if (s.focus < COST.find) return { ok: false, why: 'Too tired. Coffee or sleep.' }; // the same answer for every line: being tired mustn't show which one is the bug
     if (!L.bad) {
-      if (s.focus < COST.miss) return { ok: false, why: 'Too tired. Coffee or sleep.' };
       s.focus -= COST.miss; s.misses[fid] = (s.misses[fid] || 0) + 1;
       return { ok: true, hit: false, why: D.fill(L.ok, f.nouns) };
     }
-    if (s.focus < COST.find) return { ok: false, why: 'Too tired to file it. Coffee or sleep.' };
     s.focus -= COST.find;
     if (by) { s.found[fid] = { status: 'draft', source: 'agent', by, proven: false, report: {}, verdict: null }; return { ok: true, hit: true, why: D.fill(L.bad, f.nouns) }; }
     s.stats.manual++;
@@ -158,8 +160,8 @@
     if (choice === 'wrong') return { ok: true, learned: false };
     if (choice === 'sharp') s.lessons[cls].clean++; else if (choice === 'shallow') s.lessons[cls].noisy++; else return { ok: false, why: 'Pick an answer.' };
     s.pendingTeach = null; s.found[fid].lesson = choice;
-    // No report to write: how well you explained the bug is how well it's reported.
-    const paid = fileFound(s, fid, choice === 'sharp' ? 'S' : 'B');
+    // No report to write: how well you explained the bug is how well it's reported. A program that banned us mid-lesson takes nothing.
+    const paid = banned(s, FINDINGS[fid].target) ? (delete s.found[fid], null) : fileFound(s, fid, choice === 'sharp' ? 'S' : 'B');
     return { ok: true, learned: true, clean: choice === 'sharp', before, after: precision(s, cls), firstOfClass: before === 0, paid };
   }
   function setSection(s, fid, sec, idx) {
@@ -216,8 +218,9 @@
   }
 
   // Nib's night: map one room next to what's lit, then try `tries` slots it knows how to look for.
+  const nightTries = (s, gpu = s.gpu) => s.stage === 3 ? Math.max(CH2_TRIES, RIGS[gpu].tries) : CH2_TRIES; // the Rig window shows the same
   function sleep(s) {
-    const night = { day: s.day, mapped: [], tries: s.stage === 3 ? Math.max(CH2_TRIES, RIGS[s.gpu].tries) : CH2_TRIES, made: 0, idle: '' };
+    const night = { day: s.day, mapped: [], tries: nightTries(s), made: 0, idle: '' };
     // End-of-day totals for the vitals box: today's numbers are the change since the last entry.
     s.days.push({ day: s.day, bugs: s.bugs, crits: s.crits, cash: s.cash, rep: s.rep, earned: s.stats.earned }); if (s.days.length > 60) s.days.shift();
     s.day++; s.focus = maxFocus(s); s.cups = maxCups(s);
@@ -237,7 +240,10 @@
           if (slotState(s, fid) === 'open' && knows(s, FINDINGS[fid].cls)) out.push(fid);
         })));
         const cur = fid => FINDINGS[fid].target === tid ? 1 : 0;
-        return out.sort((a, b) => cur(b) - cur(a) || precision(s, FINDINGS[b].cls) - precision(s, FINDINGS[a].cls) || rand(s) - 0.5);
+        // Ties break on one draw per candidate, made before sorting: rand inside the comparator would depend on the
+        // engine's sort, so the page and the server (sync.js) would end the night with different dice.
+        const key = {}; out.forEach(fid => { key[fid] = rand(s); });
+        return out.sort((a, b) => cur(b) - cur(a) || precision(s, FINDINGS[b].cls) - precision(s, FINDINGS[a].cls) || key[a] - key[b]);
       };
       const taught = Object.values(s.lessons).some(l => l.clean + l.noisy > 0);
       // Each try either searches a slot or, when nothing is left to search, maps another room.
@@ -268,14 +274,14 @@
     if (s.focus < COST.prove) return { ok: false, why: 'Proving takes 15 focus. Coffee or sleep.' };
     s.focus -= COST.prove; drop(s, id); s.stats.proven++;
     if (!c.real) { log(s, 'Proof showed a false alarm. No harm done.', ''); return { ok: true, real: false }; }
-    s.found[c.fid] = { status: 'draft', source: 'nib', proven: true, report: {}, verdict: null };
+    s.found[c.fid] = { status: 'draft', source: acting ? 'agent' : 'nib', ...(acting ? { by: s.actor } : {}), proven: true, report: {}, verdict: null }; // an agent's proof counts for the team
     return { ok: true, real: true, fid: c.fid, paid: fileFound(s, c.fid, 'A') };
   }
   function submitRaw(s, id) {
     const c = cand(s, id); if (!c) return { ok: false, why: 'Gone.' };
     drop(s, id); s.stats.raw++;
-    if (!c.real) { s.stats.falseSubmits++; const tierUp = addRep(s, -3, 'false alarm submitted'); return { ok: true, real: false, repDelta: -3, tierUp }; }
-    s.found[c.fid] = { status: 'draft', source: 'nib', proven: false, report: {}, verdict: null };
+    if (!c.real) { s.stats.falseSubmits++; const before = s.rep, tierUp = addRep(s, -3, 'false alarm submitted'); return { ok: true, real: false, repDelta: s.rep - before, tierUp }; } // less than 3 near 0: reputation stops at 0
+    s.found[c.fid] = { status: 'draft', source: acting ? 'agent' : 'nib', ...(acting ? { by: s.actor } : {}), proven: false, report: {}, verdict: null };
     // Unproven: filed as Nib wrote it, so it's only as good as what you've taught.
     const res = fileFound(s, c.fid, precision(s, FINDINGS[c.fid].cls) >= 0.7 ? 'B' : 'C');
     return Object.assign({ real: true, fid: c.fid }, res);
@@ -332,8 +338,9 @@
   const bannedWhy = t => ({ ok: false, why: targetById[t].name + ' banned the company after ' + BAN_AT + ' out-of-scope strikes.' });
   function strike(s, tid, rid, what) {
     const who = s.actor || 'You', n = ((s.strikes = s.strikes || {})[tid] || 0) + 1, t = targetById[tid], room = t.rooms.find(x => x[0] === rid)[1];
-    s.strikes[tid] = n; penalize(s, STRIKE_REP, 'out of scope · ' + who);
-    return { who, title: 'Out of scope', text: who + ' ' + what + ' ' + room + ', which is out of scope for ' + t.name + '. −' + STRIKE_REP + ' rep · strike ' + n + '/' + BAN_AT + '.', rep: STRIKE_REP, program: tid, strikes: n, banned: n >= BAN_AT };
+    s.strikes[tid] = n; const was = s.rep; penalize(s, STRIKE_REP, 'out of scope · ' + who); const lost = was - s.rep; /* less than STRIKE_REP near 0 */
+    if (n >= BAN_AT) s.tray = s.tray.filter(c => FINDINGS[c.fid].target !== tid); // banned: its finds on the tray can't be sent, so they go
+    return { who, title: 'Out of scope', text: who + ' ' + what + ' ' + room + ', which is out of scope for ' + t.name + '.' + (lost ? ' −' + lost + ' rep ·' : '') + ' strike ' + n + '/' + BAN_AT + '.', rep: lost, program: tid, strikes: n, banned: n >= BAN_AT };
   }
   const st3 = {
     takeJob: (s, tid) => banned(s, tid) ? bannedWhy(tid) : takeJob(s, tid),
@@ -354,6 +361,7 @@
     prove: (s, id) => { const c = s.tray.find(x => x.id === id); return c && banned(s, FINDINGS[c.fid].target) ? bannedWhy(FINDINGS[c.fid].target) : prove(s, id); },
     submitRaw: (s, id) => { const c = s.tray.find(x => x.id === id); return c && banned(s, FINDINGS[c.fid].target) ? bannedWhy(FINDINGS[c.fid].target) : submitRaw(s, id); },
     trace: (s, tid, o) => banned(s, tid) ? bannedWhy(tid) : trace(s, tid, o),
+    fileDraft: (s, fid) => FINDINGS[fid] && banned(s, FINDINGS[fid].target) ? bannedWhy(FINDINGS[fid].target) : fileDraft(s, fid),
   };
 
   // ---------- chapter 3: the team (focus, hiring, overtime) ----------
@@ -427,7 +435,7 @@
     m = m && typeof m === 'object' ? m : {};
     if (typeof m.player === 'string') s.player = clean(m.player, s.player);
     if (typeof m.nib === 'string') s.nib = clean(m.nib, s.nib);
-    if (m.seen && typeof m.seen === 'object') for (const k of Object.keys(m.seen)) if (/^[a-z0-9]{1,16}$/.test(k) && m.seen[k] === true) s.seen[k] = true;
+    if (m.seen && typeof m.seen === 'object') for (const k of Object.keys(m.seen)) if (/^[a-z0-9]{1,16}$/.test(k) && m.seen[k] === true && (Object.hasOwn(s.seen, k) || Object.keys(s.seen).length < 64)) s.seen[k] = true; // capped: the save can't be grown without end
     if (Number.isFinite(m.seenAt)) s.seenAt = m.seenAt;
     return { ok: true };
   }
@@ -435,22 +443,26 @@
   // ---------- actions: everything that changes the save, by name, so a server can replay it ----------
   // The page plays them locally at once and sends them up; the server replays them on its own copy (which is the real
   // save). record(): the page's hook, told about every call to one of these, with the agent context if any.
-  const ACTIONS = { takeJob: st3.takeJob, mapRoom: st3.mapRoom, guess: st3.guess, teach, setSection, submit: st3.submit, fileDraft, coffee, sleep, prove: st3.prove,
+  const ACTIONS = { takeJob: st3.takeJob, mapRoom: st3.mapRoom, guess: st3.guess, teach, setSection, submit: st3.submit, fileDraft: st3.fileDraft, coffee, sleep, prove: st3.prove,
     submitRaw: st3.submitRaw, toss, buyTool, setRig, toggleDesk, trace: st3.trace, hire, coffeeRun, startStage3, meta };
   // What a replayed action may carry: plain values only (meta's one object aside), no prototype names, known agents
   // and programs. Anything else is refused before it reaches the rules.
   const BAD_KEYS = ['__proto__', 'constructor', 'prototype'];
-  const plain = v => v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 80 && !BAD_KEYS.includes(v));
+  const plain = v => v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 80 && !BAD_KEYS.includes(v) && !(v in Object.prototype)); // 'toString' is no finding id
   function validAction(a) {
     if (!a || typeof a !== 'object' || typeof a.fn !== 'string' || !Object.hasOwn(ACTIONS, a.fn)) return false;
     const args = a.args == null ? [] : a.args; if (!Array.isArray(args) || args.length > 6) return false;
-    if (!args.every((v, i) => plain(v) || (a.fn === 'meta' && i === 0 && v && typeof v === 'object' && !Array.isArray(v)))) return false;
+    if (!args.every((v, i) => plain(v) || (a.fn === 'meta' && i === 0 && v && typeof v === 'object' && !Array.isArray(v)) || (a.fn === 'guess' && i === 2 && typeof v === 'string' && v.length <= 80))) return false; // guess's by is the agent's name, any name the player chose (act checks it)
     if (a.actor != null && !(typeof a.actor === 'string' && (a.actor === 'nib' || Object.hasOwn(NAMES, a.actor)))) return false;
     if (a.target != null && !(typeof a.target === 'string' && Object.hasOwn(targetById, a.target))) return false;
     return true;
   }
+  const AGENT_ACTIONS = ['takeJob', 'mapRoom', 'guess', 'setSection', 'submit', 'prove', 'submitRaw', 'buyTool', 'setRig', 'toggleDesk', 'trace', 'meta']; // what stage3/harness.js runs as an agent
   function act(s, a) {
     if (!validAction(a)) return { ok: false, why: 'Bad action.' };
+    // Only chapter 3's team acts as an agent, only in the actions it uses, and a find is filed as the team's (guess's by) exactly when an agent made it.
+    if (a.actor && (s.stage !== 3 || !AGENT_ACTIONS.includes(a.fn))) return { ok: false, why: 'Bad action.' };
+    if (a.fn === 'guess' && ((a.args || [])[2] ?? null) !== (a.actor ? agentName(s, a.actor) : null)) return { ok: false, why: 'Bad action.' }; // guess(s, fid, line, by): by is args[2]
     const run = s2 => ACTIONS[a.fn](s2, ...(a.args || []));
     const r = a.actor ? asAgent(s, a.actor, a.target, a.keep, run) : run(s);
     checkWin3(s);
@@ -468,7 +480,7 @@
     };
   });
 
-  const api = { shipRelease, act, digest, asAgent, seed3, banned, inScope, OUT_OF_SCOPE, STRIKE_REP, BAN_AT, HIRES, OT, TEAM_GOAL, energyOf, checkWin3, ACTIONS: Object.keys(ACTIONS), record: null, VERSION, GOAL, penalize, log, FINDINGS, targetById, create, restore, maxFocus, maxCups, tier, nextTier, precision, knows, unlocked, has, crowd, canTake, isLit, canMap, slotState, roomFindings, payout, gradeOf,
+  const api = { shipRelease, act, digest, nightTries, asAgent, seed3, banned, inScope, OUT_OF_SCOPE, STRIKE_REP, BAN_AT, HIRES, OT, TEAM_GOAL, energyOf, checkWin3, ACTIONS: Object.keys(ACTIONS), record: null, VERSION, GOAL, penalize, log, FINDINGS, targetById, create, restore, maxFocus, maxCups, tier, nextTier, precision, knows, unlocked, has, crowd, canTake, isLit, canMap, slotState, roomFindings, payout, gradeOf,
     chainState, nibDraft, ...recorded };
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.Stage2Engine = api;

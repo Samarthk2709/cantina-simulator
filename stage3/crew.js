@@ -242,7 +242,7 @@
   }
   window.Stage3Float = floatFind;
   // Penalties also show as a small toast in the office, in the game's own toast style.
-  C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()} · −${p.rep} rep`, 'bad'));
+  C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()}${p.rep ? ` · −${p.rep} rep` : ''}`, 'bad'));
 
   // ---------- idle life (motion #8): idle and done agents breathe a pixel, blink and glance, each on its own rhythm ----------
   // Frames are swapped inside the avatar's own <svg>, so the redraws' string diffs (setHTML, morph) never see them and the state animations
@@ -315,10 +315,11 @@
     update();
     main.querySelector('[data-input]').focus();
   }
-  const busyWith = a => !!a.task && !a.task.finished;
+  const busyWith = a => !!a.briefing || (!!a.task && !a.task.finished); // a message still being read counts: the next one queues (harness.js hasTask)
   const placeholder = a => busyWith(a) ? `Queue a task for ${esc(a.name)} · ⌘↵ to do it now` : `Tell ${esc(a.name)} what to do · “every day” makes it a standing order`;
   // Briefs waiting behind the current task, in order. ✕ drops one.
-  const queueHtml = a => a.queue.length ? a.queue.map((q, i) => `<div class="s3-q"><span class="n">${i ? 'Then' : 'Next'}</span><span class="t">${esc(q)}</span><button class="s3-link" data-unq="${a.id}:${i}" aria-label="Remove from queue">✕</button></div>`).join('') : '';
+  const queueHtml = a => a.queue.map((q, i) => `<div class="s3-q"><span class="n">${i ? 'Then' : 'Next'}</span><span class="t">${esc(q)}</span><button class="s3-link" data-unq="${a.id}:${i}" aria-label="Remove from queue">✕</button></div>`).join('')
+    + (a.resume || []).map((q, i) => `<div class="s3-q"><span class="n">Tomorrow</span><span class="t">${esc(q)}</span><button class="s3-link" data-unp="${a.id}:${i}" aria-label="Drop this standing order">✕</button></div>`).join(''); // standing orders paused until tomorrow
   function head(a) {
     const g = a.status === 'resting' || a.q ? A.phrase(a) : a.task && a.task.finished !== true ? A.gistOf(a.task) : '';
     return `${avatar(a)}<div class="who"><b>${esc(a.name)}</b><span>${esc(g || (a.id === 'nib' ? 'Co-lead' : 'Agent'))}</span></div>${A.live(a) || a.status === 'queued' ? `<button class="s3-link" data-stop="${a.id}">Stop</button>` : ''}`;
@@ -368,7 +369,7 @@
       case 'pen': return `<div class="m-card pen"><b>${esc(m.title || 'Penalty')}</b>${esc(m.text)}${fixBtn(a, m)}</div>`;
       case 'brief': { const b = m.task || {}; return `<div class="m-task">${esc(b.label)} · stops when ${esc(b.stop)}${b.budget != null ? ` · budget ${money(b.budget)}` : ''}</div>`; }
       case 'done': { const s = m.stats || {};
-        if (!s.accepted && !s.pens && !s.spent) return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${esc(m.text)}</div>`;
+        if (!s.accepted && !s.pens && !s.spent && !s.earned) return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${esc(m.text)}</div>`;
         return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${s.accepted} bug${s.accepted === 1 ? '' : 's'} · ${money(s.earned)}${s.pens ? ` · ${s.pens} penalt${s.pens === 1 ? 'y' : 'ies'}` : ''}${s.spent ? ` · spent ${money(s.spent)}` : ''}</div>`; }
       default: return '';
     }
@@ -437,11 +438,15 @@
     if (!input || !out) return;
     const text = input.value.trim();
     if (!text) return void (out.innerHTML = '');
+    if (A.isClearQueue(text)) return void (out.innerHTML = (a.queue || []).length ? `Clears ${a.queue.length} queued order${a.queue.length > 1 ? 's' : ''} · the current task goes on` : 'Clear queue · nothing is queued');
+    const then = A.stopThen(text); if (then) return void (out.innerHTML = (/\b(?:queue|queued|everything|all of it|the rest)\b/i.test(text.slice(0, text.length - then.length)) ? 'Stop, clear the queue, then ' : 'Stop, then ') + esc(A.label(A.parseLocal(then))));
+    if (A.isStop(text) && /\b(?:queue|queued|everything|all of it|the rest)\b/i.test(text)) return void (out.innerHTML = 'Stop · ends the current task and clears the queue');
+    if (A.isStop(text)) return void (out.innerHTML = a.briefing ? (a.task && !a.task.finished ? 'Stop · cancels the message being read and ends the current task' : 'Stop · cancels the message being read') : a.task && !a.task.finished ? 'Stop · ends the current task' : (a.resume || []).length ? `Stop · cancels ${a.resume.length} paused standing order${a.resume.length > 1 ? 's' : ''}` : 'Stop · nothing is running'); // as harness.js send() reads it
     if (A.isQuestion(text)) return void (out.innerHTML = 'Question · ' + esc(a.name) + ' will answer');
     const t = A.parseLocal(text);
-    if (t.job === 'none') return void (out.innerHTML = A.model().ok ? '' : 'Not a task the game recognizes');
+    if (t.job === 'none') return void (out.innerHTML = A.model().ok ? '' : 'Not a task the game recognizes · ' + esc(a.name) + ' will just reply'); // online, the model decides
     const w = A.lint(a, t)[0];
-    out.innerHTML = `${esc(A.label(t))}${t.until ? ' · until ' + esc(A.stopLabel(t)) : ''}${busyWith(a) ? (a.task.standbyDay != null ? ' · runs now, then the standing order resumes' : ' · queued after the current task · ⌘↵ replaces it') : ''}${t.forever ? ' · standing order' : ''}${w ? `<span class="warn">${esc(w)}</span>` : ''}`;
+    out.innerHTML = `${esc(A.label(t))}${t.until ? ' · until ' + esc(A.stopLabel(t)) : ''}${busyWith(a) ? (a.task?.standbyDay != null || (a.task?.forever && a.status === 'resting') ? (a.task?.program && !a.task.autoPick && C.banned(a.task?.program) ? ' · runs now; the standing order is dropped (banned)' : ' · runs now, then the standing order resumes tomorrow') : (/^now\b/i.test(text) ? ' · replaces the current task' : ' · queued after the current task · ⌘↵ replaces it')) : ''}${t.forever ? ' · standing order' : ''}${w ? `<span class="warn">${esc(w)}</span>` : ''}`;
   }
   function rulesView() {
     const rules = A.crew().rules;
@@ -461,7 +466,9 @@
     if (d.go) { const [kind, id] = d.go.split(':'); view = {kind, id}; renderMain(); }
     else if (d.ans) { const [id, i] = d.ans.split(':'); A.answer(id, +i); }
     else if (d.stop) A.stop(d.stop);
+    else if ((d.unq || d.unp) && e.detail > 1) return; // a double-click: the rows shift under the cursor, so only the first click counts
     else if (d.unq) { const [id, i] = d.unq.split(':'); A.unqueue(id, +i); }
+    else if (d.unp) { const [id, i] = d.unp.split(':'); A.unpause(id, +i); }
     else if (d.steps) { openSteps.has(d.steps) ? openSteps.delete(d.steps) : openSteps.add(d.steps); }
     else if (d.fix) { A.setRule('all', d.fix, true); G.toast('Added to AGENTS.md', 'good'); }
     else if (d.rule) { A.setRule('all', d.rule, el.checked); renderMain(); }
@@ -489,7 +496,6 @@
     if (e.altKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); return go(0, +e.code.slice(5) - 1); }
     if (e.key === '/' && !typing && !e.target.closest?.('input,textarea')) { e.preventDefault(); document.querySelector('#s3-main [data-input]')?.focus(); }
   }, true);
-  window.addEventListener('keyup', e => { if (open) e.stopPropagation(); }, true);
 
   let pending = false, lastRefresh = 0;
   A.onChange(() => {

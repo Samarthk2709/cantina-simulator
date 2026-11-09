@@ -30,7 +30,10 @@
 #acct .foot{display:flex;justify-content:space-between;gap:8px;padding-top:14px;border-top:1px solid #20343d}
 #acct .gbtn iframe{color-scheme:light}
 #acct details summary{cursor:pointer;color:#f2b8b0;font-size:13px}`;
-  let box = null, info = null;
+  let box = null, info = null, unshut = null;
+  // While this window is open, the page behind it can't be tabbed to or clicked (inert); returns the undo.
+  // The ending's #modal stays live: shown meanwhile, it opens above this window and must work.
+  const shut = box => { const off = [...document.body.children].filter(el => el !== box && !el.inert && el.id !== 'modal'); off.forEach(el => { el.inert = true; }); return () => off.forEach(el => { el.inert = false; }); };
   function msg(id, text, ok) { const el = box && box.querySelector(`[data-msg="${id}"]`); if (el) { el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); } }
   const val = name => (box.querySelector(`[name="${name}"]`) || {}).value || '';
   function draw() {
@@ -55,8 +58,9 @@
       window.google.accounts.id.renderButton(g, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with' });
     }).catch(() => msg('google', 'Google sign-in could not load.'));
   }
+  // A rename also updates Auth.user, so the menu's "Signed in as" shows the new name.
   async function run(id, fn, ok) {
-    try { const r = await fn(); if (r && r.account) { info = r.account; draw(); } msg(id, ok, true); return r; }
+    try { const r = await fn(); if (r && r.account) { info = r.account; if (box) draw(); } if (r?.user?.name && window.Auth?.user) window.Auth.user.name = r.user.name; msg(id, ok, true); return r; }
     catch (e) { msg(id, e.message); }
   }
   const ACT = {
@@ -76,10 +80,12 @@
       const r = await run('delete', () => call('/delete', { confirm: val('confirm').trim(), password: val('delpass') }), 'Deleted.');
       if (r && r.ok) { window.Stage2?.freeze?.(); window.Auth.forget(); }
     },
-    signout() { close(); window.Stage2?.freeze?.(); window.Auth.signOut(); },
+    signout() { close(); window.Auth.signOut(); }, // signOut freezes the game once it's committed (it may ask first)
     close,
   };
-  function close() { if (box) box.remove(); box = null; }
+  // Keys outside the window (focus on its backdrop or the page) don't reach the office while it's open.
+  const outside = e => { if (box && !box.contains(e.target)) { e.stopImmediatePropagation(); if (e.key === 'Escape') close(); } };
+  function close() { if (box) box.remove(); box = null; removeEventListener('keydown', outside, true); unshut?.(); unshut = null; }
   async function open() {
     if (!window.Auth?.user) return;
     if (!document.getElementById('acct-css')) { const st = document.createElement('style'); st.id = 'acct-css'; st.textContent = CSS; document.head.appendChild(st); }
@@ -87,10 +93,9 @@
     box = document.createElement('div'); box.id = 'acct'; box.innerHTML = '<div class="card" role="dialog" aria-label="Account"><p class="sub">Loading…</p></div>';
     box.addEventListener('click', e => { if (e.target === box) return close(); const b = e.target.closest('[data-do]'); if (b) ACT[b.dataset.do](); });
     box.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') close(); }); // the office doesn't walk while you type
-    box.addEventListener('keyup', e => e.stopPropagation());
-    document.body.appendChild(box);
-    try { info = (await call('')).account; draw(); box.querySelector('[name="username"]').focus(); }
-    catch (e) { box.querySelector('.card').innerHTML = `<p class="msg err">${esc(e.message)}</p><div class="foot"><span></span><button class="go" data-do="close">Close</button></div>`; }
+    document.body.appendChild(box); addEventListener('keydown', outside, true); unshut = shut(box);
+    try { info = (await call('')).account; if (!box) return; draw(); box.querySelector('[name="username"]').focus(); }
+    catch (e) { if (!box) return; box.querySelector('.card').innerHTML = `<p class="msg err">${esc(e.message)}</p><div class="foot"><span></span><button class="go" data-do="close">Close</button></div>`; }
   }
   window.Account = { open, close };
 })();

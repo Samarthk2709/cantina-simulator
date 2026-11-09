@@ -191,3 +191,17 @@ test('restore drops ids that no longer exist; a full Ops desk is reported as ful
   s.lessons.auth = { clean: 3, noisy: 0 }; s.tray = Array.from({ length: D.COST.tray }, (_, i) => ({ id: i + 1, fid: 'chat:msgs:0', real: true, conf: 50, night: 1 }));
   assert.equal(E.sleep(s).night.idle, 'full');
 });
+
+test('replayed actions run as an agent only in chapter 3, only for agent work, and only agents file team finds', () => {
+  const bad = { ok: false, why: 'Bad action.' };
+  const s2 = E.create({ playerName: 'Sam' }, 7);
+  assert.deepEqual(E.act(s2, { fn: 'mapRoom', args: ['login'], actor: 'pip' }), bad, 'no agents in chapter 2');
+  const s = E.seed3({ playerName: 'Sam' }), fid = Object.keys(E.FINDINGS).find(id => E.FINDINGS[id].target === s.target);
+  assert.deepEqual(E.act(s, { fn: 'coffee', actor: 'pip' }), bad, 'coffee is the player\'s');
+  assert.deepEqual(E.act(s, { fn: 'guess', args: [fid, 0, 'Pip'] }), bad, 'the player can\'t file a team find');
+  assert.deepEqual(E.act(s, { fn: 'guess', args: [fid, 0], actor: 'pip' }), bad, 'an agent\'s find names the agent');
+  assert.notDeepEqual(E.act(s, { fn: 'guess', args: [fid, 0, 'Pip'], actor: 'pip' }), bad, 'an agent hunts');
+  assert.deepEqual(E.act(s, { fn: 'takeJob', args: ['toString'] }), bad, 'prototype names are not programs');
+  assert.deepEqual(E.act(s, { fn: 'submit', args: ['valueOf'] }), bad, 'or findings');
+  assert.equal(E.canTake(s, 'toString').ok, false);
+});

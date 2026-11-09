@@ -129,9 +129,14 @@ test('no Google client id: Google is off, passwords still work', async () => {
 
 test('saves are per account and size-checked', async () => {
   const a = make(), u1 = a.toUser(await a.signup('Saver', 'password123', ip())), u2 = a.toUser(await a.google(token({ sub: '999', email: 'kim@example.com' })));
-  await a.putSave(u1, { at: 5, keys: { 'first-office-game-v1': '{"day":3}', 'not-ours': 'x' } });
-  assert.deepEqual(await a.getSave(u1), { at: 5, keys: { 'first-office-game-v1': '{"day":3}' } });
+  const first = await a.putSave(u1, { at: 5, keys: { 'first-office-crew-v1': '{"day":3}', 'not-ours': 'x' } });
+  assert.deepEqual(await a.getSave(u1), { version: 1, at: first.at, keys: { 'first-office-crew-v1': '{"day":3}' } }); // the server's clock, not the device's
+  // A device that last saw an older save gets the newer one back instead of overwriting it.
+  const stale = await a.putSave(u1, { base: first.at - 1, keys: { 'first-office-crew-v1': '{"day":1}' } });
+  assert.equal(stale.conflict, true); assert.equal(stale.save.keys['first-office-crew-v1'], '{"day":3}');
+  const next = await a.putSave(u1, { base: first.at, keys: { 'first-office-crew-v1': '{"day":4}' } });
+  assert.ok(next.ok && next.at > first.at);
   assert.equal(await a.getSave(u2), null);
-  await assert.rejects(a.putSave(u1, { keys: { 'first-office-game-v1': 'x'.repeat(1_100_000) } }), e => e.status === 413);
+  await assert.rejects(a.putSave(u1, { keys: { 'first-office-crew-v1': 'x'.repeat(1_100_000) } }), e => e.status === 413);
   await assert.rejects(a.putSave(u1, null), e => e.status === 400);
 });

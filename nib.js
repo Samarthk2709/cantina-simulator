@@ -55,7 +55,9 @@
     }
     function place(x, y) { poke(); A.x = x; A.y = y; A.path = []; A.windup = 0; settle(); }
     // Shoved by the player (world.js): moves him without dropping his walk, so he carries on from where he lands.
-    function nudge(x, y) { A.x = x; A.y = y; poke(); }
+    // Shoved by you for 2 s on end while walking (you stand in a corridor he must pass): he gives up the walk and counts as
+    // arrived (step settles). A teammate easing apart from him doesn't count: he walks through that.
+    function nudge(x, y, byYou) { if (byYou) { if (!A.path.length || t - (A.pushAt ?? -1) > 0.25) A.pushFrom = t; A.pushAt = t; if (A.path.length && t - A.pushFrom > 2) A.path = []; } A.x = x; A.y = y; poke(); }
     function step(dt) {
       if (A.hop !== null && A.hop < 0.7 && A.hop + dt >= 0.7 && !A.path.length && A.visible) dust.land(A.x, A.y + 2); // #10: lands at 700 ms (Avatars.hop)
       if (A.hop !== null) { A.hop += dt; if (A.path.length || A.hop >= 1) A.hop = null; } // squash & stretch hop: a walk cancels it
@@ -71,8 +73,8 @@
         }
         if (A.visible && (A.walk / 10 | 0) !== (w0 / 10 | 0)) dust.step(A.x, A.y + 2, A.facing); // #10: a footfall on step frames 0 and 2
         if (!A.path.length) followFrom(x0, y0);
-        if (!A.path.length && A.onArrive) { const cb = A.onArrive; A.onArrive = null; cb(); }
       }
+      if (!A.path.length && A.onArrive) settle(); // also when game.js skipped his last waypoint (you stood on it)
       if (A.mood === 'idle' && t > blinkAt) { A.face = 'blink'; if (t > blinkAt + 0.14) { A.face = 'idle'; blinkAt = t + 2.5 + Math.random() * 2; } }
       else if (A.mood !== 'idle') A.face = A.mood;
       else A.face = 'idle';
@@ -282,7 +284,7 @@
       goTo, place, say, hush, setMood, skip,
       get busy() { return A.path.length > 0; }, get talking() { return bubbleOpen; },
       get typing() { const h = bubble.querySelector('.nib-text').talk; return bubbleOpen && !!h && h.typing; }, // #11
-      pos: () => ({ x: A.x, y: A.y }), nudge, pose: () => A.visible ? lastPose : null, setBodyHidden: v => { if (bodyHidden !== !!v) { bodyHidden = !!v; poke(); } }, setLit: v => { A.lit = !!v; poke(); }, show: v => { A.visible = !!v; poke(); }
+      pos: () => ({ x: A.x, y: A.y }), path: () => A.path, nudge, pose: () => A.visible ? lastPose : null, setBodyHidden: v => { if (bodyHidden !== !!v) { bodyHidden = !!v; poke(); } }, setLit: v => { A.lit = !!v; poke(); }, show: v => { A.visible = !!v; poke(); }
     };
   }
   // Follow-through (#6): a speech bubble trails its speaker on a spring (the mockup's: stiffness 72/s², damping 12/s,

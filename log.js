@@ -28,9 +28,11 @@
       return { chapter: g.stage === 3 ? 3 : 2, day: g.day, cash: Math.round(g.cash), rep: g.rep, bugs: g.bugs, crits: g.crits, win: window.Stage2.ui?.().win || null, team: document.body?.classList.contains('s3-agents-open') || false };
     } catch { return null; }
   }
-  function send() {
-    while (q.length) {
-      const body = JSON.stringify({ session, browser, seq: seq++, page: location.pathname, ctx: ctx(), events: q.splice(0, BATCH) });
+  // budget: on leaving, the log's beacons stay small so the game's own (sync.js) fits Chrome's 64 KB for all of a page's beacons.
+  function send(budget = Infinity) {
+    while (q.length && budget > 0) {
+      const body = JSON.stringify({ session, browser, seq: seq++, page: location.pathname, ctx: ctx(), events: q.splice(0, BATCH) }); budget -= body.length;
+      if (budget < 0) break; // leaving: too big for what's left, dropped
       try { navigator.sendBeacon ? navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' })) : fetch('/api/log', { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true }); } catch {}
     }
   }
@@ -59,7 +61,7 @@
   // ---------- page life and errors ----------
   event('page', { url: location.pathname + location.search, ref: clip(document.referrer, 120), w: innerWidth, h: innerHeight, dpr: devicePixelRatio, ua: clip(navigator.userAgent, 160), lang: navigator.language });
   addEventListener('visibilitychange', () => { event(document.hidden ? 'hidden' : 'visible'); if (document.hidden) send(); });
-  addEventListener('pagehide', () => { event('leave'); send(); });
+  addEventListener('pagehide', () => { event('leave'); send(12000); });
   addEventListener('error', e => {
     if (e.target && e.target !== window) return event('error', { what: 'resource', src: clip(e.target.src || e.target.href, 160) });
     event('error', { what: 'js', msg: clip(e.message, 300), at: clip(String(e.filename || '').split('/').pop() + ':' + e.lineno + ':' + e.colno, 80), stack: clip(e.error?.stack, 800) });

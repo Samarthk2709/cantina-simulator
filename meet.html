@@ -104,7 +104,7 @@ button,input{font:inherit;color:inherit}
 .next p{font-size:28px;color:var(--lamp)}
 .next span{color:var(--muted)}
 
-@media (max-width:860px){.status{position:relative;z-index:5;margin:8px 0 0;text-align:left}}
+@media (max-width:860px){.status{position:relative;right:auto;bottom:auto;z-index:5;margin:8px 0 0;text-align:left}}
 @media (max-width:520px){#line{font-size:19px}.goal{top:12px;left:12px}}
 /* Talking text (#11): untyped characters keep their place invisibly; key words are amber, also under reduced motion. */
 .talk-u{opacity:0}
@@ -211,9 +211,9 @@ function setChips(list){ chips.innerHTML=''; list.forEach((t,i)=>{const b=docume
 const KEY='first-office-nib-v1';
 let mem; try{mem=JSON.parse(localStorage.getItem(KEY))||{};}catch{mem={};}
 mem.facts=Array.isArray(mem.facts)?mem.facts:[];
-const save=()=>localStorage.setItem(KEY,JSON.stringify(mem));
+const save=()=>{ if(document.getElementById('other-tab')) return; localStorage.setItem(KEY,JSON.stringify(mem)); }; // another tab changed the account: this page writes nothing more
 // Starting over clears the office too, or the old save (and the old name) would come straight back.
-function resetAll(){['first-office-nib-v1','first-office-game-v1','first-office-crew-v1','first-office-avatar-v1'].forEach(k=>localStorage.removeItem(k));location.reload();}
+function resetAll(){if((localStorage.getItem('first-office-game-v1')||mem.playerName)&&!confirm('Start over? Nib forgets you and your office is wiped.'))return;['first-office-nib-v1','first-office-game-v1','first-office-crew-v1','first-office-avatar-v1'].forEach(k=>localStorage.removeItem(k));location.reload();}
 $('reset').onclick=resetAll;
 
 /* ---------- beats: the page decides when the stage moves; the model only writes lines ---------- */
@@ -231,7 +231,7 @@ const KW={
   purpose:/\b(what (do|should|are) we|why are (you|we)|job|work|goal|purpose|start|build|company|bugs?)\b/i,
   critical:/\bcrit(ical)?s?\b/i,
   accept:/\b(yes|yeah|yep|sure|ok|okay|let'?s|do it|go|ready|start)\b/i,
-  decline:/\b(no|nope|not yet|later|wait|hold on)\b/i
+  decline:/\b(no|nope|nah|not (yet|ready|sure|now|today)|tomorrow|tired|rather not|let'?s not|don'?t (want|wanna|feel like|start)|later|wait|hold on)\b/i // "I'm not ready" is no, though it says ready
 };
 const SCRIPTED={
   talk:()=>["I'm a small model, so I'll be honest: I'm not sure.","Try asking who I am, or what we do here."],
@@ -249,17 +249,18 @@ async function ask(message){
       body:JSON.stringify({beat,message,history:history.slice(-9,-1),memory:{playerName:mem.playerName||'',facts:mem.facts}})});
     if(!r.ok) return null;
     const out=await r.json();
+    if(!Array.isArray(out?.say)||!out.say.length||out.say.some(l=>typeof l!=='string')) return null; // a malformed reply: scripted lines instead
     if(out.remember?.length){mem.facts=[...new Set([...mem.facts,...out.remember])].slice(-5);save();}
     return out;
   }catch{return null;}
 }
 // Finds a name in replies like "Sam", "call me Sam", "I'm Sam", "my name is Sam". Returns '' when unsure.
-const NOT_NAMES=/^(hi|hey|hello|yo|ok|okay|yes|no|why|what|who|how|um|uh|the|a|an|just|not|nice|good|fine|sure|nib|you|me|i|so|there|here|very|really|tired|great|well|bored|happy|sad|ready|back|new|from|in|at|on|going|doing|looking|trying|thanks|thank|i'm|im|i’m|am|my|name|is|call|it's|its)$/i;
+const NOT_NAMES=/^(hi|hey|hello|yo|ok|okay|yes|no|why|what|who|how|um|uh|the|a|an|just|not|nice|good|fine|sure|nib|you|me|i|so|there|here|very|really|tired|great|well|bored|happy|sad|ready|back|new|from|in|at|on|going|doing|looking|trying|thanks|thank|i'm|im|i’m|am|my|name|is|call|it's|its|called|named|known|idk|idc|dunno|whatever|hmm|huh|lol|nothing|anything|surprise|doesn't|your|nah|skip|pass|nobody|none)$/i;
 function guessName(text){
-  const t=text.trim().replace(/[.!?,]+$/,'');
-  const m=t.match(/(?:^|\s)(?:call me|i'?m|i am|my name(?:'s| is)|name(?:'s| is)|it'?s|this is)\s+(\p{L}[\p{L}'-]{0,23})/iu);
+  const t=text.trim().replace(/[’‘]/g,"'").replace(/[.!?,]+$/,''); // phones type curly apostrophes
+  const m=t.match(/(?:^|\s)(?:call me|i'?m|i am|my name(?:'s| is)|name(?:'s| is)|it'?s|this is)\s+(?:called\s+|named\s+|known as\s+)?(\p{L}[\p{L}'-]{0,23})/iu);
   let n=m?m[1]:'';
-  if(!n){ const w=t.replace(/^(hi|hey|hello|yo)[,\s]+/i,'').split(/\s+/); if(w.length<=2&&/^\p{L}[\p{L}'-]{0,23}$/u.test(w[0]))n=w[0]; }
+  if(!n){ const w=t.replace(/^(hi|hey|hello|yo)[,\s]+/i,'').split(/\s+/); if((w.length===1||(!aiOk&&w.length===2))&&/^\p{L}[\p{L}'-]{0,23}$/u.test(w[0]))n=w[0]; } // two words ("doesn't matter"): the model decides when it's on
   return n&&!NOT_NAMES.test(n)?n[0].toUpperCase()+n.slice(1):'';
 }
 function pitch(lead=[]){ beat='offer'; return {lines:[...lead,...PITCH],mood:'idle',chips:["Let's do it","What's a critical?"]}; }
@@ -272,6 +273,7 @@ function accept(){
 // #17 Pixel iris: the room closes onto Nib, the chapter card holds on black, then the office opens with the iris (iris.js).
 // Reduced motion, or no iris.js: the plain card.
 function toOffice(){
+  if(document.getElementById('other-tab')) return; // another tab changed the account: stay behind the note
   const go=()=>location.href='/';
   if(reduced||!window.Iris){$('next').classList.add('on');setTimeout(go,reduced?300:2600);return;}
   const r=nib.getBoundingClientRect();
@@ -289,10 +291,15 @@ async function decide(text){
     // Straight from the greeting into Nib's purpose and the first job; no free-talk step.
     return pitch([`Nice to meet you, ${mem.playerName}.`]);
   }
+  // Keywords decide first; the model is asked only when they don't (it costs one of the hour's messages).
+  if(beat==='talk'&&KW.critical.test(text)) return {lines:CRITICAL,chips:['What do we do?']};
+  if(beat==='talk'&&KW.purpose.test(text)) return pitch();
+  if(beat!=='talk'&&KW.critical.test(text)) return {lines:[...CRITICAL,'Want to start?'],chips:["Let's do it"]};
+  if(beat!=='talk'&&!KW.decline.test(text)&&KW.accept.test(text)&&(!aiOk||text.split(/\s+/).length<=3)) return accept(); // a longer reply ("ok, not today") goes to the model, which can still say no
   const ai=await ask(text);
   if(beat==='talk'){
-    if(KW.critical.test(text)||ai?.intent==='ask_critical') return {lines:CRITICAL,chips:['What do we do?']};
-    if(KW.purpose.test(text)||ai?.intent==='ask_purpose') return pitch();
+    if(ai?.intent==='ask_critical') return {lines:CRITICAL,chips:['What do we do?']};
+    if(ai?.intent==='ask_purpose') return pitch();
     if(++freeTurns>=3) return pitch([...(ai?ai.say:[]),"Can I tell you why I'm here?"]);
     return {lines:ai?ai.say:SCRIPTED.talk(),mood:ai?.mood};
   }
@@ -326,6 +333,8 @@ health.then(h=>{
 
 // Boot: signed in (auth.js) and, the first time, your look picked (customize.js), then the room starts.
 (async()=>{ if(window.Auth) await Auth.ready; await window.Customize?.ensure();
+// Signing in may have swapped this browser's save for the account's (auth.js): read Nib's memory again.
+try{mem=JSON.parse(localStorage.getItem(KEY))||{};}catch{mem={};} mem.facts=Array.isArray(mem.facts)?mem.facts:[];
 if(mem.completedAt&&mem.playerName){
   // Returning player: skip the dark room and the introduction.
   $('dark').hidden=true; goal.classList.add('on'); beat='return';

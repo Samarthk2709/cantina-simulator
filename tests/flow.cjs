@@ -45,7 +45,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
   s = await p.evaluate(() => Stage2.state());
   assert.equal(s.player, 'Sam', 'names survive the jump'); assert.equal(s.bugs, 20); assert.match(await p.textContent('#chapter-sub'), /03/);
   await shot('flow-03a-team-intro');
-  for (let i = 0; i < 4 && !(await p.$('#s3-view:not([hidden])')); i++) { const b = await p.$('#nib-bubble:not([hidden]) .nib-next'); if (b) await b.click(); await p.waitForTimeout(500); }
+  for (let i = 0; i < 4 && !(await p.$('#s3-view:not([hidden])')); i++) { const b = await p.$('#nib-bubble:not([hidden]) .nib-next'); if (b) await b.click({ timeout: 2000 }).catch(() => {}); /* the bubble may close between finding and clicking */ await p.waitForTimeout(500); }
   await p.waitForSelector('#s3-view:not([hidden])');
   assert.deepEqual(await p.evaluate(() => Stage3Agents.list().map(a => a.id)), ['nib', 'pip', 'moss']);
 

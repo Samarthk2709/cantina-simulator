@@ -1,4 +1,6 @@
 /* Stage 2 additions on top of the published First Office stylesheet (original/style.css). */
+/* Phones: the HUD row wraps before the menu button is pushed off-screen (with Coffee and Sleep showing, it overflows below ~420px). */
+@media(max-width:420px){.hud .company-status{flex-wrap:wrap;justify-content:flex-end;row-gap:6px}.hud #date{order:1}}
 @font-face{font-family:"Nib Pixel";src:url(assets/pixelify-sans.woff2) format("woff2");font-display:swap}
 :root{--nib:#7ff0d8;--nib-ink:#0d2f33;--cream:#f2ebd1}
 /* Motion rules, used by every animation in the game (60 fps, so 1 frame ≈ 17 ms):
@@ -546,7 +548,7 @@ body:has(#panel-dialog[open]) .playfield::after{content:"";position:absolute;ins
 .board .actions{margin-top:14px;display:flex;justify-content:flex-end}
 
 /* Another tab took over the game (game.js elsewhere()). */
-#other-tab{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(6,12,16,.82)}
+#other-tab{position:fixed;inset:0;z-index:10002;display:grid;place-items:center;background:rgba(6,12,16,.82)}
 #other-tab>div{display:grid;gap:14px;justify-items:center;padding:24px 28px;border:1px solid var(--line);border-radius:12px;background:var(--panel,#10202a);color:var(--ink,#e8efe8)}
 #modal:has(.board){max-width:min(700px,94vw)}
 .board{min-width:0}
