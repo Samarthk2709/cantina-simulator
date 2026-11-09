@@ -587,3 +587,7 @@ button.pointed{box-shadow:0 0 0 2px var(--amber,#f5b942)}
 @keyframes hint-ring{from{opacity:.9;scale:1}to{opacity:0;scale:1.25}}
 @keyframes hint-bob{from{translate:0 0}to{translate:0 6px}}
 @media (prefers-reduced-motion:reduce){.pointer-hint .ring,.pointer-hint .arrow{animation:none}}
+/* #18 Penalty (game.js penalty()): a wrong line's ✗, the red "−8 focus" chip, the vignette on repeated misses */
+.code-line .x{flex:none;margin-left:auto;font:700 16px/1.2 var(--mono);color:var(--danger-ink)}
+.pay-chip.pen{border-color:var(--danger-ink);background:#3a1a1c;color:var(--danger-ink)}
+.pen-vignette{position:fixed;inset:0;z-index:14;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,transparent 50%,rgba(249,112,102,.55))}

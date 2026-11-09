@@ -78,6 +78,7 @@ Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), buil
 | 15 | Attention nudges | The Team button and badged dock buttons wiggle every few seconds until opened (`buttons.js`) |
 | 16 | Floating labels | "+1 bug", grade and rep, "CRITICAL chain" or "−N rep" rise above the agent. The pay chip carries the dollars |
 | 17 | Pixel iris | A blocky circle closes onto Nib when leaving Stage 1 or changing chapters, then opens on the office (`iris.js`) |
+| 18 | Penalty | A wrong line flashes red, holds 3 frames, shakes and gets a stamped ✗; a red "−8 focus" chip arcs into the focus meter, which flashes red, and Nib winces on his dock portrait. From the 2nd miss on the same bug the window shakes and a red vignette flashes, harder on the 3rd. "Send as-is" on a false find does the same with "−3 rep" into the rep counter. ~700 ms; reduced motion keeps only the colour flashes (`penalty()` in `game.js`) |
 
 ### UI polish (2026-11-05)
 
