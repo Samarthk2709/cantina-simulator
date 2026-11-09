@@ -73,12 +73,12 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     s = await st(p);
     assert.equal(await p.$('[data-act=pick]'), null, 'no report-writing step');
     assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.equal(Math.round(s.lessons[Stage2Engine_cls(fid)].clean), 1);
-    assert.ok(s.seen.training && s.seen.forge && s.seen.stats, 'Nib\'s desk, tools and ledger appear');
+    assert.ok(s.seen.training && !s.seen.forge && s.seen.stats, 'Nib\'s desk and ledger appear; the Shop waits for the second bug');
     await p.keyboard.press('Escape'); await p.waitForTimeout(5000);
     await shot(p, '08-office-grows');
 
     // ---- 2. Night shift and Nib's finds ----
-    await p.click('#sleep'); await p.waitForTimeout(1500); await shot(p, '09-night');
+    await p.evaluate(() => Stage2.sleepMs(1500)); await p.click('#sleep'); await p.waitForTimeout(1500); await shot(p, '09-night');
     await p.waitForSelector('.nib-next', { timeout: 15000 }); await p.waitForTimeout(300);
     await shot(p, '10-morning');
     s = await st(p); assert.equal(s.day, 2); assert.equal(s.focus, 100); assert.ok(s.seen.rig);

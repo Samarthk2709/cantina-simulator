@@ -21,7 +21,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
   await p.goto(URL); await p.waitForTimeout(800);
   await p.evaluate(() => { const st = Stage3Scope.seed({ playerName: 'Sam' }); st.stage = 3; Object.assign(st.seen, { team: true }); localStorage.removeItem('first-office-crew-v1'); localStorage.setItem('first-office-game-v1', JSON.stringify(st)); });
   await p.reload(); await p.waitForFunction(() => window.Stage3Agents, null, { timeout: 8000 }); await p.waitForTimeout(800);
-  await p.evaluate(() => Stage3Agents.speed(10));
+  await p.evaluate(() => { Stage3Agents.speed(10); Stage2.sleepMs(1500); });
 
   const t0 = Date.now(), log = [];
   let round = 0;

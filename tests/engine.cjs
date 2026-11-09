@@ -84,7 +84,7 @@ test('teaching: clean lessons sharpen Nib, noisy ones blunt it; nothing else doe
 test('filing: a sharp lesson files S, a shallow one B; agents still write reports and overclaims cost rep', () => {
   const s = E.create({}, 3); E.takeJob(s, 'chat'); forceNoLuck(s);
   let r = huntAndBank(s, 'chat:login:0', 'sharp'); assert.ok(r.accepted); assert.equal(r.grade, 'S');
-  assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.ok(s.seen.forge && s.seen.stats);
+  assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.ok(!s.seen.forge && s.seen.stats, 'the Shop waits for the second bug');
   forceNoLuck(s); r = huntAndBank(s, 'chat:login:1', 'shallow'); assert.equal(r.grade, 'B');
   // An agent's report, section by section, as before.
   s.lit.chat.push('msgs'); s.target = 'chat'; s.rep = 5;

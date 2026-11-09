@@ -41,6 +41,12 @@ Modeled on [Grok Bot's design](https://x.ai/news/designing-grok-bot): a roster i
 
 Agents get **their own focus each day** at your prices (map 15, find 30, wrong line 8, prove 15). When it runs out they rest until you sleep, so good rules mean more bugs per day. Agents never teach Nib: that stays your job. Agent finds skip the teaching step and go straight to a report. Scope penalties apply to you too in chapter 3.
 
+## Playtest fixes (2026-11-05, Pablo)
+
+- **Coffee and Sleep are pointed out.** A bouncing arrow and ring sit on the button when focus first runs low, and again whenever an action fails for focus (`pointTo` in game.js).
+- **Sleep costs a real minute.** The night counts down for 60 s (`sleepMs`); coffee stays the instant, limited option (2 cups a day). A reload mid-sleep shows the rest of the wait (`fo.restUntil` in localStorage). Away nights skip the wait. Tests shorten it with `Stage2.sleepMs(ms)`.
+- **One new thing at a time.** The first bounty only brings Coffee, Sleep and the ledger. The Shop opens at the 2nd bug, the Goal board at the 3rd (or when you buy the Tracer).
+
 ## Motion rules (2026-10-26)
 
 From [ugoki.ai's reel](https://www.instagram.com/reel/De-LYA1xhDV/). Every animation follows them. Tokens are in `style.css` (`--stagger`, `--wind`, `--settle`).
@@ -72,6 +78,7 @@ Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), buil
 | 15 | Attention nudges | The Team button and badged dock buttons wiggle every few seconds until opened (`buttons.js`) |
 | 16 | Floating labels | "+1 bug", grade and rep, "CRITICAL chain" or "−N rep" rise above the agent. The pay chip carries the dollars |
 | 17 | Pixel iris | A blocky circle closes onto Nib when leaving Stage 1 or changing chapters, then opens on the office (`iris.js`) |
+| 18 | Penalty | A wrong line flashes red, holds 3 frames, shakes and gets a stamped ✗; a red "−8 focus" chip arcs into the focus meter, which flashes red, and Nib winces on his dock portrait. From the 2nd miss on the same bug the window shakes and a red vignette flashes, harder on the 3rd. "Send as-is" on a false find does the same with "−3 rep" into the rep counter. ~700 ms; reduced motion keeps only the colour flashes (`penalty()` in `game.js`) |
 
 ### UI polish (2026-11-05)
 

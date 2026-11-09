@@ -201,7 +201,8 @@
     const rep = GRADES[grade].rep + (crit ? 5 : 0);
     const tierUp = addRep(s, rep, grade + ' report on ' + targetById[f.target].name);
     log(s, (crit ? 'CRITICAL ' : '') + CLASSES[f.cls].name + ' accepted · $' + pay, crit ? 'crit' : 'good');
-    const firsts = { stats: reveal(s, 'stats'), forge: reveal(s, 'forge'), hq: s.bugs >= 3 ? reveal(s, 'hq') : false };
+    const firsts = { stats: reveal(s, 'stats'), forge: s.bugs >= 2 ? reveal(s, 'forge') : false, // one new thing at a time (playtest 2026-11-05)
+      hq: s.bugs >= 3 ? reveal(s, 'hq') : false };
     return { ok: true, accepted: true, grade, pay, crit, rep, tierUp, firsts, won: checkWin(s) };
   }
   // Files a found bug at a grade, without the player writing anything. Agents still write reports section by section.
