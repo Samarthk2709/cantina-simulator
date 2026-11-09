@@ -41,6 +41,12 @@ Modeled on [Grok Bot's design](https://x.ai/news/designing-grok-bot): a roster i
 
 Agents get **their own focus each day** at your prices (map 15, find 30, wrong line 8, prove 15). When it runs out they rest until you sleep, so good rules mean more bugs per day. Agents never teach Nib: that stays your job. Agent finds skip the teaching step and go straight to a report. Scope penalties apply to you too in chapter 3.
 
+## Playtest fixes (2026-11-05, Pablo)
+
+- **Coffee and Sleep are pointed out.** A bouncing arrow and ring sit on the button when focus first runs low, and again whenever an action fails for focus (`pointTo` in game.js).
+- **Sleep costs a real minute.** The night counts down for 60 s (`sleepMs`); coffee stays the instant, limited option (2 cups a day). A reload mid-sleep shows the rest of the wait (`fo.restUntil` in localStorage). Away nights skip the wait. Tests shorten it with `Stage2.sleepMs(ms)`.
+- **One new thing at a time.** The first bounty only brings Coffee, Sleep and the ledger. The Shop opens at the 2nd bug, the Goal board at the 3rd (or when you buy the Tracer).
+
 ## Motion rules (2026-10-26)
 
 From [ugoki.ai's reel](https://www.instagram.com/reel/De-LYA1xhDV/). Every animation follows them. Tokens are in `style.css` (`--stagger`, `--wind`, `--settle`).

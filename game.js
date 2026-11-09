@@ -79,7 +79,7 @@
   // the GPU rig and the ledger open in chapter 3, where the team needs them.
   const CH2_HIDDEN = ['training', 'rig', 'stats'], CH2_SLOTS = ['hunt', 'contract', 'forge'];
   const shown = id => stage3() ? !ST[id].seen || !!s.seen[ST[id].seen]
-    : CH2_HIDDEN.includes(id) ? false : id === 'hq' ? !!s.target || !!s.seen.hq : !ST[id].seen || !!s.seen[ST[id].seen];
+    : CH2_HIDDEN.includes(id) ? false : id === 'hq' ? !!s.seen.hq : !ST[id].seen || !!s.seen[ST[id].seen];
   const hidden = () => { const h = { terminals: true }; ORDER.forEach(id => { if (!shown(id)) h[id] = true; }); return h; };
   const SPOT = { // where Nib stands, in office world px
     side: [184, 104], home: [232, 184], rig: [232, 216], ops: [40, 72], hq: [184, 56]
@@ -331,6 +331,7 @@
     if (!box.children.length) box.classList.toggle('top', matchMedia('(max-width:700px)').matches && $('panel-dialog').open && (b.hidden || !b.classList.contains('docked')));
     toastShift(() => { box.appendChild(el); while (box.children.length > 3) box.firstChild.remove(); });
     requestAnimationFrame(() => { el.shown = true; }); // toasts that arrive together just rise; only ones already up slide
+    if (kind === 'bad' && /Coffee or sleep|Too tired|takes \d+ focus/i.test(text)) setTimeout(pointRest, 0);
     // Leaves by masking in from both ends, 20% shorter than its 340 ms entrance; the stack closes up after.
     setTimeout(() => {
       if (!el.isConnected) return; const go = () => toastShift(() => el.remove());
@@ -343,6 +344,20 @@
     .observe($('nib-bubble'), { attributes: true, attributeFilter: ['class', 'hidden'] });
   // The stack makes room by sliding (FLIP), never jumping, when a toast comes or goes. `translate`, so a toast's own rise
   // (a transform) is untouched.
+  // First-time pointer (playtest 2026-11-05: Pablo couldn't find the coffee). A bouncing arrow and a pulsing ring on a
+  // HUD button until it's clicked or 8 s pass. Shown when focus first runs low and whenever an action fails for focus.
+  function pointTo(el) {
+    if (!el || el.hidden || el.disabled) return;
+    document.querySelectorAll('.pointer-hint').forEach(x => x.remove());
+    const r = el.getBoundingClientRect(), hint = document.createElement('div');
+    hint.className = 'pointer-hint'; hint.setAttribute('aria-hidden', 'true');
+    hint.style.left = (r.left + r.width / 2) + 'px'; hint.style.top = (r.bottom + 6) + 'px';
+    hint.innerHTML = '<span class="ring" style="width:' + (r.width + 12) + 'px;height:' + (r.height + 12) + 'px;top:' + (-r.height - 12) + 'px"></span><span class="arrow">▲</span><span class="label">' + esc(el.id === 'coffee' ? 'Coffee' : 'Sleep') + '</span>';
+    document.body.appendChild(hint); el.classList.add('pointed');
+    const done = () => { hint.remove(); el.classList.remove('pointed'); el.removeEventListener('click', done); };
+    el.addEventListener('click', done); setTimeout(done, 8000);
+  }
+  const pointRest = () => pointTo(s.cups && s.focus < E.maxFocus(s) ? $('coffee') : $('sleep'));
   function toastShift(change) {
     const was = reduced ? [] : [...$('toasts').children].filter(t => t.shown).map(t => [t, t.getBoundingClientRect().top]);
     change();
@@ -814,7 +829,7 @@
       return `<li class="slot ${st}"><span class="dot ${st}"></span><div><b>${st === 'open' || st === 'locked' ? 'Something off' : esc(cls.name)}</b><small>${st === 'open' ? 'about ' + money(t.base * cls.mult * E.crowd(s, tid)) : st === 'locked' ? esc(cls.name) : st === 'tray' ? 'Nib thinks it\'s ' + esc(cls.name.toLowerCase()) : found && found.source === 'nib' ? 'found by Nib' : found && found.source === 'agent' ? 'found by ' + esc(found.by) : 'found by you'}</small></div>${right}</li>`;
     }).join('');
     const ch = E.chainState(s, tid), half = [ch.a, ch.b].find(fid => F[fid].room === ui.room), other = half && F[half === ch.a ? ch.b : ch.a];
-    const chainNote = half ? `<p class="hint-line">↔ Chain bug: the ${esc(C[F[half].cls].name.toLowerCase())} here + the ${esc(C[other.cls].name.toLowerCase())} in ${esc(t.rooms.find(r => r[0] === other.room)[1])} = a critical. Chain them on the Goal board (G).</p>` : '';
+    const chainNote = half ? `<p class="hint-line">↔ Chain bug: the ${esc(C[F[half].cls].name.toLowerCase())} here + the ${esc(C[other.cls].name.toLowerCase())} in ${esc(t.rooms.find(r => r[0] === other.room)[1])} = a critical. ${shown('hq') ? 'Chain them on the Goal board (G).' : 'Later you can chain them on the Goal board.'}</p>` : '';
     return `<div class="target-map"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${nodes}</div>
       <div class="map-foot"><p class="legend"><span><i class="dot open"></i>hunt</span><span><i class="dot locked"></i>tool</span><span><i class="dot tray"></i>Nib</span><span><i class="dot draft"></i>to file</span><span><i class="dot accepted"></i>paid</span></p><button data-act="board" class="quiet small">Change job</button></div>
       <ul class="slots">${rows}</ul>${chainNote}`;
@@ -1068,7 +1083,7 @@
     if (first) nibSay('Good pick. Lit rooms show their bugs. Click a room, then hunt. Focus is your energy for the day.', { ms: 5200 });
     else nibSay(T[tid].name + '. New rooms to explore.', { ms: 2400 });
   }
-  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { E.meta(s, { seen: { rest: true } }); nibSay('Focus runs out. Coffee buys a little more; sleep resets it, and I work while you\'re out.', { ms: 5200 }); } }
+  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { E.meta(s, { seen: { rest: true } }); nibSay('Focus runs out. Coffee buys a little more; sleep resets it, and I work while you\'re out.', { ms: 5200 }); requestAnimationFrame(() => { render(); pointTo($('coffee')); }); } }
 
   async function guessLine(i) {
     if (ui.hit != null || (ui.miss && ui.miss.lines.includes(i))) return; // a line already marked fine costs nothing twice
@@ -1114,7 +1129,7 @@
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); if (!stage3() && s.crits === 1) nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
-    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); nibSay('Our first bounty. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
+    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); nibSay('Two bounties. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
     if (r.firsts && r.firsts.hq && !stage3() && !r.won && !s.crits) { world.pulseAt('hq'); chainTip(); }
     if (r.won) { postScore(); setTimeout(() => goal(ending, station), 1600); }
     nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
@@ -1195,6 +1210,18 @@
   // The night falls after the first lamps go (style.css .fall) and lifts in the 500 ms sleep() gives it (.rise).
   function lightsOut(night) { if (!reduced) { night.classList.remove('rise'); night.classList.add('fall'); } switchLamps(false); }
   function lightsOn(night) { if (!reduced) { night.classList.remove('fall'); night.classList.add('rise'); } switchLamps(true); }
+  const REST_KEY = 'fo.restUntil', clock = ms => { const t = Math.ceil(ms / 1000); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+  let sleepMs = 60000; // one real minute; tests shorten it with Stage2.sleepMs()
+  // A reload mid-sleep: the night already happened (saved), so only the rest of the wait is shown, then the office.
+  const resting = () => { try { return +localStorage.getItem(REST_KEY) > Date.now(); } catch { return false; } };
+  async function restLeft() {
+    let until = 0; try { until = +localStorage.getItem(REST_KEY) || 0; } catch {}
+    if (until <= Date.now()) return;
+    const night = $('night'); ui.night = true; night.hidden = false; await wait(30); night.classList.add('on'); switchLamps(false);
+    while (Date.now() < until) { $('night-text').textContent = 'Still asleep. ' + clock(until - Date.now()); await wait(250); }
+    try { localStorage.removeItem(REST_KEY); } catch {}
+    switchLamps(true); night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; render();
+  }
   // away: you were gone 8+ real hours, so the night ran without you (see boot).
   async function sleep(o) {
     const away = o && o.away === true;
@@ -1206,7 +1233,12 @@
     lightsOut(night); // #12: decoration only, nothing waits on it
     nib.setLit(true); await nibWalk(shown('rig') ? SPOT.rig : nibHome()); nib.setMood('think');
     const r = E.sleep(s).night; save(); // saved now: a reload mid-animation must not lose the night
-    for (let i = 1; i <= 10; i++) { ui.nightP = i / 10; syncWorld(); await wait(170); }
+    // Sleep costs real time (playtest 2026-11-05: sleep was a free refill). Coffee is the instant option; sleep is a full
+    // reset you wait out. An away night already cost the hours. A reload doesn't skip it: see restLeft() at boot.
+    const ms = away ? 1700 : sleepMs, end = Date.now() + ms, head = $('night-text').textContent;
+    if (!away) try { localStorage.setItem(REST_KEY, String(end)); } catch {}
+    while (Date.now() < end) { const left = end - Date.now(); ui.nightP = 1 - left / ms; syncWorld(); if (ms > 2000) $('night-text').textContent = head + ' ' + clock(left); await wait(Math.min(250, left)); }
+    ui.nightP = 1; syncWorld(); try { localStorage.removeItem(REST_KEY); } catch {}
     lightsOn(night); // #12
     night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; ui.morning = true; nib.setLit(false); nib.setMood('idle');
     render();
@@ -1365,7 +1397,7 @@
     const pick = e.target.closest('.dock-menu [data-station]'); if (pick) { const m = pick.closest('.dock-menu'); if (dockOpen) setMenu(null); if (m.matches(':hover')) { dockHush = m.dataset.menu; m.classList.add('hush'); } }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
   });
-  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. Take a job at the Desk first.', { ms: 4000 }));
+  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. ' + (s.target ? 'The Goal board opens after 3 bugs, or with the Tracer.' : 'Take a job at the Desk first.'), { ms: 4000 }));
   $('nib-chip').addEventListener('click', () => shown('training') ? openStation('training') : nibSay(objective(), { ms: 3600 }));
   $('stats-open').addEventListener('click', () => openStation(stage3() ? 'stats' : 'forge'));
   $('settings').addEventListener('click', openMenu);
@@ -1449,6 +1481,7 @@
       E.meta(s, { seen: { team: true } }); render(); window.Stage3UI?.open('nib');
     })();
   } else if (awayNight) setTimeout(() => sleep({ away: true }), 900);
+  else if (resting()) restLeft();
   else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
   try { postScore(); } catch {}
 
@@ -1460,7 +1493,7 @@
   function redrawSoon() { if (!ui.win || ui.busy) return; if (pressing) { redrawPending = true; return; } drawWindow(); }
 
   // Hooks for Stage 3's agents. agentAct runs one engine call on the live save, then saves and redraws.
-  window.Stage2 = { state: () => s, live: () => s, ui: () => ui, open: openStation, close: closeWindow, world, nib, SPOT, floatAt, toast, stage3,
+  window.Stage2 = { sleepMs: v => (v ? (sleepMs = v) : sleepMs), state: () => s, live: () => s, ui: () => ui, open: openStation, close: closeWindow, world, nib, SPOT, floatAt, toast, stage3,
     agentAct: fn => { const r = fn(s); save(); render(); redrawSoon(); return r; },
     frozen: () => frozen,
     refresh: () => { render(); if (ui.win && !ui.busy) drawWindow(); },

@@ -34,7 +34,7 @@ const SECS = +(process.env.MEM_SECS || 240);
     await p.evaluate(() => { const A = Stage3Agents; A.list().forEach(a => { if (a.q) A.answer(a.id, 0); if (!A.live(a) && a.status !== 'queued') A.send(a.id, 'hunt wherever there\'s work'); }); });
     if (await p.evaluate(() => Stage3Agents.list().every(a => !Stage3Agents.live(a) && a.status !== 'queued'))) {
       await p.evaluate(() => { const b = document.querySelector('#nib-bubble:not([hidden]) .nib-next'); if (b) b.click(); });
-      await p.click('#sleep', { timeout: 2000 }).catch(() => {}); await p.waitForTimeout(3000);
+      await p.evaluate(() => Stage2.sleepMs(1500)); await p.click('#sleep', { timeout: 2000 }).catch(() => {}); await p.waitForTimeout(3000);
       for (let i = 0; i < 40 && await p.evaluate(() => Stage2.ui().morning || Stage2.ui().night); i++) { await p.evaluate(() => document.querySelector('#nib-bubble:not([hidden]) .nib-next')?.click()); /* no element handles: Playwright pins each one (and all its listener holds) for the whole run */ await p.waitForTimeout(300); }
     }
     // The team view now and then, so its panes are built and torn down too.
