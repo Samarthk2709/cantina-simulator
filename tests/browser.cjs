@@ -81,7 +81,7 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
     await p.evaluate(() => Stage2.sleepMs(1500)); await p.click('#sleep'); await p.waitForTimeout(1500); await shot(p, '09-night');
     await p.waitForSelector('.nib-next', { timeout: 15000 }); await p.waitForTimeout(300);
     await shot(p, '10-morning');
-    s = await st(p); assert.equal(s.day, 2); assert.equal(s.focus, 100); assert.ok(s.seen.rig);
+    s = await st(p); assert.equal(s.day, 2); assert.equal(s.focus, 100);
     // A morning has 1-3 lines; an answered line's Next stays in the hidden bubble, so only an open bubble means another one.
     for (let i = 0; i < 3 && await p.$('#nib-bubble:not([hidden]) .nib-next'); i++) { await next(p); await p.waitForTimeout(350); }
     if (s.tray.length) {

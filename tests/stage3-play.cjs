@@ -30,7 +30,8 @@ const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Goog
       agents: A.list().map(a => ({ id: a.id, live: A.live(a) || a.status === 'queued', q: !!a.q, phrase: A.phrase(a) })) }; });
     if (st.rep >= 60) break;
     // A sensible player turns on the rules once the team has made a mistake or two.
-    if (st.pens >= 2) await p.evaluate(() => ['scope', 'lessons', 'honest', 'proof', 'claim', 'spend'].forEach(k => Stage3Agents.setRule('all', k, true)));
+    // Only the rules the AGENTS.md page shows: a rule appears once the thing it prevents has happened.
+    if (st.pens >= 2) await p.evaluate(() => Stage3Agents.RULES.filter(r => Stage3Agents.known(r.k)).forEach(r => Stage3Agents.setRule('all', r.k, true)));
     for (const a of st.agents) if (a.q) await p.evaluate(id => Stage3Agents.answer(id, 0), a.id);
     const free = st.agents.filter(a => !a.live).map(a => a.id);
     const brief = [];

@@ -41,6 +41,53 @@ Modeled on [Grok Bot's design](https://x.ai/news/designing-grok-bot): a roster i
 
 Agents get **their own focus each day** at your prices (map 15, find 30, wrong line 8, prove 15). When it runs out they rest until you sleep, so good rules mean more bugs per day. Agents never teach Nib: that stays your job. Agent finds skip the teaching step and go straight to a report. Scope penalties apply to you too in chapter 3.
 
+## Fewer buttons, guided play (2026-11-09)
+
+From the same playtest: too many things to click, and clicking was free, so players spammed buttons instead of reading. Plan: `work/button-reduction/PLAN.md`.
+
+**Fewer controls**
+
+| Where | Before | Now |
+|---|---|---|
+| Chapter 2, late | 11 always-visible controls | 7: Menu, Coffee or Sleep, Goal, Nib, Desk, Finds, Shop |
+| Chapter 3, start | 13 in the dock and HUD, 6 more in pop-up groups | 7, plus the agents on the floor |
+
+- **Coffee or Sleep, never both.** Coffee shows while you're too tired to hunt (focus under 30) and cups remain; otherwise Sleep (`render` in game.js).
+- **The pointer works on any control** (`pointTo(target, label, sticky)`). New dock buttons (Shop, Finds, Goal, Rig) get it until clicked; a refusal for focus points at the rest button until clicked.
+- **Chapter 2's wallet and the vitals box are readouts**, not buttons. V still opens the vitals detail. Zoom moved to Menu > Controls (Z still works).
+- **Finds shows one find at a time**: only the first has Prove / Send as-is.
+- **Chapter 3's dock is Desk, Finds, Gear.** Finds appears with the first find; the Rig joins the Shop as Gear after the first night or the first time an agent asks to spend (`seen.gear`). The Goal board (goal button), the Ledger (wallet) and Nib's pattern book (his desk, or T) are no longer repeated in the dock.
+- **Team:** Hire appears once you can afford one. AGENTS.md lists only the rules you've met: a rule appears after the thing it prevents has happened once (`known` in harness.js). The pattern book rule is there from the start.
+- **Purchases are final**: no returns on desk upgrades or rig tiers.
+
+**Clicks cost something, reading pays**
+
+- A wrong "why is it a bug" answer is final: Nib shows the real reason, learns it badly, and the report files at grade C.
+- A wrong chain answer costs 8 focus.
+- A clean find (the bug line on your first click) pays 25% more.
+- Decision cards in Team show their answers in a shuffled order, with no highlighted default.
+
+**Penalty visuals** (`penalty(src, text, to, n, sev)` in game.js; Team uses it through `Stage2.penalty`). Level = severity + wrong clicks in a row, 1 to 5.
+
+| Level | What you see |
+|---|---|
+| 1 | The control flashes red and shakes; the cost chip |
+| 2 | A harder shake; Nib winces |
+| 3 | The window shakes; a faint red vignette |
+| 4 | The whole screen shakes; a strong vignette; the control stays red |
+| 5 | A longer, harder screen shake; a full red flash; a bigger cost chip |
+
+| Severity | Mistake |
+|---|---|
+| 0 | A wrong code line; a refused click (too tired, can't afford) |
+| 1 | A wrong "why" answer; a wrong chain answer; a false alarm sent as-is |
+| 2 | An agent's incident that costs rep or a strike |
+| 3 | A program bans the company |
+
+Reduced motion keeps the colour and drops the shakes.
+
+Not done: starting chapter 3 with one agent (the team of three is the chapter's premise and its tests), and triage of agent output (a new mechanic, next).
+
 ## Playtest fixes (2026-11-05, Pablo)
 
 - **Coffee and Sleep are pointed out.** A bouncing arrow and ring sit on the button when focus first runs low, and again whenever an action fails for focus (`pointTo` in game.js).
@@ -78,7 +125,7 @@ Each was mocked up in `../../work/motion-ideas/` (`demo.html` plus a clip), buil
 | 15 | Attention nudges | The Team button and badged dock buttons wiggle every few seconds until opened (`buttons.js`) |
 | 16 | Floating labels | "+1 bug", grade and rep, "CRITICAL chain" or "−N rep" rise above the agent. The pay chip carries the dollars |
 | 17 | Pixel iris | A blocky circle closes onto Nib when leaving Stage 1 or changing chapters, then opens on the office (`iris.js`) |
-| 18 | Penalty | A wrong line flashes red, holds 3 frames, shakes and gets a stamped ✗; a red "−8 focus" chip arcs into the focus meter, which flashes red, and Nib winces on his dock portrait. From the 2nd miss on the same bug the window shakes and a red vignette flashes, harder on the 3rd. "Send as-is" on a false find does the same with "−3 rep" into the rep counter. ~700 ms; reduced motion keeps only the colour flashes (`penalty()` in `game.js`) |
+| 18 | Penalty | Five levels now, by severity and repeats: see **Fewer buttons, guided play**. Originally: A wrong line flashes red, holds 3 frames, shakes and gets a stamped ✗; a red "−8 focus" chip arcs into the focus meter, which flashes red, and Nib winces on his dock portrait. From the 2nd miss on the same bug the window shakes and a red vignette flashes, harder on the 3rd. "Send as-is" on a false find does the same with "−3 rep" into the rep counter. ~700 ms; reduced motion keeps only the colour flashes (`penalty()` in `game.js`) |
 
 ### UI polish (2026-11-05)
 
@@ -133,7 +180,7 @@ The founder doesn't wind up: you control it, so it reacts on the frame you press
 
 **Camera**: by default the view is zoomed in 1.75× and follows you, holding you at the centre until it reaches a wall, where it stops so the room keeps filling the screen (a room smaller than the screen is centred) (`world.setCamera({follow})`, eased over 450 ms). Outside the room, `drawHall` paints the building's hallway: a dim slate floor that pans with the room, a soft shadow at the walls, and a fade to dark. The button at the bottom right (or Z) zooms out to the whole office; the choice is saved as `first-office-view-v1`.
 
-**Vitals box** (top left, or V): bugs and crits so far, cash and focus; click for today's and lifetime totals and per-day charts. On screens 900px and wider the room keeps a left margin clear for it (`world.setInsets({left})`); open, it floats over the room only if the margin is too narrow. "Today" is the current game day, measured against the end-of-day snapshot `engine.sleep()` adds to `s.days` (last 60 days).
+**Vitals box** (top left, or V): bugs and crits so far, cash and focus; press V for today's and lifetime totals and per-day charts. On screens 900px and wider the room keeps a left margin clear for it (`world.setInsets({left})`); open, it floats over the room only if the margin is too narrow. "Today" is the current game day, measured against the end-of-day snapshot `engine.sleep()` adds to `s.days` (last 60 days).
 
 **Performance**: nothing redraws unless it changed. The world canvas redraws on movement, camera easing, its 8 fps sprite frame or an API call, with a 250 ms safety redraw. Nib's layer redraws on his own changes, and agent sprites write styles only when values change. Idle systems sleep on timers set to their next visible change (a blink, a sprite frame, a tool timer). Any new code that changes what a system shows must go through its API or call `Loop.wake()`. Numbers and method: `PERF_PLAN.md`.
 
@@ -184,7 +231,7 @@ Verified 2026-10-25: all five pass. Gemma was also checked live in Stage 3: it p
 - **Shoving and personal space:** everyone keeps an ellipse of personal space (13 px across, 15 px deep), so nobody sinks into anybody. Walk into Nib or an agent, or let one walk into you, and they're pushed out of your way, never onto someone else, and sideways if a wall is behind them. Other characters that overlap each other ease apart half a pixel a step (`shoveBodies` in `original/world.js`, fed by `world.setBodies` in `game.js`). An agent leans with the shove for 240 ms, and a walking one carries on from where it lands. Only someone pinned against a wall stops you.
 - **One depth for everyone:** whoever stands lower in the room is drawn in front. In chapter 3 the agents' layer also draws you and Nib (`body()` in `stage3/crew.js`, using `world.playerPose()` and `nib.pose()`, while `setPlayerHidden` and `setBodyHidden` keep the canvases from drawing them twice), with `z-index` set from each one's y. In chapter 2, Nib's canvas redraws you over Nib when you overlap and stand lower.
 - **Names on hover:** agent and Nib name tags, and your "You" tag, show only while hovered or focused. The tag fades in and rises 4 px with a slight overshoot, and the sprite lifts a pixel and brightens. Under reduced motion it's a plain fade.
-- **Vitals, three views:** mini (just the header), small (four rows) and big (today, lifetime, charts). Clicking the header folds the box to mini and back to whichever of small or big it was last; clicking the body switches small ↔ big. V and Esc still toggle small ↔ big, and the view is remembered.
+- **Vitals, three views** (since 2026-11-09 the box is a readout; V opens the detail view)**:** mini (just the header), small (four rows) and big (today, lifetime, charts). Clicking the header folds the box to mini and back to whichever of small or big it was last; clicking the body switches small ↔ big. V and Esc still toggle small ↔ big, and the view is remembered.
 - **Window descriptions:** each window opens with one line saying what it shows and what you do there (`lede()` in `game.js`).
 
 ## Review, 2026-10-31 (3 code reviewers, 3 playtesters)
@@ -195,7 +242,7 @@ Fixed:
 - **Agents:** GPU slots are re-checked after an answer or ⌘↵. A brief being read counts as a task, so a second message can't drop it. A declined standing purchase ends. Standing orders that can't run today, or have no program left, wait until tomorrow instead of stalling, and "wherever there's work" re-picks its program each morning. A duplicate standing order or queued brief is ignored. A stalled queue restarts. Chain criticals count in agent pay and the standup. One fix button per rule. The 3 s save only runs when the crew changed. Nib gets at least 4 tries a night in chapter 3.
 - **UI:** the chapter 3 Goal board shows the Elite goal. The leaderboard fits its window. The Rig shows agents at once. Unmapped off-limits rooms are tagged. On phones the vitals box sits below the HUD. The subtitle has contrast. The vitals count-up never goes below its start, and negative money reads "−$". Stage 1 no longer takes "I'm" as a name. Nib's "that's the one we needed" line is chapter 2 only.
 
-Known, not fixed: two tasks in one brief (only the first runs); agent tags can overlap the dock; HUD cash trails the vitals box by about 1.5 s while a pay chip flies; a reload mid-night skips that morning's report; a double-click on a desk upgrade buys and returns it.
+Known, not fixed: two tasks in one brief (only the first runs); agent tags can overlap the dock; HUD cash trails the vitals box by about 1.5 s while a pay chip flies; a reload mid-night skips that morning's report.
 
 ## Account management (2026-11-04)
 
@@ -311,7 +358,7 @@ A leftover draft, for example one an agent gave up on, is one **File** click on 
 - **Centered windows:** whatever you interact with opens in the middle of the screen, compact, over a soft scrim. The title is one breadcrumb line of what you're on, e.g. `Desk › ChatterBox › Login › Hunt`.
 - **Nib docks to the window:** while a window is open, Nib speaks from one strip docked on top of it, with choices and Next inline, instead of a bubble over your work. Opening a window puts keyboard focus on Nib's waiting line or the window, never the × button.
 - **Redraws patch in place:** a window or dock redraw keeps every node still there and only patches what changed (`morph` in `game.js`), so the button under a resting cursor keeps its hover instead of blinking when agents or Nib change the save.
-- **Dock groups (chapter 3; chapter 2's dock is flat):** Desk stands alone; Ops + HQ are **Jobs**, Tools + Rig are **Gear**, Nib + Ledger are **Books** (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
+- **Dock groups (chapter 3; chapter 2's dock is flat):** Desk and Finds stand alone; Shop + Rig are **Gear** (the only group since 2026-11-09) (`GROUPS` in `game.js`). Hovering, focusing or tapping a group pops its menu up with each station's key; a group with only one station unlocked shows that station as a plain button. A group's badge adds up its stations' badges, and it shows the open station's name while that window is up. Station keys (H, O, C, B, R, T, I) still open windows directly.
 - **Toasts:** they sit just above the dock and slide as the stack changes. On phones with a window open, they sit at the top instead, clear of the window's buttons.
 - **Less text:**
   - Intro paragraphs, legends and fine print are cut down to a few words.

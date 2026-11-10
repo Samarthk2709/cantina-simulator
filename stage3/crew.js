@@ -242,6 +242,17 @@
   }
   window.Stage3Float = floatFind;
   // Penalties also show as a small toast in the office, in the game's own toast style.
+  // Severity 2 for an incident that costs rep or a strike, 3 for a ban; the same kind again without its rule on counts as a repeat.
+  const penRuns = {};
+  C.on(p => {
+    const kind = p.program ? 'scope' : p.title, n = penRuns[kind] = (penRuns[kind] || 0) + 1, who = A.list().find(a => a.name === p.who);
+    requestAnimationFrame(() => requestAnimationFrame(() => { // after the card and the roster have redrawn
+      const cards = open && who && view.kind === 'agent' && view.id === who.id ? document.querySelectorAll('#s3-main .m-card.pen') : [];
+      const src = cards[cards.length - 1] || (open ? who && document.querySelector(`#s3-side [data-go="agent:${who.id}"]`) : who && document.querySelector(`#s3-layer [data-chat="${who.id}"]`)) || $('s3-toggle');
+      G.penalty(src, p.rep ? `−${p.rep} rep` : p.banned ? 'banned' : '', open ? null : document.getElementById('rep')?.parentNode, n, p.banned ? 3 : 2);
+    }));
+  });
+  A.onChange(() => A.RULES.forEach(r => { if (A.crew().rules.all?.[r.k]) penRuns[r.k === 'proof' ? 'False alarm' : r.k === 'honest' ? 'Report rejected' : r.k] = 0; })); // the rule is on: that run is over
   C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()}${p.rep ? ` · −${p.rep} rep` : ''}${p.banned ? ` · ${E.targetById[p.program]?.name || p.program} banned the company` : p.program && p.strikes ? ` · strike ${p.strikes}/${C.BAN_AT}` : ''}`, 'bad'));
 
   // ---------- idle life (motion #8): idle and done agents breathe a pixel, blink and glance, each on its own rhythm ----------
@@ -297,10 +308,12 @@
     const s = G.live(), w = G.wallet ? G.wallet() : s, sel = (k, id) => view.kind === k && (id === undefined || view.id === id) ? 'sel' : ''; // w: the HUD's wallet
     const rows = A.list().map(a => `<button class="s3-row ${sel('agent', a.id)} ${a.q ? 'need' : ''}" data-go="agent:${a.id}">${avatar(a)}<span class="txt"><span class="nm">${esc(a.name)}</span><span class="sub">${esc(A.phrase(a))}</span></span></button>`).join('');
     const next = A.hireable()[0], r = next && A.roster[next];
-    const rules = A.RULES.filter(x => A.crew().rules.all?.[x.k]).length;
+    if (r && s.cash >= r.price && !A.crew().known?.hire) { (A.crew().known ??= {}).hire = true; C.save(); } // Hire arrives when you can first afford one, then stays
+    const hire = r && A.crew().known?.hire, met = A.RULES.filter(x => A.known(x.k));
+    const rules = met.filter(x => A.crew().rules.all?.[x.k]).length;
     morph($('s3-side'), `<button class="s3-back" data-office>← Office</button><div class="s3-h">Team</div>${rows}
-      ${r ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
-      <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${A.RULES.length} rules on</span></span></button>
+      ${hire ? `<button class="s3-row ghost" data-hire="${next}" ${s.cash < r.price ? 'disabled' : ''}><span class="s3-av plus">+</span><span class="txt"><span class="nm">Hire ${esc(r.name)}</span><span class="sub">${money(r.price)}${s.cash < r.price ? ' · not enough cash' : ''}</span></span></button>` : ''}
+      <button class="s3-row ghost ${sel('rules')}" data-go="rules:all"><span class="s3-av plus">§</span><span class="txt"><span class="nm">AGENTS.md</span><span class="sub">${rules} of ${met.length} rule${met.length > 1 ? 's' : ''} on</span></span></button>
       <div class="s3-foot">${w.rep >= 60 ? 'Elite · ' + w.rep + ' rep' : w.rep + '/60 rep to Elite'} · ${money(w.cash)}<span class="s3-keys">↑↓ switch · ↵ send · ⌘↵ now · Esc office</span></div>`);
   }
 
@@ -345,9 +358,17 @@
       }
       out.push(msg(a, m));
     }
-    if (a.q) out.push(`<div class="m-card ask"><b>${esc(a.q.text)}</b><div class="opts">${a.q.opts.map((o, i) => `<button data-ans="${a.id}:${i}" class="${i === 0 ? 'primary' : ''}">${esc(o.label)}</button>`).join('')}</div></div>`);
+    if (a.q) out.push(`<div class="m-card ask"><b>${esc(a.q.text)}</b><div class="opts">${shuffled(a.q).map(i => `<button data-ans="${a.id}:${i}">${esc(a.q.opts[i].label)}</button>`).join('')}</div></div>`);
     else if (A.live(a) || a.status === 'queued') out.push(`<div class="m-now">${esc(A.phrase(a))}</div>`);
     return out.join('');
+  }
+  // A question's answers in a fixed but shuffled order (playtest 2026-11-05: the first button was always the safe one, so
+  // nobody read the card). Seeded by the question, so redraws keep the order.
+  function shuffled(q) {
+    let h = 2166136261; for (const c of q.text + q.day) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+    const ix = q.opts.map((_, i) => i);
+    for (let i = ix.length - 1; i > 0; i--) { h = Math.imul(h ^ (h >>> 13), 0x5bd1e995) >>> 0; const j = h % (i + 1); [ix[i], ix[j]] = [ix[j], ix[i]]; }
+    return ix;
   }
   let lastFix = {};
   function fixBtn(a, m) {
@@ -451,9 +472,10 @@
   }
   function rulesView() {
     const rules = A.crew().rules;
-    const rows = A.RULES.map(r => { const on = !!rules.all?.[r.k]; return `<label class="rule"><input type="checkbox" data-rule="${r.k}" ${on ? 'checked' : ''}><span>${esc(r.text)}<small class="${on ? '' : 'without'}">${on ? esc(r.cost) : 'Without it: ' + esc(r.without)}</small></span></label>`; }).join('');
+    const met = A.RULES.filter(r => A.known(r.k)), more = A.RULES.length - met.length;
+    const rows = met.map(r => { const on = !!rules.all?.[r.k]; return `<label class="rule"><input type="checkbox" data-rule="${r.k}" ${on ? 'checked' : ''}><span>${esc(r.text)}<small class="${on ? '' : 'without'}">${on ? esc(r.cost) : 'Without it: ' + esc(r.without)}</small></span></label>`; }).join('');
     const oos = D.ALL_TARGETS.map(t => `${t.name}: ${C.outOfScope(t.id).map(id => t.rooms.find(x => x[0] === id)[1]).join(', ')}${C.strikes(t.id) ? ` (${C.strikes(t.id)}/${C.BAN_AT} strikes)` : ''}${C.banned(t.id) ? ' · banned' : ''}`).join(' · ');
-    return `<div class="s3-doc"><h2>AGENTS.md</h2><p class="muted">Every agent reads this before every step. Each rule switches on one thing they'd otherwise skip.</p>${rows}<p class="muted small">Off limits · ${esc(oos)}</p></div>`;
+    return `<div class="s3-doc"><h2>AGENTS.md</h2><p class="muted">Every agent reads this before every step. Each rule switches on one thing they'd otherwise skip.</p>${rows}${more ? `<p class="muted small">${more} more rule${more > 1 ? 's' : ''} will show up here when the team runs into what ${more > 1 ? 'they prevent' : 'it prevents'}.</p>` : ''}<p class="muted small">Off limits · ${esc(oos)}</p></div>`;
   }
 
   // ---------- events ----------
