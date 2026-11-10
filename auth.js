@@ -10,7 +10,7 @@
   'use strict';
   // The game itself lives on the server (/api/game, sync.js); these are the page's own extras, kept with the account.
   const KEYS = ['first-office-crew-v1', 'first-office-nib-v1', 'first-office-avatar-v1', 'first-office-look-v1'];
-  const GAME = 'first-office-game-v1', GAME_VERSION = 'first-office-game-version', PENDING = 'first-office-pending-act', ALL = KEYS.concat(GAME, GAME_VERSION);
+  const GAME = 'first-office-game-v1', GAME_VERSION = 'first-office-game-version', PENDING = 'first-office-pending-act', ALL = KEYS.concat(GAME, GAME_VERSION, 'fo.restUntil'); // fo.restUntil: a sleep's wait (game.js), this account's only
   const pk = () => PENDING + ':' + (user && user.id); // each account's unsent moves (sync.js), kept across sign-ins on this browser
   const ACCOUNT = 'first-office-account', SYNCED = 'first-office-synced-at', SYNCED_KEYS = 'first-office-synced-keys', GUEST = 'first-office-guest';
   const NAME_RE = /^[a-zA-Z0-9_]{3,16}$/;
@@ -115,12 +115,16 @@
     if (e.key !== ACCOUNT || e.newValue === (user && user.id) || !(user || e.newValue)) return;
     user = null; window.Stage2?.freeze?.(); window.Sync?.park?.(); window.Sync?.stop();
     document.querySelectorAll('dialog[open]').forEach(d => d.close()); close(); // a modal or the sign-in card would cover the note
+    blockNote(e.newValue ? 'Another account signed in on this browser.' : 'You signed out in another tab.');
+  });
+  // A note that covers the page with one Reload button (another tab changed the account, or the server can't be reached).
+  function blockNote(text) {
     if (document.getElementById('other-tab')) return;
     if (!document.getElementById('acct-note-css')) { const st = document.createElement('style'); st.id = 'acct-note-css'; st.textContent = '#other-tab{position:fixed;inset:0;z-index:10002;display:grid;place-items:center;background:rgba(6,12,16,.82)}#other-tab>div{display:grid;gap:14px;justify-items:center;padding:24px 28px;border-radius:12px;background:#10202a;color:#e8f0f4;font:16px/1.4 system-ui,sans-serif}#other-tab button{font:inherit;padding:8px 16px;border-radius:8px;cursor:pointer;background:#7ff0d8;color:#0b1a1f;border:0}'; document.head.appendChild(st); } // meet.html has no style.css
     const d = document.createElement('div'); d.id = 'other-tab';
-    d.innerHTML = `<div><b>${e.newValue ? 'Another account signed in on this browser.' : 'You signed out in another tab.'}</b><button class="accent">Reload</button></div>`;
+    d.innerHTML = `<div><b>${text}</b><button class="accent">Reload</button></div>`;
     d.addEventListener('click', ev => { if (ev.target.closest('button')) location.reload(); }); document.body.appendChild(d); noteOnly(d);
-  });
+  }
   // A note that covers the page: everything behind it is inert, focus stays on its button, Enter or Space presses it.
   function noteOnly(d) {
     for (const el of document.body.children) if (el !== d) el.inert = true;
@@ -137,12 +141,15 @@
       if (p && p.account === user.id) {
         posted = await postPending(p); if (!posted) { // not posted yet: keep this browser's save (it has those moves) if they can still land on the server's
           const body = JSON.parse(ls.get(pk()))?.body, g = await json('/api/game').catch(() => null);
-          if (!g || g.version === body?.version || (g.lastId === body?.id && g.version > body?.version)) return; // untouched, or only our batch landed (once or more: a re-send adds its tail)
-          if (JSON.parse(ls.get(pk()))?.body?.id === body?.id) ls.del(pk()); // the server moved on without them (another device): its copy wins
+          const untouched = g && (g.version === body?.version || (g.lastId === body?.id && g.version > body?.version)); // untouched, or only our batch landed
+          if (ls.get(GAME) && (!g || untouched)) return; // keep this browser's save: it has those moves. None here: read the game below (retry, else the note)
+          if (g && !untouched && JSON.parse(ls.get(pk()))?.body?.id === body?.id) ls.del(pk()); // the server moved on without them (another device): its copy wins
         }
       }
     } catch { ls.del(pk()); }
     let g = await json('/api/game').catch(() => null);
+    for (let i = 0; !g && !ls.get(GAME) && i < 2; i++) { await new Promise(r => setTimeout(r, 1000 * (i + 1))); g = await json('/api/game').catch(() => null); } // nothing here to play
+    if (!g && !ls.get(GAME) && mine()) { blockNote('Can\'t reach the server. Your game is safe there.'); await new Promise(() => {}); } // not a throwaway game whose moves would be dropped
     if (!mine()) return;
     if (!g && posted?.version && ls.get(GAME)) { ls.set(GAME_VERSION, String(posted.version)); return; } // the game couldn't be read, but our moves just landed: this browser's save has them, at that version
     if (g && !g.state && !location.pathname.endsWith('/meet.html')) {
@@ -152,6 +159,8 @@
       if (intro.completedAt) { g = await make(); if (!g?.state && mine()) g = await make(); } // account: the server refuses it for another account signed in meanwhile
     }
     if (!mine()) return;
+    let pb = null; try { pb = JSON.parse(ls.get(pk()))?.body; } catch {}
+    if (g && pb && !(g.version === pb.version || (g.lastId === pb.id && g.version > pb.version))) ls.del(pk()); // the server moved on without those moves (whichever read got through): its copy wins
     if (g && g.state) { ls.set(GAME, JSON.stringify(g.state)); ls.set(GAME_VERSION, String(g.version)); }
     else if (g) { ls.del(GAME); ls.del(GAME_VERSION); }
   }
@@ -250,8 +259,22 @@ ${cfg.clientId ? '<span class="auth-or">OR</span><div id="auth-google"></div>' :
   }
 
   async function start() {
-    try { cfg = await json('/api/auth/config'); } catch { cfg = null; return done(); } // no server: local play
-    try { const me = await json('/api/auth/me'); if (me.user) return enter(me.user); } catch {}
+    // No server: local play, but only on a browser no account uses. Signed in here, one failed request must not turn this
+    // load into a guest's (its moves would never reach the server and the next load would drop them): retry, then wait.
+    for (let i = 0; !cfg; i++) {
+      try { cfg = await json('/api/auth/config'); } catch {
+        if (!ls.get(ACCOUNT) || ls.get(GUEST)) { cfg = null; return done(); } // a guest (older versions left the account key behind) plays locally
+        if (i >= 2) { window.Stage2?.freeze?.(); return blockNote('Can\'t reach the server. Your game is safe there.'); }
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+    for (let i = 0; ; i++) { // the same for who's signed in: a failed answer is not "signed out"
+      try { const me = await json('/api/auth/me'); if (me.user) return enter(me.user); break; } catch (e) {
+        if (!ls.get(ACCOUNT) || ls.get(GUEST) || e.status === 401) break;
+        if (i >= 2) { window.Stage2?.freeze?.(); return blockNote('Can\'t reach the server. Your game is safe there.'); }
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
     if (ls.get(GUEST)) return done();
     gate('login');
   }

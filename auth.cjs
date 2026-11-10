@@ -238,13 +238,16 @@ function create({ clientId = '', store, sessionSecret = process.env.SESSION_SECR
     if (owner && owner !== acc.id && (await getAccount(owner))?.google === sub && (await getAccount(owner))?.username) throw fail(taken, 409);
     // The account first (refused if this session was signed out meanwhile), then the mapping claimed in one step; the link it
     // replaced is read inside the edit.
-    let replaced = null; const next = await edit(acc.id, cur => { replaced = cur.google; return { google: sub, email: String(p.email || '').slice(0, 120), picture: /^https:\/\//.test(p.picture || '') ? p.picture.slice(0, 400) : '' }; }, acc.sv || 0);
+    let replaced = null, was = null; const next = await edit(acc.id, cur => { replaced = cur.google; was = { google: cur.google || null, email: cur.email || '', picture: cur.picture || '' }; return { google: sub, email: String(p.email || '').slice(0, 120), picture: /^https:\/\//.test(p.picture || '') ? p.picture.slice(0, 400) : '' }; }, acc.sv || 0);
+    const undo = () => edit(acc.id, cur => cur.google === sub ? was : {}).catch(() => {}); // the record as it was: no link it can't use
     let ok = false;
-    for (let i = 0; i < 5 && !ok; i++) {
-      if (await store.add('google:' + sub, acc.id)) ok = true;
-      else { const cur = await store.get('google:' + sub); if (cur === acc.id) ok = true; else if (!await clear(cur)) break; }
-    }
-    if (!ok) { await edit(acc.id, cur => cur.google === sub ? { google: replaced || null } : {}).catch(() => {}); throw fail(taken, 409); } // lost to an account that keeps it: undone
+    try {
+      for (let i = 0; i < 5 && !ok; i++) {
+        if (await store.add('google:' + sub, acc.id)) ok = true;
+        else { const cur = await store.get('google:' + sub); if (cur === acc.id) ok = true; else if (!await clear(cur)) break; }
+      }
+    } catch (e) { await undo(); throw e; } // storage failed mid-claim: undone too
+    if (!ok) { await undo(); throw fail(taken, 409); } // lost to an account that keeps it: undone
     if (replaced && replaced !== sub) await store.delIf('google:' + replaced, acc.id);
     return next;
   }
@@ -252,17 +255,19 @@ function create({ clientId = '', store, sessionSecret = process.env.SESSION_SECR
     if (!acc.google) return acc;
     if (!acc.pass) throw fail('Add a password first, or you couldn\'t sign in any more.', 409);
     await reauth(acc, password, ip);
-    await store.delIf('google:' + acc.google, acc.id);
-    return edit(acc.id, () => ({ google: null, email: '', picture: '' }), acc.sv || 0);
+    const next = await edit(acc.id, () => ({ google: null, email: '', picture: '' }), acc.sv || 0); // the account first: a failure leaves the link working
+    await store.delIf('google:' + acc.google, acc.id).catch(() => {}); // a mapping left behind opens nothing (google() checks the account)
+    return next;
   }
   const signOutAll = acc => edit(acc.id, cur => ({ sv: (cur.sv || 0) + 1 }), acc.sv || 0);
   // Delete: type the username to confirm (and the password, if there is one). The caller removes the game and the board row.
   async function remove(acc, confirm, password, ip) {
-    if (typeof confirm !== 'string' || !acc.username || confirm.toLowerCase() !== acc.username.toLowerCase()) throw fail('Type your username to confirm.', 400);
+    if (typeof confirm !== 'string' || (acc.username && confirm.toLowerCase() !== acc.username.toLowerCase())) throw fail('Type your username to confirm.', 400); // no username yet (a Google sign-up that stopped there): nothing to type
     await reauth(acc, password, ip);
     // The record goes first (a rename or save racing this is refused from then on), then the names it held at that moment.
     // Once the record is gone the delete has happened (a retry would get 401), so each cleanup step is tried on its own.
-    const cur = (await getAccount(acc.id)) || acc; await store.del('account:' + acc.id);
+    const cur = (await getAccount(acc.id)) || acc;
+    try { await store.del('account:' + acc.id); } catch (e) { if (!await settle(async () => { await store.del('account:' + acc.id); return true; }) && await getAccount(acc.id).catch(() => cur)) throw e; } // a delete is safe to repeat: tried again before giving up (a late one landing after a 503 would leave everything else behind, and a retry gets 401)
     await settle(() => store.del(saveKey({ id: acc.id })));
     for (const n of new Set([acc.username, cur.username].filter(Boolean).map(x => x.toLowerCase()))) await settle(() => store.delIf('uname:' + n, acc.id));
     for (const g of new Set([acc.google, cur.google].filter(Boolean))) await settle(() => store.delIf('google:' + g, acc.id));

@@ -81,7 +81,7 @@ const GSI = `window.google={accounts:{id:{initialize(o){this.o=o},disableAutoSel
     await g.p.waitForFunction(() => !document.getElementById('auth-gate'), null, { timeout: 8000 });
     assert.equal((await me(g.p)).name, 'Ann_2', 'Google signs in to the linked account');
     // That Google account can't be linked to a second account.
-    const taken = await api(other.p, '/api/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token('g-ann', 'ann@example.com') }) });
+    const taken = await api(other.p, '/api/account/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token('g-ann', 'ann@example.com'), account: await other.p.evaluate(() => Auth.user.id) }) }); // whose account (server.cjs refuses a post without it)
     assert.equal(taken.status, 409);
 
     // Sign out other devices: the Google session ends, this one doesn't.

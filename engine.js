@@ -89,7 +89,7 @@
     const t = targetById[tid];
     if (!t) return { ok: false, why: 'Unknown program.' };
     if (t.late && s.stage !== 3) return { ok: false, why: 'Opens in chapter 3.' };
-    if (t.private && s.rep < t.rep) return { ok: false, why: 'Invite only. Reach ' + t.rep + ' reputation.' };
+    if (t.private && s.rep < t.rep && !(s.lit[tid] || []).length) return { ok: false, why: 'Invite only. Reach ' + t.rep + ' reputation.' }; // an invite you took stays yours if rep dips
     return { ok: true };
   }
   const isLit = (s, tid, rid) => (s.lit[tid] || []).includes(rid);
@@ -131,7 +131,8 @@
     return { ok: true };
   }
   // `by` is an agent's name (Stage 3). Agents skip teaching Nib: that stays the player's job.
-  function guess(s, fid, line, by) {
+  // noFile: this find's own strike bans its program (chapter 3), so a mastered one isn't filed (as teach() pays nothing then).
+  function guess(s, fid, line, by, noFile) {
     const f = FINDINGS[fid];
     if (!f || f.target !== s.target || !isLit(s, f.target, f.room)) return { ok: false, why: 'Map that room first.' };
     if (slotState(s, fid) !== 'open') return { ok: false, why: 'Nothing to hunt there.' };
@@ -150,7 +151,7 @@
     // Once Nib has mastered a class there is nothing left to teach: it drafts the report instead.
     const mastered = precision(s, f.cls) >= 0.95;
     const first = reveal(s, 'training');
-    if (mastered) return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first, paid: fileFound(s, fid, 'S') };
+    if (mastered) return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first, paid: noFile ? (delete s.found[fid], null) : fileFound(s, fid, 'S') };
     s.pendingTeach = fid;
     return { ok: true, hit: true, mastered, why: D.fill(L.bad, f.nouns), first };
   }
@@ -354,8 +355,9 @@
     // Only a find counts: the program sees the report, not the wrong guesses.
     guess(s, fid, line, by) {
       const f = FINDINGS[fid]; if (f && banned(s, f.target)) return bannedWhy(f.target);
-      const r = guess(s, fid, line, by);
-      if (r.ok && r.hit && s.stage === 3 && !inScope(f.target, f.room)) r.penalty = strike(s, f.target, f.room, 'hunted in');
+      const oos = f && s.stage === 3 && !inScope(f.target, f.room), bans = oos && ((s.strikes || {})[f.target] || 0) + 1 >= BAN_AT;
+      const r = guess(s, fid, line, by, bans);
+      if (r.ok && r.hit && oos) r.penalty = strike(s, f.target, f.room, 'hunted in');
       return r;
     },
     submit: (s, fid, ...x) => FINDINGS[fid] && banned(s, FINDINGS[fid].target) ? bannedWhy(FINDINGS[fid].target) : submit(s, fid, ...x),

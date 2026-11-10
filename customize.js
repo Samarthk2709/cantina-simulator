@@ -31,9 +31,9 @@
   // Earned = everything earned before plus everything the save meets now, and the ids that are new.
   // keep: write them down (the toast does; loading doesn't, so the toast still sees them as new).
   function refresh(keep) {
-    const s = read(SAVE) || {}, had = new Set((data && data.earned) || []), fresh = [];
+    const s = read(SAVE) || {}, stored = read(KEY), had = new Set(((stored || data) && (stored || data).earned) || []), fresh = []; // stored first: another tab may have changed it
     for (const id in NEED) if (!had.has(id) && NEED[id][1](s)) { had.add(id); fresh.push(id); }
-    if (keep && data && fresh.length) { const cur = read(KEY) || data; cur.earned = [...new Set([...(cur.earned || []), ...had])]; data = cur; write(cur); } // onto the stored look (another tab may have changed it), new unlocks added
+    if (keep && fresh.length && (stored || data)) { const cur = stored || data; cur.earned = [...new Set([...(cur.earned || []), ...had])]; data = cur; if (stored) write(cur); } // remembered either way (no repeat toasts), written only onto the stored look // onto the stored look (another tab may have changed it), new unlocks added
     return { earned: had, fresh };
   }
   const allowed = (key, v, earned) => { const it = ROWS.find(r => r[0] === key)[2].find(i => i[0] === v); return !!it && (!it[2] || earned.has(it[2])); };
@@ -119,7 +119,7 @@
 
   // New unlocks during play: a toast in the office (#toasts), checked every few seconds against the save.
   setInterval(() => {
-    if (!data || box || window.Stage2?.frozen?.()) return; // a frozen tab (another has the game) writes nothing
+    if (!data || box || window.Stage2?.frozen?.() || document.getElementById('other-tab')) return; // a frozen tab, or one behind the account note (meet.html has no Stage2), writes nothing
     const { fresh } = refresh(true), el = document.getElementById('toasts');
     if (!el) return;
     for (const id of fresh) { const t = document.createElement('div'); t.className = 'toast good'; t.textContent = 'New look unlocked: ' + NAMES[id]; el.appendChild(t); setTimeout(() => t.remove(), 3600); }

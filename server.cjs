@@ -34,12 +34,13 @@ const store = require('./store.cjs').create({dir: DATA}); // files locally, Redi
 const auth = require('./auth.cjs').create({clientId: process.env.GOOGLE_CLIENT_ID || '', store, jwksUrl: process.env.GOOGLE_JWKS_URL || undefined});
 const clip = (v, n) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '';
 const fail = (msg, status) => Object.assign(new Error(msg), {status});
-function quota() {
-  const today = new Date().toISOString().slice(0, 10);
-  if (today !== usage.day) Object.assign(usage, {day: today, count: 0});
-  const now = Date.now(); usage.minute = usage.minute.filter(t => now - t < 60000);
-  if (usage.count >= LIMIT.perDay || usage.minute.length >= LIMIT.perMinute) return false;
-  usage.count++; usage.minute.push(now); return true;
+// The shared model quota, counted in the store (one count for every instance when hosted, not one each).
+async function quota() {
+  const now = Date.now(), day = new Date(now).toISOString().slice(0, 10);
+  if (await store.incr('ai:all:m:' + Math.floor(now / 60000), 120) > LIMIT.perMinute) return false;
+  if (await store.incr('ai:all:d:' + day, 172800) > LIMIT.perDay) return false;
+  if (day !== usage.day) Object.assign(usage, {day, count: 0}); usage.count++; // this instance's share, for /health
+  return true;
 }
 // Per-player limit, kept in the store so it holds across Vercel instances. Keyed by account, else by IP.
 // messages: what the player types (Nib chat, agent briefs, agent chat). calls: every model call, including the
@@ -59,7 +60,7 @@ async function spend(req, user, kind, text = '') {
 }
 async function complete(messages, schema, maxTokens, temperature) {
   if (!KEY) throw fail('Model not configured', 503);
-  if (!quota()) throw fail('Model quota reached', 429);
+  if (!await quota()) throw fail('Model quota reached', 429);
   const body = {model: MODEL, messages, response_format: {type: 'json_schema', json_schema: {name: 'agent', strict: true, schema}}, temperature, max_tokens: maxTokens, stream: false};
   const r = await fetch(ENDPOINT, {method: 'POST', headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + KEY}, body: JSON.stringify(body), signal: AbortSignal.timeout(15000)});
   // Provider error bodies are never forwarded.
@@ -141,12 +142,14 @@ async function editBoard(f) {
 }
 // The row comes from the server's own copy of the game (see /api/act), never from the page.
 const rowId = user => 'g' + crypto.createHash('sha256').update(user.sub).digest('hex').slice(0, 24);
-async function boardFrom(user, s) {
-  const id = rowId(user), row = {id, name: user.name, rep: s.rep, bugs: s.bugs, crits: s.crits, earned: Math.round(s.stats.earned), day: s.day, chapter: s.stage === 3 ? 3 : 2};
+// v: the game version these numbers are from. A slower write of an older version can't put old numbers back.
+async function boardFrom(user, s, v) {
+  const id = rowId(user), row = {id, v: v || 0, name: user.name, rep: s.rep, bugs: s.bugs, crits: s.crits, earned: Math.round(s.stats.earned), day: s.day, chapter: s.stage === 3 ? 3 : 2};
   await editBoard(async board => {
     const acc = await store.get(user.account ? 'account:' + user.sub : gameKey(user)); if (!acc) return false; // the account was deleted meanwhile: its row stays gone
     if (user.account) row.name = acc.username || row.name; // the name now, not when this request began (a rename may have landed since)
-    const old = board[id]; if (old && ['name', 'rep', 'bugs', 'crits', 'earned', 'day', 'chapter'].every(k => old[k] === row[k])) return false; // unchanged: no write
+    const old = board[id]; if (old && (old.v || 0) > row.v) return false; // newer numbers are already there
+    if (old && ['name', 'rep', 'bugs', 'crits', 'earned', 'day', 'chapter'].every(k => old[k] === row[k])) return false; // unchanged: no write
     board[id] = {...row, at: Date.now()};
     const ids = Object.keys(board); if (ids.length > BOARD_MAX) ids.sort((x, y) => board[x].rep - board[y].rep || board[x].bugs - board[y].bugs || board[x].at - board[y].at).slice(0, ids.length - BOARD_MAX).forEach(k => delete board[k]); // full: the lowest scores go, so new empty accounts can't push the top players off
     if (!old && !board[id]) return false; // too low to make the board: nothing changed
@@ -190,7 +193,7 @@ async function newGame(user, b, tries = 0) {
   const old = await store.get(gameKey(user)), g = {version: ((old && old.version) || 0) + 1, state: s};
   if (!await store.setIf(gameKey(user), g, (old && old.version) || 0)) return newGame(user, b, tries + 1); // a move landed meanwhile: its version must not be reused
   if (user.account && !await store.get('account:' + user.sub)) { await store.del(gameKey(user)); throw fail('Signed out', 401); } // the account was deleted meanwhile: nothing of it stays
-  await boardFrom(user, s);
+  await boardFrom(user, s, g.version);
   return {version: g.version, state: s};
 }
 async function playActions(user, b, retried) {
@@ -204,7 +207,7 @@ async function playActions(user, b, retried) {
   if (same) actions = b.actions.slice(g.lastLen);
   else if (!g || !g.state || b.version !== g.version) return {conflict: true, ...(await getGame(user))};
   const E = freshEngine(), s = E.restore(g.state); if (b.day === today()) calendar(E, s); // today's release, as the page saw it at load (getGame), when getGame couldn't save it. Never an older day sent by the page: stepping it a day at a time would ship more than the cap of 3
-  if (same && !actions.length) return {version: g.version, digest: E.digest(s)}; // all of it landed already
+  if (same && !actions.length) { await boardFrom(user, s, g.version); return {version: g.version, digest: E.digest(s)}; } // all of it landed already (its board write may not have: a 503 after the game was saved)
   for (const a of actions) {
     try { E.act(s, a && typeof a === 'object' ? {fn: a.fn, args: a.args, actor: a.actor || null, target: a.target || null, keep: !!a.keep} : null); }
     catch { return {conflict: true, ...(await getGame(user))}; } // an action the engine can't run: the page is out of step
@@ -214,11 +217,11 @@ async function playActions(user, b, retried) {
   if (same) g.lastLen = b.actions.length; else Object.assign(g, {lastId: typeof b.id === 'string' && b.id.length <= 20 ? b.id : null, lastBase: b.version, lastLen: b.actions.length});
   // Another request wrote this game since we read it (a beacon racing its own in-flight batch): read again once, else the page resyncs.
   if (!await store.setIf(gameKey(user), g, was)) return retried ? {conflict: true, ...(await getGame(user))} : playActions(user, b, true);
-  await boardFrom(user, s);
+  await boardFrom(user, s, g.version);
   return {version: g.version, digest: E.digest(s)};
 }
 const keyOf = id => crypto.createHash('sha256').update(id).digest('hex').slice(0, 12);
-const topScores = async user => { const board = (await loadBoard()).rows; return {me: user ? keyOf(rowId(user)) : null, rows: Object.values(board).sort((a, b) => b.rep - a.rep || b.bugs - a.bugs).slice(0, 100).map(({at, id, ...r}) => ({key: crypto.createHash('sha256').update(id).digest('hex').slice(0, 12), ...r}))}; };
+const topScores = async user => { const board = (await loadBoard()).rows; return {me: user ? keyOf(rowId(user)) : null, rows: Object.values(board).sort((a, b) => b.rep - a.rep || b.bugs - a.bugs).slice(0, 100).map(({at, id, v, ...r}) => ({key: crypto.createHash('sha256').update(id).digest('hex').slice(0, 12), ...r}))}; };
 
 const secure = req => !!req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
 function send(res, status, obj) { res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}); res.end(JSON.stringify(obj)); }
@@ -251,7 +254,9 @@ async function handler(req, res) {
       if (url.pathname === '/api/nib/health') return send(res, 200, await nib.health());
       if (url.pathname === '/api/agents/health') return send(res, 200, {ok: !!KEY, provider: 'DeepInfra', model: MODEL, used: usage.count, limit: LIMIT.perDay, tokens: {in: usage.inTokens, cached: usage.cachedTokens, out: usage.outTokens}});
       if (url.pathname === '/api/auth/config') return send(res, 200, {accounts: true, clientId: auth.clientId});
-      const user = await auth.userFrom(req), player = user && user.name ? user : null; // player: an account with a username (sub = account id, name = username)
+      if (url.pathname === '/api/auth/logout' && req.method === 'POST') { res.setHeader('Set-Cookie', 'fo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'); return send(res, 200, {ok: true}); } // needs no storage: works while it's down
+      let user; try { user = await auth.userFrom(req); } catch { return send(res, 503, {error: 'Sign-in unavailable. Try again.'}); } // the store is down: not "signed out"
+      const player = user && user.name ? user : null; // player: an account with a username (sub = account id, name = username)
       if (url.pathname === '/api/auth/me') return send(res, 200, {user: auth.public(user)});
       if (url.pathname === '/api/save' && req.method === 'GET') return user ? send(res, 200, {save: await auth.getSave(user)}) : send(res, 401, {error: 'Sign in first.'});
       if (url.pathname === '/api/leaderboard' && req.method === 'GET') return send(res, 200, await topScores(player));
@@ -296,10 +301,11 @@ async function handler(req, res) {
       if (url.pathname.startsWith('/api/account/')) {
         if (!user) return send(res, 401, {error: 'Sign in first.'});
         const b = (await readJson(req, 8000)) || {}, a = user.account, what = url.pathname.slice(13);
+        if (req.method === 'POST' && b.account !== user.sub) return send(res, 401, {error: 'Signed in as another account. Reload.'}); // required: whose account this window is (another tab may have signed someone else in)
         try {
           if (what === 'delete') {
             await auth.remove(a, b.confirm, b.password, ip(req));
-            for (const f of [() => store.del(gameKey(user)), () => editBoard(board => { delete board[rowId(user)]; })]) for (let i = 0; i < 3; i++) try { await f(); break; } catch {} // the account is gone already: each step tried on its own. editBoard always writes a new version: a row write under way retries, sees the account gone and stops
+            for (const f of [() => store.del(gameKey(user)), () => editBoard(board => { delete board[rowId(user)]; })]) for (let i = 0; i < 6; i++) try { await f(); break; } catch { if (i < 5) await new Promise(r => setTimeout(r, 250 * 2 ** i)); } // backing off (about 8 s each, within the function's 30 s): a short storage blip mustn't leave the public row // the account is gone already: each step tried on its own. editBoard always writes a new version: a row write under way retries, sees the account gone and stops
             res.setHeader('Set-Cookie', 'fo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'); return send(res, 200, {ok: true});
           }
           const next = what === 'username' ? await auth.rename(a, b.username)
@@ -308,12 +314,13 @@ async function handler(req, res) {
             : what === 'google-unlink' ? await auth.unlinkGoogle(a, b.password, ip(req))
             : what === 'signout-all' ? await auth.signOutAll(a) : null;
           if (!next) return send(res, 404, {error: 'Not found'});
-          if (what === 'username') { const g = await store.get(gameKey(user)); if (g && g.state) await boardFrom(auth.toUser(next), g.state); } // the board shows the new name now
+          if (what === 'username') { // the board shows the new name now, game or not (a Stage 1 replay clears the game but keeps the row); the rename itself has landed, so a board blip doesn't fail it
+            for (let i = 0; i < 4; i++) try { await editBoard(b => { const r = b[rowId(user)]; if (!r || r.name === next.username) return false; r.name = next.username; }); break; } catch { if (i < 3) await new Promise(r => setTimeout(r, 250 * 2 ** i)); }
+          }
           res.setHeader('Set-Cookie', await auth.cookieFor(next, secure(req))); // this device stays signed in (a new session version ends the others)
           return send(res, 200, {account: auth.info(next), user: auth.public(auth.toUser(next))});
         } catch (e) { return send(res, e.status && e.status < 500 ? e.status : 503, {error: e.status && e.status < 500 ? e.message : 'Try again.'}); }
       }
-      if (url.pathname === '/api/auth/logout') { res.setHeader('Set-Cookie', 'fo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'); return send(res, 200, {ok: true}); }
       if (url.pathname === '/api/save') {
         if (!user) return send(res, 401, {error: 'Sign in first.'});
         try { return send(res, 200, await auth.putSave(user, await readJson(req, 1100000))); } catch (e) { return send(res, e.status || 500, {error: e.status === 401 ? 'Sign in first.' : 'Bad save.'}); }
@@ -335,7 +342,7 @@ async function handler(req, res) {
       return send(res, 200, {...out, ms: Date.now() - t0});
     } catch (e) {
       if (e.status === 400 || e.status === 413) return send(res, e.status, {error: e.status === 413 ? 'Too large.' : 'Bad request.'});
-      return send(res, e.status || 500, {error: e.status === 429 ? 'Model is busy or out of quota.' : e.status === 401 ? 'Sign in first.' : 'Model unavailable.'});
+      return send(res, e.status || 500, {error: e.status === 429 ? 'Model is busy or out of quota.' : e.status === 401 ? 'Sign in first.' : /^\/api\/(agents|nib)\//.test(url.pathname) ? 'Model unavailable.' : 'Server busy. Try again.'});
     }
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'Method not allowed'});

@@ -123,6 +123,8 @@
   const stopThen = text => { const r = isStop(text) && text.match(/^(?:please |pls |ok(?:ay)?,? )?(?:stop|cancel|abort|halt)\b[^,.;]*?(?:[,.;]|\band\b|\bthen\b)\s*(?:instead\s*,?\s*)?(.+)$/i)?.[1]; return r && !isQuestion(r) && /^(?:(?:and\s+then|and|then)\s+)?(?:instead\s+)?(?:hunt|map|explore|validate|buy|get|upgrade|switch|take|work on|go to|chain|connect)\b/i.test(r) && !/\b(?:don'?t|do not|never|no)\b/i.test(r) && parseLocal(r).job !== 'none' ? r : null; };
   const REQUEST = /^(?:please |pls )?(?:can|could|would|will) you (?:please )?(?:hunt|find(?! out)|look for|map|buy|get|upgrade|validate|prove|report|write|take|switch|work(?! out)|go|keep|start|explore|connect|chain|file|finish|clear|send)\b/; // "can you find out why…?" stays a question // "can you hunt vaultkit?" is an order, said politely
   const isQuestion = text => { const t = text.trim().toLowerCase().replace(/[’‘]/g, "'"); return !REQUEST.test(t) && !/^when you(?:'re| are)? (?:done|finished|finish)\b(?!.*\b(?:what|why|how|which|who|did)\b)/.test(t) && (/\?\s*$/.test(t) || QUESTION.test(t)); }; // "when you're done, hunt vaultkit" is an order (queued)
+  // "buy the tracer once we have $3000": a purchase that waits on money isn't one to make now (agents can't wait on a balance).
+  const waitsOnMoney = t => /\b(?:if|once|when|after|as soon as)\b[^.;]*?(?:\$\s?\d|\d|\b(?:cash|money|rep|reputation|afford|rich|cheap|earn|earned|make|made|saved)\b)/i.test(t);
   function parseLocal(text) {
     const WORDS = {a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10};
     const t = text.toLowerCase().replace(/[’‘]/g, "'") // phones type curly apostrophes
@@ -175,7 +177,7 @@
     if (/(?:don'?t spend|without spending|no spending)(?! (?:more than|over|above))/.test(t)) task.budget = 0; // "don't spend more than $700" is a budget, "don't spend anything" isn't
     if (FOREVER.test(t)) task.forever = true;
     // "buy the tracer once we have $3000": a purchase that waits on something isn't one to make now (offline it's just talk).
-    if (task.job === 'buy' && (/\b(?:if|once|when|after|as soon as)\b[^.;]*?(?:\$\s?\d|\d|\b(?:cash|money|rep|reputation|afford|rich|cheap|earn|earned|make|made|saved)\b)/.test(t) || task.until?.kind === 'cash')) Object.assign(task, {job: 'none', item: null}); // waits on money: not now ("when you get a chance" is fine)
+    if (task.job === 'buy' && (waitsOnMoney(t) || task.until?.kind === 'cash')) Object.assign(task, {job: 'none', item: null}); // waits on money: not now ("when you get a chance" is fine)
     return task;
   }
   function fromModel(m) {
@@ -326,16 +328,16 @@
     const a = agents[id]; text = String(text || '').trim().slice(0, 300); if (!a || !text) return;
     push(a, 'user', text); changed();
     if (isClearQueue(text)) { // the queue, not the task running now
-      const n = a.queue.length; a.queue = []; say(a, n ? `Cleared ${n} queued order${n > 1 ? 's' : ''}. ${hasTask(a) ? `Still on “${label(a.task)}”.` : ''}` : 'My queue is already empty.'); persist(); changed(); return;
+      const n = a.queue.length; forget(a, a.queue); a.queue = []; say(a, n ? `Cleared ${n} queued order${n > 1 ? 's' : ''}. ${hasTask(a) ? `Still on “${label(a.task)}”.` : ''}` : 'My queue is already empty.'); persist(); changed(); return;
     }
     const then = stopThen(text);
     if (then) { // "stop hunting vaultkit and hunt somewhere else": the stopped program (and any the stop names) isn't where it goes next
       const head = text.slice(0, text.length - then.length), was = hasTask(a) && a.task?.program;
       const skip = [was, ...PROGRAM_WORDS.filter(([re]) => re.test(head.toLowerCase())).map(([, id]) => id)].filter(x => x && T(x));
-      if (/\b(?:queue|queued|everything|all of it|the rest)\b/i.test(head)) a.queue = []; // "cancel everything and hunt invoicely"
+      if (/\b(?:queue|queued|everything|all of it|the rest)\b/i.test(head)) { forget(a, a.queue); a.queue = []; } // "cancel everything and hunt invoicely"
       stop(id, true); a.nextSkip = skip; return send(id, then, {now: true});
     } // "stop hunting vaultkit and hunt invoicely instead"
-    if (isStop(text)) { if (/\b(?:queue|queued|everything|all of it|the rest)\b/i.test(text)) a.queue = []; return stop(id, true); } // "cancel everything, the queue too": nothing queued starts after
+    if (isStop(text)) { if (/\b(?:queue|queued|everything|all of it|the rest)\b/i.test(text)) { forget(a, a.queue); a.queue = []; } return stop(id, true); } // "cancel everything, the queue too": nothing queued starts after
     if (isQuestion(text)) return chat(a, text);
     // Not a job the local parser knows: offline, that's talk. Online and busy, the model reads it now (talk goes to chat, an
     // order is queued as usual), so "thanks" isn't queued behind the task nor pauses a standing order. Idle, brief() reads it.
@@ -366,7 +368,8 @@
   // Read a brief and start it. Returns false if it was refused or wasn't a task.
   // One model reading per message: send() may ask early (a busy agent), and the brief that starts it later uses the same one.
   const reads = new Map();
-  const readKey = (a, text) => a.id + '\n' + (a.task ? label(a.task) : '') + '\n' + text; // read against the task it follows ("do that again")
+  const readKey = (a, text) => a.id + '\n' + text;
+  const forget = (a, texts) => texts.forEach(x => reads.delete(readKey(a, x))); // left the queue without starting: a later send reads it afresh
   function modelRead(a, text) {
     const k = readKey(a, text); if (reads.has(k)) return reads.get(k);
     const p = api('/api/agents/brief', {text, last: a.task ? label(a.task) : ''}).then(fromModel, () => null);
@@ -384,6 +387,7 @@
       const i = a.log.indexOf(typing); if (i >= 0) a.log.splice(i, 1); a.ver++;
       if (a.briefN !== n) return false; // stopped, or a newer message came in while the model read this one
     }
+    if (task.job === 'buy' && (waitsOnMoney(text) || ['cash', 'rep'].includes(task.until?.kind))) task.job = 'none'; // the model's "buy" too: it can't wait for a balance
     a.fromQueue = null; a.reading = null; persist(); // read: from here it's started or refused, not waiting in the queue (persist saves it there while it's read)
     if (task.job === 'none') { chat(a, text); return false; }
     if (nextSkip && (!task.program || task.program === 'auto')) task.skip = [...new Set([...(task.skip || []), ...nextSkip])]; // after "stop hunting X and hunt somewhere else"
@@ -405,7 +409,7 @@
     finally { pulling.delete(a.id); if (a.queue.length && !hasTask(a)) setTimeout(() => nextQueued(a), 400); } // a finish inside the loop found it busy
   }
   function unpause(id, i) { const a = agents[id]; if (!a || !a.resume[i]) return; a.resume.splice(i, 1); a.ver++; persist(); changed(); }
-  function unqueue(id, i) { const a = agents[id]; if (!a || !a.queue[i]) return; a.queue.splice(i, 1); a.ver++; persist(); changed(); }
+  function unqueue(id, i) { const a = agents[id]; if (!a || !a.queue[i]) return; forget(a, a.queue.splice(i, 1)); a.ver++; persist(); changed(); }
   function start(a, task, raw, fromAI, notes) {
     const switching = live(a);
     if (switching) { a.q = null; say(a, `Dropping “${label(a.task)}”.`); release(a); a.status = 'idle'; } // its own GPU slot is free for the new task
@@ -415,7 +419,7 @@
     if (task.forever) { const r = raw.replace(/^now\b[:,]?\s*/i, ''); a.resume = a.resume.filter(x => x !== r); a.queue = a.queue.filter(x => x !== r); } // the order sent again: one copy, not two (other standing orders stay paused)
     a.stats = blankStats();
     a.status = busy() < slots() ? 'thinking' : 'queued';
-    push(a, 'brief', '', {task: {label: label(a.task), stop: stopLabel(a.task), budget: a.task.budget, program: a.task.program, fromAI}});
+    push(a, 'brief', '', {task: {label: label(a.task), stop: stopLabel(a.task), budget: a.task.budget, floor: a.task.floor, program: a.task.program, fromAI}});
     (notes || []).forEach(n => ruled(a, n));
     if (a.status === 'queued') say(a, `All ${slots()} GPU slots are busy. I'll start when one frees up. (A bigger rig adds slots.)`);
     else narrate(a, 'start', planLine(a));
@@ -653,7 +657,7 @@
     if (it.need) return {done: `${it.name} needs the ${it.need} first.`};
     if (it.cost > s.cash) return {done: `${it.name} costs ${money(it.cost)}. We have ${money(s.cash)}. Stopping.`};
     if (t.floor != null && s.cash - it.cost < t.floor) return {done: `${it.name} would leave ${money(s.cash - it.cost)}, under the ${money(t.floor)} you said to keep. Stopping.`};
-    const buy = () => act('buy', it.station, DUR.buy, it.run, r => {
+    const buy = () => act('buy', it.station, DUR.buy, s => t.floor != null && s.cash - it.cost < t.floor ? {ok: false, why: `That would take cash under the ${money(t.floor)} you said to keep.`} : it.run(s), r => { // floor re-checked as it pays: money may have gone meanwhile
       if (!r.ok) return bad(a, r.why || 'Could not buy it.');
       t.spent += it.cost; a.stats.spent += it.cost; t.bought = true; push(a, 'win', `Bought ${it.name} · ${money(it.cost)}`);
       G.floatAt(it.name, it.station);
@@ -677,7 +681,7 @@
       if (!r.ok || !r.chained) return bad(a, r.why || 'The chain didn\'t hold.');
       t.chained = true;
       push(a, 'win', `CRITICAL chain · ${ready.name} · ${money(r.pay)}`); a.stats.earned += r.pay; a.today.earned += r.pay;
-      G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit');
+      G.toast(`CRITICAL chain · ${a.name} · +${money(r.pay)}`, 'crit'); if (r.tierUp) G.toast(`Reputation: ${r.tierUp.name}. ${r.tierUp.perk}`, 'good');
       floatUp(a, 'CRITICAL chain', 'crit', G.payChip?.({...r, crit: true}, 'hq', a.id)); // #16 (the label over the agent is the CRITICAL); its pay flies amber, like yours
     }, ready.name); step.act.chain = ready.id; return step; } // tagged: teammates leave this chain to this agent
     if (t.chained) return {done: 'Chain connected.'};

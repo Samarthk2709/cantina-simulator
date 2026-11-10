@@ -304,7 +304,7 @@ button.small{min-height:32px;padding:0 10px;font-size:12px}
 @media (prefers-reduced-motion:reduce){.night{transition:none}.stamp,.code-line.hit,.dock>button:is([data-station],[data-group]){animation:none}}
 
 /* toasts sit under the HUD, clear of windows and the dock */
-.stage-toasts{position:fixed;z-index:15;top:64px;bottom:auto!important;left:50%;right:auto;transform:translateX(-50%);align-items:center;max-width:min(520px,calc(100% - 24px));pointer-events:none}
+.stage-toasts{position:fixed;z-index:30;top:64px;bottom:auto!important;left:50%;right:auto;transform:translateX(-50%);align-items:center;max-width:min(520px,calc(100% - 24px));pointer-events:none}
 .stage-toasts .toast{background:var(--paper);border:1px solid var(--line-2);color:var(--ink)}
 .stage-toasts .toast.good{border-color:var(--good)}.stage-toasts .toast.bad{border-color:var(--danger-ink)}
 .stage-toasts .toast.crit{border-color:var(--amber);background:var(--amber-soft);color:#ffe7a8}

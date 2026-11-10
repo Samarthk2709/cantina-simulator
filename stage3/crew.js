@@ -242,7 +242,7 @@
   }
   window.Stage3Float = floatFind;
   // Penalties also show as a small toast in the office, in the game's own toast style.
-  C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()}${p.rep ? ` · −${p.rep} rep` : ''}`, 'bad'));
+  C.on(p => G.toast(`${p.who}: ${p.title.toLowerCase()}${p.rep ? ` · −${p.rep} rep` : ''}${p.banned ? ` · ${E.targetById[p.program]?.name || p.program} banned the company` : p.program && p.strikes ? ` · strike ${p.strikes}/${C.BAN_AT}` : ''}`, 'bad'));
 
   // ---------- idle life (motion #8): idle and done agents breathe a pixel, blink and glance, each on its own rhythm ----------
   // Frames are swapped inside the avatar's own <svg>, so the redraws' string diffs (setHTML, morph) never see them and the state animations
@@ -322,7 +322,7 @@
     + (a.resume || []).map((q, i) => `<div class="s3-q"><span class="n">Tomorrow</span><span class="t">${esc(q)}</span><button class="s3-link" data-unp="${a.id}:${i}" aria-label="Drop this standing order">✕</button></div>`).join(''); // standing orders paused until tomorrow
   function head(a) {
     const g = a.status === 'resting' || a.q ? A.phrase(a) : a.task && a.task.finished !== true ? A.gistOf(a.task) : '';
-    return `${avatar(a)}<div class="who"><b>${esc(a.name)}</b><span>${esc(g || (a.id === 'nib' ? 'Co-lead' : 'Agent'))}</span></div>${A.live(a) || a.status === 'queued' ? `<button class="s3-link" data-stop="${a.id}">Stop</button>` : ''}`;
+    return `${avatar(a)}<div class="who"><b>${esc(a.name)}</b><span>${esc(g || (a.id === 'nib' ? 'Co-lead' : 'Agent'))}</span></div>${A.live(a) || a.status === 'queued' || (a.status === 'resting' && a.task && !a.task.finished) ? `<button class="s3-link" data-stop="${a.id}">Stop</button>` : ''}`;
   }
   const STEP = new Set(['tool', 'rule', 'typing', 'sys']);
   function timeline(a) {
@@ -367,7 +367,7 @@
         return `<div class="su-row"><button class="s3-link" data-go="agent:${r.id}">${esc(r.name)}</button><span>${r.bugs} bug${r.bugs === 1 ? '' : 's'} · ${money(r.earned)}${r.pens ? ` · ${r.pens} penalt${r.pens === 1 ? 'y' : 'ies'}` : ''}${r.wasted ? ` · ${r.wasted} wasted trip${r.wasted === 1 ? '' : 's'}` : ''}</span>${fx && !A.rule(A.get(r.id) || a, fx.k) ? `<button class="s3-link" data-fix="${fx.k}">Turn on “${esc(fx.text)}”</button>` : ''}</div>`; }).join('')}<small class="muted">Click a name to brief or queue its day.</small></div>`;
       case 'refuse': return `<div class="m-card"><b>Didn't start</b>${esc(m.text)}</div>`;
       case 'pen': return `<div class="m-card pen"><b>${esc(m.title || 'Penalty')}</b>${esc(m.text)}${fixBtn(a, m)}</div>`;
-      case 'brief': { const b = m.task || {}; return `<div class="m-task">${esc(b.label)} · stops when ${esc(b.stop)}${b.budget != null ? ` · budget ${money(b.budget)}` : ''}</div>`; }
+      case 'brief': { const b = m.task || {}; return `<div class="m-task">${esc(b.label)} · stops when ${esc(b.stop)}${b.budget != null ? ` · budget ${money(b.budget)}` : ''}${b.floor != null ? ` · keeps ${money(b.floor)}` : ''}</div>`; }
       case 'done': { const s = m.stats || {};
         if (!s.accepted && !s.pens && !s.spent && !s.earned) return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${esc(m.text)}</div>`;
         return `<div class="m-task done">${/^Stopped/.test(m.reason || '') ? 'Stopped' : 'Done'} · ${s.accepted} bug${s.accepted === 1 ? '' : 's'} · ${money(s.earned)}${s.pens ? ` · ${s.pens} penalt${s.pens === 1 ? 'y' : 'ies'}` : ''}${s.spent ? ` · spent ${money(s.spent)}` : ''}</div>`; }
@@ -443,6 +443,7 @@
     if (A.isStop(text) && /\b(?:queue|queued|everything|all of it|the rest)\b/i.test(text)) return void (out.innerHTML = 'Stop · ends the current task and clears the queue');
     if (A.isStop(text)) return void (out.innerHTML = a.briefing ? (a.task && !a.task.finished ? 'Stop · cancels the message being read and ends the current task' : 'Stop · cancels the message being read') : a.task && !a.task.finished ? 'Stop · ends the current task' : (a.resume || []).length ? `Stop · cancels ${a.resume.length} paused standing order${a.resume.length > 1 ? 's' : ''}` : 'Stop · nothing is running'); // as harness.js send() reads it
     if (A.isQuestion(text)) return void (out.innerHTML = 'Question · ' + esc(a.name) + ' will answer');
+    if (!/^now\b/i.test(text) && a.task?.forever && !a.task.finished && (a.task.raw || '').replace(/^now\b[:,]?\s*/i, '') === text.replace(/^now\b[:,]?\s*/i, '')) return void (out.innerHTML = 'That standing order is already on'); // as send() answers it
     const t = A.parseLocal(text);
     if (t.job === 'none') return void (out.innerHTML = A.model().ok ? '' : 'Not a task the game recognizes · ' + esc(a.name) + ' will just reply'); // online, the model decides
     const w = A.lint(a, t)[0];
@@ -474,6 +475,8 @@
     else if (d.rule) { A.setRule('all', d.rule, el.checked); renderMain(); }
     else if (d.hire) { if (A.hire(d.hire)) { view = {kind: 'agent', id: d.hire}; renderMain(); } }
     update();
+    // The click's control was rebuilt away: keyboard focus goes back to the same rule, else the order box, not the page.
+    if (e.detail === 0 && (!document.activeElement || document.activeElement === document.body)) (d.rule && document.querySelector(`#s3-view [data-rule="${d.rule}"]`) || document.querySelector('#s3-view [data-input]') || document.getElementById('s3-view'))?.focus({ preventScroll: true });
   });
   function sendFrom(id, now) { const i = document.querySelector(`[data-input="${id}"]`); if (!i) return; if (!i.value.trim()) { i.value = ''; return; } A.send(id, i.value, {now}); i.value = ''; hint(id); i.focus(); }
   // ↑↓ (or Alt+↑↓ while typing) walk the roster, AGENTS.md last; Alt+1–9 jump straight to an agent.

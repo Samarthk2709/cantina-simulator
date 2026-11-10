@@ -4,7 +4,8 @@
   'use strict';
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function call(path, body) {
-    const r = await fetch('/api/account' + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (body !== undefined && !window.Auth?.user) throw new Error('Signed in as another account. Reload.'); // this window's account is gone
+    const r = await fetch('/api/account' + path, body === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, account: window.Auth?.user?.id }) }); // whose account this window is: refused if another signed in meanwhile
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Something went wrong. Try again.');
     return j;
@@ -71,7 +72,8 @@
     async export() {
       try {
         const r = await fetch('/api/account/export', { credentials: 'same-origin' }); if (!r.ok) throw new Error('Download failed. Try again.');
-        const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'first-office-account.json'; a.click(); URL.revokeObjectURL(a.href);
+        const j = await r.json(); if (j.account?.id !== window.Auth.user?.id) throw new Error('Signed in as another account. Reload.'); // this window's account only
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' })); a.download = 'first-office-account.json'; a.click(); URL.revokeObjectURL(a.href);
         msg('export', 'Downloaded.', true);
       } catch (e) { msg('export', e.message); }
     },
@@ -94,7 +96,7 @@
     box.addEventListener('click', e => { if (e.target === box) return close(); const b = e.target.closest('[data-do]'); if (b) ACT[b.dataset.do](); });
     box.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') close(); }); // the office doesn't walk while you type
     document.body.appendChild(box); addEventListener('keydown', outside, true); unshut = shut(box);
-    try { info = (await call('')).account; if (!box) return; draw(); box.querySelector('[name="username"]').focus(); }
+    try { info = (await call('')).account; if (!box) return; if (info.id !== window.Auth.user?.id) throw new Error('Signed in as another account. Reload.'); draw(); box.querySelector('[name="username"]').focus(); }
     catch (e) { if (!box) return; box.querySelector('.card').innerHTML = `<p class="msg err">${esc(e.message)}</p><div class="foot"><span></span><button class="go" data-do="close">Close</button></div>`; }
   }
   window.Account = { open, close };

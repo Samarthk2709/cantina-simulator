@@ -110,7 +110,7 @@
   };
   const nibHome = () => shown('training') ? SPOT.home : SPOT.side;
   // A chain whose two bugs are filed, waiting on the Tracer or the pick: the goal board wants a look.
-  const chainHalves = () => Object.keys(T).some(tid => { const c = E.chainState(s, tid); return c.haveA && c.haveB && !c.done; });
+  const chainHalves = () => Object.keys(T).some(tid => { const c = E.chainState(s, tid); return c.haveA && c.haveB && !c.done && !E.banned(s, tid); }); // a banned program's chain can't be linked
 
   // ---------- world ----------
   let ui = { win: null, view: s.target ? 'map' : 'board', room: null, fid: null, miss: null, hit: null, result: null, traceMsg: null, busy: false, night: false };
@@ -204,7 +204,7 @@
     if (s.pendingTeach) return 'Tell me why that was a bug.';
     const drafts = leftoverDrafts(), draft = drafts[0];
     if ((stage3() || !s.crits) && Object.keys(T).some(tid => E.chainState(s, tid).ready)) return 'Both chain bugs are in. Open the Goal board (G) and link them.';
-    if (!stage3() && !s.crits && chainHalves()) return 'Both chain bugs are in. Buy the Tracer (' + money(tracerCost()) + ') at the Shop.';
+    if (!stage3() && !s.crits && chainHalves() && s.cash >= tracerCost()) return 'Both chain bugs are in. Buy the Tracer (' + money(tracerCost()) + ') at the Shop.'; // can't afford it yet: the usual hints, not one you can't act on
     if (s.tray.length >= D.COST.tray) return 'Finds is full, so I can\'t work tonight. Prove or send some.';
     if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove or send them.';
     if (draft) return 'A find is waiting to be filed at Finds.';
@@ -301,7 +301,7 @@
     $('date').textContent = 'DAY ' + s.day;
     const teamBugs = s.stats.agent || 0;
     $('goal-name').textContent = stage3() ? 'Elite, with the team' : s.won ? 'Chapter 3: Hire help' : E.GOAL.bugs + ' bugs + 1 critical';
-    $('goal-open').classList.toggle('ping', !stage3() && !s.won && !s.crits && chainHalves());
+    $('goal-open').classList.toggle('ping', !stage3() && !s.won && !s.crits && chainHalves() && shown('hq')); // only once the Goal board is open
     $('goal-pay').textContent = stage3() ? Math.min(s.rep, 60) + '/60 rep · ' + Math.min(teamBugs, TEAM_GOAL) + '/' + TEAM_GOAL + ' team bugs' : s.won ? 'Job done · start →' : Math.min(s.bugs, E.GOAL.bugs) + '/' + E.GOAL.bugs + ' bugs · ' + Math.min(s.crits, 1) + '/1 crit';
     document.querySelector('#nib-line b').textContent = s.nib;
     $('chapter-sub').textContent = stage3() ? '03 · Hire help' : '02 · First job together';
@@ -311,7 +311,7 @@
     if (stage3() && s.won3 && !s.seen.elite && !eliteDue) { eliteDue = true; setTimeout(postScore, 0); const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
-    $('stats-open').title = stage3() ? 'Reputation (I)' : 'Cash · Shop (B)';
+    $('stats-open').title = stage3() ? 'Reputation (I)' : shown('forge') ? 'Cash · Shop (B)' : 'Cash';
     vitals();
     $('view-toggle').hidden = !s.seen.intro;
     wallet();
@@ -366,6 +366,9 @@
     }, 3600);
   }
   // Phones: if Nib's strip docks at the top while toasts sit there, the stack slides down to the dock so his question stays readable.
+  // Nib's line had keyboard focus and its buttons went (answered, or it closed): focus goes back to the open window, not the page.
+  new MutationObserver(() => { const a = document.activeElement, b = $('nib-bubble'); if (ui.win && $('panel-dialog').open && (!a || a === document.body || b.hidden && b.contains(a))) $('panel-body').focus({ preventScroll: true }); }) // b.contains: focus not yet moved off the hidden Next
+    .observe($('nib-bubble'), { attributes: true, attributeFilter: ['hidden', 'class'], childList: true, subtree: true });
   new MutationObserver(() => { const box = $('toasts'), b = $('nib-bubble'); if (box.classList.contains('top') && !b.hidden && b.classList.contains('docked')) toastShift(() => box.classList.remove('top')); })
     .observe($('nib-bubble'), { attributes: true, attributeFilter: ['class', 'hidden'] });
   // The stack makes room by sliding (FLIP), never jumping, when a toast comes or goes. `translate`, so a toast's own rise
@@ -383,6 +386,8 @@
     const done = () => { hint.remove(); el.classList.remove('pointed'); el.removeEventListener('click', done); };
     el.addEventListener('click', done); setTimeout(done, 8000);
   }
+  const unpoint = () => { document.querySelectorAll('.pointer-hint').forEach(x => x.remove()); document.querySelectorAll('.pointed').forEach(x => x.classList.remove('pointed')); };
+  addEventListener('resize', unpoint); // placed for the old layout
   const pointRest = () => pointTo(s.cups && s.focus < E.maxFocus(s) ? $('coffee') : $('sleep'));
   function toastShift(change) {
     const was = reduced ? [] : [...$('toasts').children].filter(t => t.shown).map(t => [t, t.getBoundingClientRect().top]);
@@ -579,7 +584,7 @@
     const b = $('nib-bubble'), wait = !b.hidden && b.classList.contains('asks') && (!nib.typing && b.querySelector('.nib-next') || b); // #11: Next is hidden while typing
     (wait || $('panel-body')).focus({ preventScroll: true });
   }
-  function closeWindow() { const id = ui.win; if (id) window.SessionLog?.event('window', {close: id}); ui.win = null; ui.miss = null; if ($('panel-dialog').open) winShut(id); render(); $('world').focus({ preventScroll: true }); }
+  function closeWindow() { const id = ui.win; if (id) window.SessionLog?.event('window', {close: id}); ui.win = null; if ($('panel-dialog').open) winShut(id); /* ui.miss stays: reopened on the same sketch, a line already marked fine still costs nothing */ render(); $('world').focus({ preventScroll: true }); }
   // One sentence at the top of each window: what it shows and what you do there.
   function lede() {
     return {
@@ -595,8 +600,11 @@
   function drawWindow(top) {
     if (!ui.win) return; window.Lag?.count('drawWindow');
     const body = $('panel-body'), pane = $('panel-dialog'), y = pane.scrollTop; // the dialog is what scrolls
-    const html = (ui.win === 'hunt' && ui.view === 'hunt' ? '' : `<p class="win-lede">${esc(lede())}</p>`) + { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win]();
-    if (top) body.innerHTML = html; else morph(body, html); // a new view starts fresh; a redraw of the same view patches it in place
+    const view = { hunt: deskView, training: nibView, contract: opsView, forge: toolsView, rig: rigView, stats: ledgerView, hq: hqView }[ui.win](); // first: deskView may fall back to the map, which changes the lede
+    const html = (ui.win === 'hunt' && ui.view === 'hunt' ? '' : `<p class="win-lede">${esc(lede())}</p>`) + view;
+    const had = body.contains(document.activeElement); // keyboard focus was in the window: it stays there (a new view replaces what had it)
+    if (top) body.innerHTML = html; else morph(body, html);
+    if (had && !body.contains(document.activeElement)) body.focus({ preventScroll: true }); // a new view starts fresh; a redraw of the same view patches it in place
     stampFx(body);
     $('panel-title').textContent = crumbs();
     $('panel-dialog').classList.toggle('roomy', ui.win === 'hunt' && (ui.view === 'hunt' || ui.view === 'map'));
@@ -845,6 +853,7 @@
   // Desk: board → map → hunt → report.
   function deskView() {
     if (ui.view === 'hunt' && ui.fid && (E.slotState(s, ui.fid) === 'open' && F[ui.fid].target === s.target || ui.hit != null)) return huntView(); // an agent may have switched the active program meanwhile
+    if (ui.view === 'hunt' && ui.fid && ui.hit == null) { ui.view = 'map'; ui.fid = null; ui.miss = null; } // so the title follows the map shown
     if (ui.view === 'board' || !s.target) return boardView();
     return mapView();
   }
@@ -873,7 +882,7 @@
       return `<line x1="${A[2]}" y1="${A[3]}" x2="${B[2]}" y2="${B[3]}" class="${lit ? 'lit' : ''}"/>`;
     }).join('');
     const nodes = t.rooms.map(r => {
-      const rid = r[0], lit = E.isLit(s, tid, rid), mappable = E.canMap(s, tid, rid), sel = ui.room === rid;
+      const rid = r[0], lit = E.isLit(s, tid, rid), mappable = E.canMap(s, tid, rid) && !E.banned(s, tid), sel = ui.room === rid; // a banned program can't be worked
       if (!lit) return `<button class="room dark ${mappable ? 'mappable' : ''} ${oosRoom(tid, rid) ? 's3-oos' : ''}" style="left:${r[2]}%;top:${r[3]}%" ${mappable ? `data-act="map" data-id="${rid}"` : 'disabled'} aria-label="${mappable ? 'Map this room, ' + D.COST.map + ' focus' : 'Out of reach'}"><b>?</b><small>${mappable ? 'Map · ' + D.COST.map : ''}</small>${oosRoom(tid, rid) ? '<span class="s3-oos-tag">OUT OF SCOPE</span>' : ''}</button>`;
       const pips = E.roomFindings(tid, rid).map(fid => `<i class="dot ${E.slotState(s, fid)}"></i>`).join('');
       const oos = oosRoom(tid, rid);
@@ -882,7 +891,7 @@
     const room = t.rooms.find(r => r[0] === ui.room);
     const rows = E.roomFindings(tid, ui.room).map(fid => {
       const f = F[fid], st = E.slotState(s, fid), cls = C[f.cls], found = s.found[fid];
-      const right = st === 'open' ? `<button data-act="hunt" data-id="${fid}" class="accent">Hunt</button>`
+      const right = st === 'open' ? (E.banned(s, tid) ? '<span class="tag">banned</span>' : `<button data-act="hunt" data-id="${fid}" class="accent">Hunt</button>`)
         : st === 'locked' ? `<span class="tag">needs ${esc(D.TOOLS.find(x => x.id === cls.tool).name)}</span>`
         : st === 'tray' ? `<button data-act="go" data-id="contract">At Finds</button>`
         : st === 'draft' ? (E.banned(s, tid) ? '<span class="tag">banned</span>' : leftoverDrafts().includes(fid) ? `<button data-act="file" data-id="${fid}">File</button>` : '<span class="tag">being filed</span>')
@@ -952,7 +961,7 @@
   function rigView() {
     const known = Object.keys(C).filter(k => E.knows(s, k) && E.unlocked(s, k));
     const avg = known.length ? known.reduce((a, k) => a + E.precision(s, k), 0) / known.length : 0;
-    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${E.nightTries(s, i)} ${E.nightTries(s, i) === 1 ? 'try' : 'tries'} a night</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
+    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${E.nightTries(s, i)} ${E.nightTries(s, i) === 1 ? 'try' : 'tries'} a night${stage3() ? ' · ' + ([2, 3, 4, 6][i] || 2) + ' agents at once' : ''}</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
     const tries = E.nightTries(s);
     return `<div class="estimate"><div><span>Tries a night</span><b>${tries}</b></div>${stage3() ? `<div><span>Agents at once</span><b>${[2, 3, 4, 6][s.gpu] || 2}</b></div>` : ''}<div><span>Precision</span><b>${known.length ? pct(avg) : '—'}</b></div><div><span>Real finds</span><b>≈ ${(tries * avg).toFixed(1)}</b></div></div>
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
@@ -1098,19 +1107,19 @@
       const tr = ui.traceMsg && ui.traceMsg.tid === t.id ? ui.traceMsg : null;
       let act = '';
       if (c.done) act = `<span class="tag good crit" data-stamp="chain:${t.id}">CRITICAL · chained</span>`;
-      else if (c.ready && E.banned(s, t.id)) act = '<span class="tag">banned</span>';
+      else if (E.banned(s, t.id)) act = '<span class="tag">banned</span>'; // before the Tracer offer: buying it can't link this one
       else if (c.ready) act = `<p class="fine"><b>Chain them:</b> pick why the two together are critical.</p><div class="opts">${shuffledOptions(t.id, 'chain').map(i => `<button class="opt" data-act="trace" data-tid="${t.id}" data-id="${i}">${esc(t.chain.options[i])}</button>`).join('')}</div>${tr ? `<div class="feedback miss">${esc(tr.text)}</div>` : ''}`;
       else {
         const need = [!c.haveA || !c.haveB ? 'Find both bugs at the Desk.' : '', !E.has(s, 'trace') ? 'Chaining needs the Tracer.' : ''].filter(Boolean).join(' ');
         const buy = !E.has(s, 'trace') ? `<button data-act="tool" data-id="trace" class="accent" ${s.cash < tracerCost() ? 'disabled' : ''}>Buy the Tracer · ${money(tracerCost())}</button>${s.cash < tracerCost() ? `<small class="fine"> ${money(tracerCost() - s.cash)} more to go</small>` : ''}` : '';
         act = `<p class="fine">${need}</p>${buy}`;
       }
-      return `<li class="chain ${c.done ? 'done' : c.ready ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
+      return `<li class="chain ${c.done ? 'done' : c.ready && !E.banned(s, t.id) ? 'ready' : ''}" data-tid="${t.id}"><b>${esc(t.name)}: ${esc(t.chain.name)}</b><div class="halves">${half(c.haveA, c.a, ra)}<span class="link">↔</span>${half(c.haveB, c.b, rb)}</div>${act}</li>`;
     }).join('');
     const rolls = Object.values(s.found).filter(f => f.status === 'accepted').length;
     const steps = stage3() ? '' : `<ol class="howto">${HOWTO.map(([what, where]) => `<li><b>${what}</b><span>${where}</span></li>`).join('')}</ol>`;
     const team = s.stats.agent || 0, goalLine = stage3() ? `${Math.min(s.rep, 60)}/60 rep · ${Math.min(team, TEAM_GOAL)}/${TEAM_GOAL} team bugs` : `${Math.min(s.bugs, E.GOAL.bugs)}/${E.GOAL.bugs} bugs · ${Math.min(1, s.crits)}/1 critical`;
-    const goalPct = stage3() ? Math.min(s.rep / 60, team / TEAM_GOAL) : s.bugs / E.GOAL.bugs;
+    const goalPct = stage3() ? Math.min(s.rep / 60, team / TEAM_GOAL) : (Math.min(s.bugs, E.GOAL.bugs) + Math.min(s.crits, 1)) / (E.GOAL.bugs + 1); // the critical counts too
     return `<p class="hq-goal">${goalLine}</p>
       <div class="goalbar"><i style="width:${Math.min(100, goalPct * 100)}%"></i></div>${steps}
       <h3>The critical</h3>
@@ -1121,7 +1130,7 @@
   // ---------- actions ----------
   const panel = $('panel-body');
   panel.addEventListener('click', e => {
-    const b = e.target.closest('[data-act]'); if (!b || b.disabled || ui.busy) return;
+    const b = e.target.closest('[data-act]'); if (!b || b.disabled || ui.busy || (e.detail > 1 && !['line', 'trace'].includes(b.dataset.act))) return; // a double-click where rows shift (Finds, Shop): only the first click counts. Code lines and chain options stay put, and touch counts quick taps on neighbours as one
     const id = b.dataset.id, act = b.dataset.act;
     ({
       take: () => takeJob(id), board: () => { ui.view = 'board'; drawWindow(true); }, 'to-map': () => { ui.view = 'map'; ui.fid = null; ui.hit = null; ui.miss = null; drawWindow(true); },
@@ -1133,8 +1142,8 @@
       go: () => openStation(id),
       prove: () => prove(+id), raw: () => raw(+id), toss: () => { E.toss(s, +id); ui.result = null; drawWindow(); },
       tool: () => buyTool(id),
-      desk: () => { const r = E.toggleDesk(s, id); if (!r.ok) return toast(r.why, 'bad'); toast(r.sold ? 'Returned. Money back.' : 'Installed. Sleep to use it.'); drawWindow(); },
-      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast(r.refund ? 'Returned for ' + money(r.refund) + '.' : 'Rig upgraded: ' + E.nightTries(s) + ' tries a night.'); floatAt(E.nightTries(s) + ' tries', 'rig'); drawWindow(); },
+      desk: () => { const r = E.toggleDesk(s, id); if (!r.ok) return toast(r.why, 'bad'); toast(r.sold ? 'Returned. Money back.' : id === 'monitor' ? 'Installed: more focus, right away.' : 'Installed. Sleep to use it.'); drawWindow(); },
+      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast(r.refund ? 'Returned for ' + money(r.refund) + '.' : 'Rig upgraded: ' + E.nightTries(s) + ' tries a night' + (stage3() ? ', ' + ([2, 3, 4, 6][s.gpu] || 2) + ' agents at once.' : '.')); floatAt(E.nightTries(s) + ' tries', 'rig'); drawWindow(); },
       trace: () => traceChain(b.dataset.tid, +id)
     }[act] || (() => {}))();
   });
@@ -1155,7 +1164,7 @@
       penalty($('panel-body').querySelector(`.code-line[data-id="${i}"]`), '−' + D.COST.miss + ' focus', $('focus'), m.lines.length); // #18
       if (m.lines.length === 2) nibSay(C[F[ui.fid].cls].hint, { ms: 4200 }); return; }
     ui.hit = i; ui.miss = null; noteFocus(); s.seen.rest = s.seen.rest || s.stats.manual >= 1; drawWindow();
-    if (r.mastered) { nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); await wait(900); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; }
+    if (r.mastered) { if (!r.paid) { toast(T[F[ui.fid].target].name + ' banned the company: that find isn\'t paid.', 'bad'); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; } nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); const fid0 = ui.fid; await wait(900); if (ui.fid === fid0) { ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); } return; } // not if you've started another hunt meanwhile
     await teachMoment(ui.fid, r.first);
   }
   async function teachMoment(fid, first, resumed) { // resumed: the found line's index, when picking up after a reload
@@ -1232,6 +1241,7 @@
     if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
     stampDue('chain:' + tid); // the chain's tag lands with the full hit-stop (motion #2)
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
+    if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good'); // like every other payout
     payChip({ ...r, crit: true, rep: s.rep - rep }, 'hq', null, 'chain:' + tid); // its pay flies from the tag once that lands (#4)
     nibSay('One bug opens the door, the other walks through it. That\'s a critical.', { mood: 'happy', ms: 4000 });
     nib.hop(); // squash & stretch: and for a critical chain
@@ -1239,7 +1249,7 @@
   }
 
   // ---------- coffee, sleep, night ----------
-  $('coffee').addEventListener('click', () => { const r = E.coffee(s); if (!r.ok) return toast(r.why, 'bad'); toast('+' + D.COST.coffee + ' focus. ' + s.cups + ' left today.'); if (ui.win) drawWindow(); else render(); });
+  $('coffee').addEventListener('click', () => { const was = s.focus, r = E.coffee(s); if (!r.ok) return toast(r.why, 'bad'); toast('+' + (s.focus - was) + ' focus. ' + s.cups + ' left today.'); /* focus stops at the max */ if (ui.win) drawWindow(); else render(); });
   $('sleep').addEventListener('click', () => sleep());
   // #12 Lights out, lamp by lamp. Warm pools over the stations that exist, on a layer over the world canvas (world.js
   // stays as published; positioned from roomRect() like nib.js's layer). Sleep flickers them off one by one, 120 ms apart
@@ -1281,50 +1291,62 @@
   const REST_KEY = 'fo.restUntil', clock = ms => { const t = Math.ceil(ms / 1000); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
   let sleepMs = 60000; // one real minute; tests shorten it with Stage2.sleepMs()
   // A reload mid-sleep: the night already happened (saved), so only the rest of the wait is shown, then the office.
-  const resting = () => { try { return +localStorage.getItem(REST_KEY) > Date.now(); } catch { return false; } };
+  const resting = () => !!rest(); // a night whose morning talk hasn't been heard yet
+  // Only the report of the night that led to today: a restart, or a newer day synced from another device, makes it stale.
+  const rest = () => { try { const v = JSON.parse(localStorage.getItem(REST_KEY)); return v && typeof v === 'object' && v.r && v.r.day === s.day - 1 ? { until: Math.min(+v.until || 0, Date.now() + sleepMs), r: v.r } : null; } catch { return null; } }; // until: never longer than a sleep (a clock that was fast)
   async function restLeft() {
-    let until = 0; try { until = +localStorage.getItem(REST_KEY) || 0; } catch {}
-    if (until <= Date.now()) return;
-    const night = $('night'); ui.night = true; night.hidden = false; await wait(30); night.classList.add('on'); switchLamps(false);
-    while (Date.now() < until) { $('night-text').textContent = 'Still asleep. ' + clock(until - Date.now()); await wait(250); }
-    try { localStorage.removeItem(REST_KEY); } catch {}
-    switchLamps(true); night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; render();
+    const v = rest(); if (!v) return;
+    if (v.until > Date.now()) {
+      const night = $('night'); ui.night = true; night.hidden = false; render(); await wait(30); night.classList.add('on'); switchLamps(false); // render: the world stops you walking under it
+      while (Date.now() < v.until) { $('night-text').textContent = 'Still asleep. ' + clock(v.until - Date.now()); await new Promise(r => setTimeout(r, 250)); } // real time, reduced motion too (wait() is 0 then)
+      switchLamps(true); night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false;
+    }
+    return morning(v.r); // the report the reload would have missed
   }
   // away: you were gone 8+ real hours, so the night ran without you (see boot).
   async function sleep(o) {
     const away = o && o.away === true;
+    if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad'); // before the busy check: the question is what's busy
     if (ui.night || ui.busy || ui.morning || introing) return;
-    if (s.pendingTeach) return toast('Nib wants to hear why first.', 'bad');
-    closeWindow(); nib.hush(); tip = null; ui.night = true; ui.nightP = 0; render();
+    closeWindow(); nib.hush(); tip = null; ui.night = true; ui.nightP = 0; unpoint(); render();
     const night = $('night'); night.hidden = false; $('night-text').textContent = (away ? 'You were away ' + Math.floor(awayMs / 3600000) + 'h. Night ' + s.day + ' ran without you. ' : 'Night ' + s.day + '. ') + (s.target ? 'Nib takes the night shift.' : 'Nib has nothing to work on.');
     await wait(30); night.classList.add('on');
     lightsOut(night); // #12: decoration only, nothing waits on it
     nib.setLit(true); await nibWalk(shown('rig') ? SPOT.rig : nibHome()); nib.setMood('think');
+    if (frozen) return; // another tab took the game during the walk: the night is its to run
     const r = E.sleep(s).night; save(); // saved now: a reload mid-animation must not lose the night
     // Sleep costs real time (playtest 2026-11-05: sleep was a free refill). Coffee is the instant option; sleep is a full
     // reset you wait out. An away night already cost the hours. A reload doesn't skip it: see restLeft() at boot.
     const ms = away ? 1700 : sleepMs, end = Date.now() + ms, head = $('night-text').textContent;
-    if (!away) try { localStorage.setItem(REST_KEY, String(end)); } catch {}
-    while (Date.now() < end) { const left = end - Date.now(); ui.nightP = 1 - left / ms; syncWorld(); if (ms > 2000) $('night-text').textContent = head + ' ' + clock(left); await wait(Math.min(250, left)); }
-    ui.nightP = 1; syncWorld(); try { localStorage.removeItem(REST_KEY); } catch {}
+    try { localStorage.setItem(REST_KEY, JSON.stringify({ until: away ? 0 : end, r })); } catch {} // the night's report too: a reload still gets the morning talk
+    while (Date.now() < end) { const left = end - Date.now(); ui.nightP = 1 - left / ms; syncWorld(); if (ms > 2000) $('night-text').textContent = head + ' ' + clock(left); await new Promise(r => setTimeout(r, Math.min(250, left))); } // real time, reduced motion too
+    ui.nightP = 1; syncWorld();
     lightsOn(night); // #12
-    night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false; ui.morning = true; nib.setLit(false); nib.setMood('idle');
+    night.classList.remove('on'); await wait(500); night.hidden = true; ui.night = false;
+    return morning(r);
+  }
+  // The morning after a night (sleep, or a reload mid-sleep: restLeft): Nib's report and the first-time tips.
+  async function morning(r) {
+    ui.morning = true; nib.setLit(false); nib.setMood('idle');
     render();
-    const mapped = r.mapped.map(id => T[s.target].rooms.find(x => x[0] === id)[1]);
+    if (r.made) await nibWalk(SPOT.ops);
+    const mapped = s.target ? r.mapped.map(id => T[s.target].rooms.find(x => x[0] === id)?.[1]).filter(Boolean) : [];
     const bits = [];
     if (mapped.length) bits.push('I mapped ' + (mapped.length > 1 ? mapped.slice(0, -1).join(', ') + ' and ' + mapped[mapped.length - 1] : mapped[0]) + '.');
-    if (r.made) bits.push(r.made === 1 ? 'One find is waiting at Finds.' : r.made + ' finds are waiting at Finds.');
+    const left = r.made ? s.tray.filter(c => c.night === r.day).length : 0; // counted now, after the walk: you (or the team) may have sent some meanwhile
+    if (r.made) bits.push(left === 0 ? (r.made === 1 ? 'I left one find at Finds, and it\'s already been sent.' : 'I left ' + r.made + ' finds at Finds, and they\'ve already been sent.') : left === 1 ? 'One find is waiting at Finds.' : left + ' finds are waiting at Finds.')
     else if (r.idle === 'untaught') bits.push('I couldn\'t hunt: I don\'t know any patterns yet. Teach me.');
     else if (r.idle === 'full') bits.push('Finds is full, so I stopped. Clear some.');
     else if (r.idle === 'nothing') bits.push('Nothing I know how to look for in the rooms we\'ve mapped.');
     else if (r.idle === 'nojob') bits.push('No job yet, so I just watched the lamp.');
     if (r.release) { const n = r.release.rooms.length; bits.push(T[r.release.t].name + ' shipped an update overnight: ' + (n > 1 ? n + ' new bugs' : 'a new bug') + ' in ' + [...new Set(r.release.rooms)].join(' and ') + '.'); }
-    if (r.made) await nibWalk(SPOT.ops);
     if (r.firsts.ops) world.pulseAt('contract');
+    while (window.Stage3UI?.isOpen()) await new Promise(r => setTimeout(r, 300)); // Team is open (you're typing there): the report waits for you, rather than closing it on you
     const heard = await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
-    if (heard === false) { ui.morning = false; render(); return; } // hushed by the ending: no tips behind it
+    if (heard === false) { try { localStorage.removeItem(REST_KEY); } catch {} ui.morning = false; render(); return; } // hushed by the ending: no tips behind it
     if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('A bigger rig gives me more tries a night and lets more of the team work at once. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
     if (r.firsts.ops) await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' });
+    try { localStorage.removeItem(REST_KEY); } catch {} // heard to the end: a reload before now plays it again (the tips included)
     ui.morning = false; render(); postScore();
     if (!ui.busy) nibWalk(nibHome());
   }
@@ -1337,12 +1359,12 @@
     const crit = chain ? 'And the critical: we built it from two small bugs.' : 'And the critical just fell out of the sky. Lucky us.';
     $('modal-body').innerHTML = `<div class="ending"><canvas id="end-nib" width="16" height="21"></canvas>
       <h1 id="modal-title">First job done.</h1>
-      <p class="lede">${s.bugs} bugs and a critical in ${s.wonDay} day${s.wonDay > 1 ? 's' : ''}. ${money(s.stats.earned)} earned · ${E.tier(s).name} reputation.</p>
+      <p class="lede">First job done on day ${s.wonDay}. ${s.bugs} bugs so far. ${money(s.stats.earned)} earned · ${E.tier(s).name} reputation.</p>
       <blockquote>“${esc(style)} ${esc(crit)}”<cite>— ${esc(s.nib)}</cite></blockquote>
       <p class="fine">Next chapter: hiring help. Teaching one partner was hard; a team is harder.</p>
       <div class="actions"><button data-close class="quiet">Stay a while</button><button id="to-stage3" class="accent" data-icon="arrow">Chapter 3: Hire help</button></div></div>`;
     drawPortrait($('end-nib'));
-    $('modal').showModal(); render();
+    ($('modal').showModal(), $('modal-title').tabIndex = -1, $('modal-title').focus({ preventScroll: true })); render();
     $('to-stage3').addEventListener('click', () => { $('modal').close(); startStage3(); });
   }
   // Stage 3 starts from wherever Stage 2 ended: same office, same money, same Nib. Two agents join.
@@ -1355,6 +1377,7 @@
     return true;
   }
   async function startStage3(seeded) {
+    try { localStorage.removeItem(REST_KEY); } catch {} // chapter 2's morning report isn't chapter 3's
     if (seeded) { if (!await newRun('seed3')) return; wipe(true); }
     else {
       E.startStage3(s);
@@ -1376,7 +1399,7 @@
       <p class="fine">Next chapter: a rival company that is always one step ahead. Coming later.</p>
       <div class="actions"><button data-close class="accent">Keep playing</button></div></div>`;
     drawPortrait($('end-nib'));
-    $('modal').showModal(); render();
+    ($('modal').showModal(), $('modal-title').tabIndex = -1, $('modal-title').focus({ preventScroll: true })); render();
   }
   function drawPortrait(cv) { cv.width = 16; cv.height = 21; const g = cv.getContext('2d'); g.clearRect(0, 0, 16, 21); window.Avatars.draw(g, 'nib', 8, 21, 1, { mood: 'happy', lit: true }); }
 
@@ -1407,7 +1430,7 @@
         <div class="actions"><button data-close class="accent">Close</button></div></div>`;
       $('modal-body').querySelectorAll('[data-sort]').forEach(b => b.onclick = () => { boardSort = b.dataset.sort; draw(); });
     };
-    draw(); if (!$('modal').open) $('modal').showModal();
+    draw(); if (!$('modal').open) ($('modal').showModal(), $('modal-title').tabIndex = -1, $('modal-title').focus({ preventScroll: true }));
   }
 
   // ---------- menu ----------
@@ -1454,11 +1477,12 @@
   let posSaved = null; // the last position written (savePos); cleared with it so a wiped save is written afresh
   function wipe(keepNib) {
     window.Stage3Scope?.reset(); posSaved = null;
-    try { [KEY, POS, 'first-office-crew-v1'].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
+    try { [KEY, POS, 'first-office-crew-v1', REST_KEY].concat(keepNib ? [] : [INTRO]).forEach(k => localStorage.removeItem(k)); } catch {}
   }
   async function restart() {
     if (stage3()) { if (!confirm('Restart chapter 3 from a ready-made first job? Your current save, agents and rules are replaced.')) return; startStage3(true); return; }
     if (!confirm('Restart the first job? Your names stay.')) return;
+    try { localStorage.removeItem(REST_KEY); } catch {} // confirmed: the old night's report goes with the run
     if (!await newRun('fresh')) return;
     try { localStorage.removeItem(POS); } catch {} posSaved = null;
     leave();
@@ -1469,13 +1493,13 @@
   ['keydown', 'click', 'pointerdown'].forEach(t => window.addEventListener(t, e => { if (frozen && !e.target.closest?.('#other-tab')) { e.stopImmediatePropagation(); e.preventDefault(); } }, true));
   document.addEventListener('click', e => {
     const close = e.target.closest('[data-close]'); if (close) { const d = close.closest('dialog'); if (d.id === 'panel-dialog') closeWindow(); else { d.close(); render(); } return; }
-    const gb = e.target.closest('#dock [data-group]'); if (gb) { setMenu(dockOpen === gb.dataset.group ? null : gb.dataset.group); return; }
+    const gb = e.target.closest('#dock [data-group]'); if (gb) { dockHush = null; document.querySelectorAll('.dock-menu.hush').forEach(m => m.classList.remove('hush')); /* a tap leaves :hover stuck: the hush mustn't outlive it */ setMenu(dockOpen === gb.dataset.group ? null : gb.dataset.group); return; }
     const pick = e.target.closest('.dock-menu [data-station]'); if (pick) { const m = pick.closest('.dock-menu'); if (dockOpen) setMenu(null); if (m.matches(':hover')) { dockHush = m.dataset.menu; m.classList.add('hush'); } }
     const st = e.target.closest('[data-station]'); if (st) { ui.win === st.dataset.station ? closeWindow() : openStation(st.dataset.station); return; }
   });
-  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. ' + (s.target ? 'The Goal board opens after 3 bugs, or with the Tracer.' : 'Take a job at the Desk first.'), { ms: 4000 }));
+  $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. ' + (s.target ? 'The Goal board opens after 3 bugs, or with the Debugger or Tracer.' : 'Take a job at the Desk first.'), { ms: 4000 }));
   $('nib-chip').addEventListener('click', () => shown('training') ? openStation('training') : nibSay(objective(), { ms: 3600 }));
-  $('stats-open').addEventListener('click', () => openStation(stage3() ? 'stats' : 'forge'));
+  $('stats-open').addEventListener('click', () => stage3() || shown('forge') ? openStation(stage3() ? 'stats' : 'forge') : nibSay('The Shop opens after two bounties.', { ms: 3000 }));
   $('settings').addEventListener('click', openMenu);
   $('interact').addEventListener('click', () => world.interact());
   $('world').addEventListener('pointerdown', () => { if (ui.win) closeWindow(); });
@@ -1488,8 +1512,9 @@
     if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input,textarea,select')) return;
     const bubble = $('nib-bubble');
     // #11: Enter or 1-3 while Nib's line is still typing finishes it; the answers appear, nothing is picked yet.
-    if (nib.typing && (e.key === 'Enter' ? !e.target.closest('button') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
-    if (!bubble.hidden && e.key === 'Enter' && !e.target.closest('button')) { const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
+    if ($('modal').open || $('settings-dialog').open) return; // a modal (leaderboard, ending, menu) is open, wherever focus is: Nib's lines behind it wait
+    if (nib.typing && (e.key === 'Enter' ? !e.target.closest('button') || e.target.closest('#panel-dialog .code-line') && $('nib-bubble').classList.contains('asks') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
+    if (!bubble.hidden && e.key === 'Enter' && (!e.target.closest('button') || e.target.closest('#panel-dialog .code-line') && bubble.classList.contains('asks'))) { /* a waiting line takes Enter over a code line that still has focus */ const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
     if (!bubble.hidden && /^[1-3]$/.test(e.key)) { const b = bubble.querySelectorAll('.nib-choice')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
     if (e.key === 'Escape' && (dockOpen || document.activeElement.closest?.('.dock-menu'))) { const g = dockOpen; setMenu(null); const b = document.querySelector(`#dock [data-group="${g || document.activeElement.closest('.dock-menu').dataset.menu}"]`); b && b.focus(); return; }
     if (e.key === 'Escape' && ui.win && !$('modal').open && !$('settings-dialog').open) { e.preventDefault(); closeWindow(); return; } // the menu closes first
@@ -1570,7 +1595,7 @@
   } else if (stage3() && !s.seen.team) teamIntro();
   else if (awayNight) setTimeout(() => sleep({ away: true }), 900);
   else if (resting()) restLeft(); // reloaded mid-sleep: the rest of the wait
-  else if (!s.won || stage3()) nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 });
+  else if (!s.won || stage3()) setTimeout(() => nibSay('Welcome back, ' + s.player + '. ' + objective(), { ms: 4200 }), 0); // after boot: chapter 3's agents are running by then, so the objective counts them
   async function teamIntro() { // chapter 3's first visit: Nib introduces the team, then opens Team
       introing = true; try {
       await wait(700);
@@ -1585,6 +1610,7 @@
   // or the button you're pressing is replaced and the click is lost.
   let pressing = false, redrawPending = false;
   $('panel-dialog').addEventListener('pointerdown', () => { pressing = true; });
+  window.addEventListener('pointercancel', () => { pressing = false; if (redrawPending) { redrawPending = false; setTimeout(redrawSoon, 0); } }, true); // a touch scroll ends this way, not with pointerup
   window.addEventListener('pointerup', () => { pressing = false; if (redrawPending) { redrawPending = false; setTimeout(redrawSoon, 0); } }, true);
   function redrawSoon() { if (!ui.win || ui.busy) return; if (pressing) { redrawPending = true; return; } drawWindow(); }
 
