@@ -65,11 +65,10 @@ test('wrong lines cost focus and explain themselves; the right line opens teachi
   assert.equal(s.pendingTeach, fid);
   assert.equal(E.guess(s, 'chat:login:1', badLine('chat:login:1')).ok, false, 'must teach before hunting on');
   assert.equal(E.submit(s, fid).ok, false, 'must teach before it is filed');
-  assert.equal(E.teach(s, 'wrong').learned, false);
-  assert.equal(s.pendingTeach, fid);
   const t = E.teach(s, 'sharp');
   assert.ok(t.learned && t.firstOfClass);
   assert.ok(t.paid.accepted && t.paid.grade === 'S', 'a sharp explanation files an S report');
+  assert.equal(t.paid.clean, false, 'a wrong line first: no clean-find bonus');
   assert.equal(s.bugs, 1);
   assert.equal(Math.round(E.precision(s, 'info') * 100), 43);
 });
@@ -105,7 +104,7 @@ test('night: Nib maps a room and only hunts classes it was taught', () => {
   n = E.sleep(s).night;
   assert.ok(n.made > 0 && n.made <= D.RIGS[3].tries);
   assert.ok(s.tray.every(c => E.FINDINGS[c.fid].cls === 'auth'));
-  assert.ok(s.seen.ops && s.seen.rig);
+  assert.ok(s.seen.ops && !s.seen.gear, 'the Rig arrives in chapter 3');
   const fids = s.tray.map(c => c.fid); assert.equal(new Set(fids).size, fids.length, 'one candidate per slot');
   assert.ok(fids.every(fid => E.slotState(s, fid) === 'tray'), 'false alarms reserve their slot too, so the map does not leak validity');
 });
@@ -126,18 +125,33 @@ test('validation: proof is safe, raw false alarms cost rep, raw real finds pay w
   assert.ok(['B', 'C'].includes(r.grade), 'unproven files at B or C');
 });
 
-test('tools unlock bug types, not numbers; rig and desk are fully refundable without farming', () => {
+test('a wrong explanation is final: lowest grade, a noisy lesson, no retry', () => {
+  const s = E.create({}, 5); E.takeJob(s, 'chat');
+  const fid = 'chat:login:0', cls = E.FINDINGS[fid].cls;
+  E.guess(s, fid, badLine(fid));
+  const t = E.teach(s, 'wrong');
+  assert.ok(t.ok && t.wrong && t.paid.accepted && t.paid.grade === 'C');
+  assert.equal(s.pendingTeach, null);
+  assert.equal(s.lessons[cls].noisy, 1);
+  assert.equal(E.teach(s, 'sharp').ok, false, 'no second try');
+});
+
+test('a clean find (no wrong line first) pays 25% more', () => {
+  const pay = miss => { const s = E.create({}, 5); E.takeJob(s, 'chat'); const fid = 'chat:login:0'; if (miss) E.guess(s, fid, okLine(fid)); E.guess(s, fid, badLine(fid)); const p = E.teach(s, 'sharp').paid; return p.crit ? null : [p.pay, p.clean]; };
+  const a = pay(false), b = pay(true);
+  if (a && b) { assert.equal(a[1], true); assert.equal(b[1], false); assert.ok(Math.abs(a[0] - b[0] * 1.25) <= 1, a[0] + " vs " + b[0]); }
+});
+
+test('tools unlock bug types, not numbers; rig and desk purchases are final', () => {
   const s = E.create({}, 4); s.cash = 3000;
   assert.equal(E.unlocked(s, 'mem'), false);
   assert.ok(E.buyTool(s, 'trace').ok, 'the Tracer stands alone'); s.cash = 3000;
   assert.ok(E.buyTool(s, 'fuzz').ok); assert.ok(E.unlocked(s, 'mem'));
   assert.ok(E.setRig(s, 2).ok); assert.equal(s.cash, 3000 - 450 - 800);
-  assert.ok(E.setRig(s, 0).ok); assert.equal(s.cash, 3000 - 450);
+  assert.equal(E.setRig(s, 0).ok, false, 'no downgrade for a refund'); assert.equal(s.gpu, 2); assert.equal(s.cash, 3000 - 450 - 800);
   assert.ok(E.toggleDesk(s, 'monitor').ok); assert.equal(s.focus, 100, 'buying raises the cap, not focus');
   E.sleep(s); assert.equal(s.focus, 130);
-  assert.ok(E.toggleDesk(s, 'monitor').ok); assert.equal(s.focus, 100); assert.equal(s.cash, 3000 - 450);
-  assert.ok(E.toggleDesk(s, 'coffee').ok); E.coffee(s); assert.ok(E.toggleDesk(s, 'coffee').ok);
-  assert.ok(s.cups <= E.maxCups(s));
+  const cash = s.cash; assert.equal(E.toggleDesk(s, 'monitor').ok, false, 'no return'); assert.equal(s.cash, cash); assert.ok(s.desk.includes('monitor'));
 });
 
 test('zero-luck worst case: shallow lessons at max crowding still afford the Tracer chain', () => {

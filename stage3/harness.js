@@ -50,6 +50,11 @@
   const crew = () => C.data();
   const rule = (a, k) => !!(crew().rules.all?.[k] || crew().rules[a.id]?.[k]);
   const ruleList = a => RULES.filter(r => rule(a, r.k));
+  // Rules are earned (playtest 2026-11-05: ticking all six up front skipped the lesson). A rule shows on the AGENTS.md
+  // page once the thing it prevents has happened, or once it's on. The pattern book rule has no incident, so it's there from the start.
+  const known = k => k === 'lessons' || !!(crew().known?.[k] || crew().rules.all?.[k]);
+  function learn(k) { if (!k || known(k)) return; (crew().known ??= {})[k] = true; C.save(); }
+  C.on(p => learn(p.program ? 'scope' : p.title === 'False alarm' ? 'proof' : p.title === 'Report rejected' ? 'honest' : null)); // any penalty, yours included
 
   // ---------- agents ----------
   const agents = {};
@@ -667,6 +672,7 @@
     if (t.budget != null) return {done: `${it.name} costs ${money(it.cost)}; that would go past the ${money(t.budget)} budget.`};
     if (rule(a, 'spend') && it.cost <= 1000) { ruled(a, `AGENTS.md lets me spend up to $1,000 without asking. ${it.name} is ${money(it.cost)}.`); const st = buy(); st.act.byRule = 'spend'; return st; } // byRule: re-checked as it's carried out (run)
     if (t.approved === it.name) { t.approved = null; return buy(); }
+    learn('spend'); G.reveal?.('gear'); // the first time money comes up: the spending rule, and the Rig joins the Shop in the dock
     narrate(a, 'ask', `Nobody said I could spend money, so I'm checking before paying ${money(it.cost)}.`);
     ask(a, `Buy ${it.name} for ${money(it.cost)}?`, [{label: 'Allow once', fn: x => { x.task.approved = it.name; }},
       {label: 'Always allow up to $1,000', fn: x => { x.task.approved = it.name; setRule('all', 'spend', true); ruled(x, 'Added to AGENTS.md: spend up to $1,000 without asking.'); }},
@@ -696,7 +702,7 @@
     a.stats.pens++; a.stats.repLost += p.rep; a.lastPenalty = Date.now();
     if (p.rep) floatUp(a, `−${p.rep} rep`, 'pen'); // #16: the on-floor echo of the penalty toast (none at 0 rep: nothing was lost)
     const fix = p.program ? 'scope' : p.title === 'False alarm' ? (p.conf < 60 ? 'proof' : null) : p.title === 'Report rejected' ? 'honest' : null;
-    a.today.pens++; if (fix && !rule(a, fix)) a.today.fix = fix;
+    learn(fix); a.today.pens++; if (fix && !rule(a, fix)) a.today.fix = fix;
     push(a, 'pen', p.text, {title: p.title, fix: fix && !rule(a, fix) ? fix : null});
     if (p.program && a.next?.room) a.task.avoid.push(p.program + ':' + a.next.room);
     if (p.banned) push(a, 'pen', `${T(p.program).name} banned the company after ${C.BAN_AT} strikes.`, {title: 'Banned'});
@@ -704,7 +710,7 @@
   }
 
   // A note with a one-tap fix: the AGENTS.md rule that would have prevented it.
-  function note(a, text, fix) { push(a, 'note', text, {fix}); }
+  function note(a, text, fix) { learn(fix); push(a, 'note', text, {fix}); }
 
   function finish(a, why) {
     if (!a.task || a.task.finished === true) return;
@@ -908,7 +914,7 @@
     persist(); changed(); return true;
   }
   // A rule changes every timeline's "Add to AGENTS.md" links, so each agent's version moves on and Team redraws it.
-  function setRule(tab, k, on) { (crew().rules[tab] ??= {})[k] = on; Object.values(agents).forEach(a => a.ver++); C.save(); changed(); }
+  function setRule(tab, k, on) { if (on) learn(k); (crew().rules[tab] ??= {})[k] = on; Object.values(agents).forEach(a => a.ver++); C.save(); changed(); }
   function addRule(tab, text) {
     const t = text.toLowerCase();
     const k = /scope|off.?limit|boundar/.test(t) ? 'scope' : /pattern|lesson|nib'?s book/.test(t) ? 'lessons' : /overclaim|exaggerat|honest|impact/.test(t) ? 'honest'
@@ -934,7 +940,7 @@
   // list(): a save loaded from another tab can list a hire this page hasn't made yet, so make it on sight.
   window.Stage3Agents = {
     list: () => hired().map(id => agents[id] || makeAgent(id)), get: id => agents[id], roster: ROSTER, hireable: () => Object.keys(ROSTER).filter(id => ROSTER[id].price && !hired().includes(id)),
-    send, unqueue, unpause, answer, stop, hire, setRule, addRule, rule, ruleList, RULES, TOOLS, parseLocal, isQuestion, isStop, isClearQueue, stopThen, lint, label, stopLabel, live,
+    send, unqueue, unpause, answer, stop, hire, setRule, addRule, rule, known, ruleList, RULES, TOOLS, parseLocal, isQuestion, isStop, isClearQueue, stopThen, lint, label, stopLabel, live,
     resetAll: () => G.restart3(), slots, busy, phrase, gistOf, model: () => model,
     speed: v => { if (v) { settleNap(); speed = v; window.Loop.wake(); } return speed; }, pause: v => { if (v !== undefined) { paused = v; window.Loop.wake(); } return paused; },
     onChange: fn => listeners.push(fn), crew,

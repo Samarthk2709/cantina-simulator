@@ -126,7 +126,7 @@
   function mapRoom(s, rid) {
     const tid = s.target;
     if (!tid || !canMap(s, tid, rid)) return { ok: false, why: 'Map a room next to one you can already see.' };
-    if (s.focus < COST.map) return { ok: false, why: 'Too tired. Coffee or sleep.' };
+    if (s.focus < COST.map) return { ok: false, why: 'Too tired. Rest first: top right.' };
     s.focus -= COST.map; s.lit[tid].push(rid);
     return { ok: true };
   }
@@ -139,7 +139,7 @@
     if (s.pendingTeach && !by) return { ok: false, why: 'Nib is waiting to hear why the last one was a bug.' };
     const lines = CLASSES[f.cls].variants[f.variant], L = lines[line];
     if (!L) return { ok: false, why: 'No such line.' };
-    if (s.focus < COST.find) return { ok: false, why: 'Too tired. Coffee or sleep.' }; // the same answer for every line: being tired mustn't show which one is the bug
+    if (s.focus < COST.find) return { ok: false, why: 'Too tired. Rest first: top right.' }; // the same answer for every line: being tired mustn't show which one is the bug
     if (!L.bad) {
       s.focus -= COST.miss; s.misses[fid] = (s.misses[fid] || 0) + 1;
       return { ok: true, hit: false, why: D.fill(L.ok, f.nouns) };
@@ -147,7 +147,7 @@
     s.focus -= COST.find;
     if (by) { s.found[fid] = { status: 'draft', source: 'agent', by, proven: false, report: {}, verdict: null }; return { ok: true, hit: true, why: D.fill(L.bad, f.nouns) }; }
     s.stats.manual++;
-    s.found[fid] = { status: 'draft', source: 'manual', proven: false, report: {}, verdict: null };
+    s.found[fid] = { status: 'draft', source: 'manual', proven: false, clean: !s.misses[fid], report: {}, verdict: null }; // clean: found with no wrong line first, +25% (reading pays)
     // Once Nib has mastered a class there is nothing left to teach: it drafts the report instead.
     const mastered = precision(s, f.cls) >= 0.95;
     const first = reveal(s, 'training');
@@ -158,12 +158,12 @@
   function teach(s, choice) {
     const fid = s.pendingTeach; if (!fid) return { ok: false, why: 'Nothing to teach right now.' };
     const cls = FINDINGS[fid].cls, before = precision(s, cls);
-    if (choice === 'wrong') return { ok: true, learned: false };
-    if (choice === 'sharp') s.lessons[cls].clean++; else if (choice === 'shallow') s.lessons[cls].noisy++; else return { ok: false, why: 'Pick an answer.' };
+    // A wrong answer is final (playtest 2026-11-05: free retries made it a guessing game): Nib learns it badly and the report pays the lowest grade.
+    if (choice === 'sharp') s.lessons[cls].clean++; else if (choice === 'shallow' || choice === 'wrong') s.lessons[cls].noisy++; else return { ok: false, why: 'Pick an answer.' };
     s.pendingTeach = null; s.found[fid].lesson = choice;
     // No report to write: how well you explained the bug is how well it's reported. A program that banned us mid-lesson takes nothing.
-    const paid = banned(s, FINDINGS[fid].target) ? (delete s.found[fid], null) : fileFound(s, fid, choice === 'sharp' ? 'S' : 'B');
-    return { ok: true, learned: true, clean: choice === 'sharp', before, after: precision(s, cls), firstOfClass: before === 0, paid };
+    const paid = banned(s, FINDINGS[fid].target) ? (delete s.found[fid], null) : fileFound(s, fid, choice === 'sharp' ? 'S' : choice === 'wrong' ? 'C' : 'B');
+    return { ok: true, learned: true, wrong: choice === 'wrong', clean: choice === 'sharp', before, after: precision(s, cls), firstOfClass: before === 0, paid };
   }
   function setSection(s, fid, sec, idx) {
     const r = s.found[fid];
@@ -195,7 +195,7 @@
   function accept(s, fid, grade) {
     const r = s.found[fid], f = FINDINGS[fid];
     const crit = rand(s) < COST.crit;
-    const pay = payout(s, fid, grade, r.proven, crit);
+    const pay = payout(s, fid, grade, r.proven || r.clean, crit); // proven or a clean find: the same +25%
     r.status = 'accepted'; r.grade = grade; r.pay = pay; r.crit = crit; r.day = s.day; r.verdict = null;
     s.cash += pay; s.stats.earned += pay; s.bugs++; if (crit) s.crits++;
     if (r.source === 'nib') s.stats.nib++; else if (r.source === 'agent') s.stats.agent++;
@@ -204,7 +204,7 @@
     log(s, (crit ? 'CRITICAL ' : '') + CLASSES[f.cls].name + ' accepted · $' + pay, crit ? 'crit' : 'good');
     const firsts = { stats: reveal(s, 'stats'), forge: s.bugs >= 2 ? reveal(s, 'forge') : false, // one new thing at a time (playtest 2026-11-05)
       hq: s.bugs >= 3 ? reveal(s, 'hq') : false };
-    return { ok: true, accepted: true, grade, pay, crit, rep, tierUp, firsts, won: checkWin(s) };
+    return { ok: true, accepted: true, grade, pay, crit, rep, tierUp, firsts, clean: !!r.clean, won: checkWin(s) };
   }
   // Files a found bug at a grade, without the player writing anything. Agents still write reports section by section.
   function fullReport(grade) { const good = { S: 5, A: 4, B: 3, C: 2 }[grade], rep = {}; SECTIONS.forEach((x, i) => { rep[x.id] = i < good ? 0 : 1; }); return rep; }
@@ -260,7 +260,7 @@
       if (!night.made) night.idle = s.tray.length >= COST.tray ? 'full' : taught ? 'nothing' : 'untaught';
     } else night.idle = 'nojob';
     if (s.stage === 3) night.release = shipRelease(s);
-    night.firsts = { rig: reveal(s, 'rig'), ops: night.made ? reveal(s, 'ops') : false };
+    night.firsts = { rig: s.stage === 3 ? reveal(s, 'gear') : false, ops: night.made ? reveal(s, 'ops') : false }; // the Rig arrives after chapter 3's first night
     return { ok: true, night };
   }
 
@@ -273,7 +273,7 @@
   function drop(s, id) { s.tray = s.tray.filter(c => c.id !== id); }
   function prove(s, id) {
     const c = cand(s, id); if (!c) return { ok: false, why: 'Gone.' };
-    if (s.focus < COST.prove) return { ok: false, why: 'Proving takes 15 focus. Coffee or sleep.' };
+    if (s.focus < COST.prove) return { ok: false, why: 'Proving takes 15 focus. Rest first: top right.' };
     s.focus -= COST.prove; drop(s, id); s.stats.proven++;
     if (!c.real) { log(s, 'Proof showed a false alarm. No harm done.', ''); return { ok: true, real: false }; }
     s.found[c.fid] = { status: 'draft', source: acting ? 'agent' : 'nib', ...(acting ? { by: s.actor } : {}), proven: true, report: {}, verdict: null }; // an agent's proof counts for the team
@@ -299,16 +299,16 @@
     return { ok: true, first: id === 'dbg' || id === 'trace' ? reveal(s, 'hq') : false };
   }
   function setRig(s, level) {
-    if (!Number.isInteger(level) || !(level >= 0 && level < RIGS.length) || level === s.gpu) return { ok: false };
+    if (!Number.isInteger(level) || !(level > s.gpu && level < RIGS.length)) return { ok: false, why: 'Purchases are final.' }; // upgrades only: no returns
     const diff = RIGS[level].cost - RIGS[s.gpu].cost;
     if (diff > s.cash) return { ok: false, why: 'Not enough cash.' };
-    s.cash -= diff; s.gpu = level; return { ok: true, refund: diff < 0 ? -diff : 0 };
+    s.cash -= diff; s.gpu = level; return { ok: true };
   }
   function toggleDesk(s, id) {
     const d = DESK.find(x => x.id === id); if (!d) return { ok: false };
-    if (s.desk.includes(id)) { s.desk = s.desk.filter(x => x !== id); s.cash += d.cost; s.focus = Math.min(s.focus, maxFocus(s)); s.cups = Math.min(s.cups, maxCups(s)); return { ok: true, sold: true }; }
+    if (s.desk.includes(id)) return { ok: false, why: 'Already bought. Purchases are final.' };
     if (s.cash < d.cost) return { ok: false, why: 'Not enough cash.' };
-    s.cash -= d.cost; s.desk.push(id); return { ok: true, sold: false };
+    s.cash -= d.cost; s.desk.push(id); return { ok: true };
   }
   function chainState(s, tid) {
     const t = targetById[tid], a = t.id + ':' + t.chain.a, b = t.id + ':' + t.chain.b;
@@ -318,7 +318,7 @@
   function trace(s, tid, option) {
     if (!Object.hasOwn(targetById, tid)) return { ok: false, why: 'No such program.' };
     const c = chainState(s, tid); if (!c.ready) return { ok: false, why: c.done ? 'Already chained.' : 'Needs both bugs accepted and the Tracer.' };
-    if (option !== 0) return { ok: true, chained: false };
+    if (option !== 0) { const lost = Math.min(s.focus, COST.miss); s.focus -= lost; return { ok: true, chained: false, lost }; } // a wrong pick costs like a wrong line
     const t = targetById[tid], pay = Math.round(t.base * 4 * tier(s).bonus);
     s.chains[tid] = true; s.crits++; s.cash += pay; s.stats.earned += pay;
     const tierUp = addRep(s, 6, 'critical chain on ' + t.name);
@@ -403,7 +403,7 @@
   function startStage3(s) {
     if (!s.won) return { ok: false, why: 'Finish the first job first.' };
     if (s.stage === 3) return { ok: true };
-    s.stage = 3; ['job', 'training', 'ops', 'forge', 'rig', 'stats', 'hq', 'rest', 'intro'].forEach(k => { s.seen[k] = true; });
+    s.stage = 3; ['job', 'training', 'forge', 'stats', 'hq', 'rest', 'intro'].forEach(k => { s.seen[k] = true; }); // what chapter 2 already showed. Finds (ops) and the Rig (gear) arrive when first needed
     s.hired = s.hired || ['nib', 'pip', 'moss']; s.hired.forEach(id => { s.energy[id] = COST.focus; });
     return { ok: true };
   }

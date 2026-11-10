@@ -86,19 +86,19 @@
     training: { name: 'Nib', title: 'NIB · PATTERN BOOK', icon: 'book', key: 't', seen: 'training' },
     contract: { name: 'Finds', title: 'NIB\'S FINDS', icon: 'briefcase', key: 'o', seen: 'ops' },
     forge: { name: 'Shop', title: 'SHOP', icon: 'build', key: 'b', seen: 'forge' },
-    rig: { name: 'Rig', title: 'GPU RIG', icon: 'bolt', key: 'r', seen: 'rig' },
+    rig: { name: 'Rig', title: 'GPU RIG', icon: 'bolt', key: 'r', seen: 'gear' },
     stats: { name: 'Ledger', title: 'LEDGER · REPUTATION', icon: 'chart', key: 'i', seen: 'stats' },
     hq: { name: 'Goal', title: 'GOAL BOARD', icon: 'shield', key: 'c', seen: 'hq' }
   };
   const ORDER = ['hunt', 'training', 'contract', 'forge', 'rig', 'stats', 'hq'];
   // The dock groups stations so it stays short: Desk on its own, the rest in pop-up groups (hover, focus or tap).
   // A group with one station unlocked shows that station as a plain button; it becomes a group once a second arrives.
+  // Chapter 3's dock is Desk, Finds, Gear (playtest 2026-11-05: too many buttons). The Goal board, Nib's pattern book and the
+  // Ledger already have their own buttons (the goal, Nib's portrait, the wallet), so they aren't repeated here.
   const GROUPS = {
-    jobs: { name: 'Jobs', icon: 'briefcase', ids: ['contract', 'hq'] },
-    gear: { name: 'Gear', icon: 'build', ids: ['forge', 'rig'] },
-    books: { name: 'Books', icon: 'book', ids: ['training', 'stats'] }
+    gear: { name: 'Gear', icon: 'build', ids: ['forge', 'rig'] }
   };
-  const SLOTS = ['hunt', 'jobs', 'gear', 'books'];
+  const SLOTS = ['hunt', 'contract', 'gear'];
   // Chapter 2 keeps it to a few clear things: Desk, Finds, Shop, and the Goal board (the goal button). Nib's pattern book,
   // the GPU rig and the ledger open in chapter 3, where the team needs them.
   const CH2_HIDDEN = ['training', 'rig', 'stats'], CH2_SLOTS = ['hunt', 'contract', 'forge'];
@@ -208,7 +208,7 @@
     if (s.tray.length >= D.COST.tray) return 'Finds is full, so I can\'t work tonight. Prove or send some.';
     if (s.tray.length) return 'I left ' + s.tray.length + ' find' + (s.tray.length > 1 ? 's' : '') + ' at Finds. Prove or send them.';
     if (draft) return 'A find is waiting to be filed at Finds.';
-    if (s.focus < D.COST.find) return s.cups ? 'You\'re fading. Coffee, or sleep and I\'ll take the night shift.' : 'Out of focus. Sleep. I\'ll keep working.';
+    if (s.focus < D.COST.find) return s.cups ? 'You\'re fading. Drink a coffee: top right.' : 'Out of focus. Sleep, top right. I\'ll take the night shift.';
     const tid = s.target, t = T[tid];
     const open = s.lit[tid].flatMap(rid => E.roomFindings(tid, rid)).filter(fid => E.slotState(s, fid) === 'open');
     if (open.length) return 'Hunt in ' + t.rooms.find(r => r[0] === F[open[0]].room)[1] + '.' + (s.bugs >= E.GOAL.bugs ? ' Bugs done. Now a critical: ' + critHint() : s.bugs ? ' ' + s.bugs + '/' + E.GOAL.bugs + ' so far.' : '');
@@ -296,8 +296,11 @@
     focusMeter(s.focus, mf);
     $('focus-fill').classList.toggle('low', s.focus < mf * 0.25);
     $('focus-num').textContent = s.focus + '/' + mf;
-    $('coffee').hidden = !s.seen.rest; $('sleep').hidden = !s.seen.rest;
-    $('cups').textContent = s.cups; $('coffee').disabled = !s.cups || s.focus >= mf;
+    // One rest button at a time (playtest 2026-11-05: "coffee or sleep, what's the difference?"): Coffee while you're too
+    // tired to hunt and cups remain, otherwise Sleep.
+    const tired = s.focus < D.COST.find && s.cups > 0;
+    $('coffee').hidden = !s.seen.rest || !tired; $('sleep').hidden = !s.seen.rest || tired;
+    $('cups').textContent = s.cups;
     $('date').textContent = 'DAY ' + s.day;
     const teamBugs = s.stats.agent || 0;
     $('goal-name').textContent = stage3() ? 'Elite, with the team' : s.won ? 'Chapter 3: Hire help' : E.GOAL.bugs + ' bugs + 1 critical';
@@ -311,9 +314,9 @@
     if (stage3() && s.won3 && !s.seen.elite && !eliteDue) { eliteDue = true; setTimeout(postScore, 0); const p = lastPay && performance.now() - lastPay.t < 1500 ? lastPay : { station: 'founder' }; setTimeout(() => goal(ending3, p.station, p.who), 1200); } // the pay that reached Elite
     window.Talk.set($('objective'), flash && Date.now() < flash.until ? flash.text : objective()); // #11: new wording types out, new numbers don't
     $('stats-open').hidden = !s.seen.stats;
-    $('stats-open').title = stage3() ? 'Reputation (I)' : shown('forge') ? 'Cash · Shop (B)' : 'Cash';
+    $('stats-open').title = stage3() ? 'Reputation (I)' : 'Cash and reputation';
+    $('stats-open').classList.toggle('readout', !stage3()); $('stats-open').tabIndex = stage3() ? 0 : -1; // chapter 2: numbers only (the Shop has its own button)
     vitals();
-    $('view-toggle').hidden = !s.seen.intro;
     wallet();
     placeLamps(); // #12: lamp pools follow the stations you've unlocked
     const known = (dockSeen = dockSeen || new Set(slots().map(x => x.key))), now = document.timeline.currentTime || 0;
@@ -347,17 +350,20 @@
       dock.querySelectorAll('.fresh').forEach(b => b.getAnimations().forEach(a => { a.startTime = dockNew.get(b.dataset.station || b.dataset.group)[1]; }));
       if (dockOpen) placeMenu(dock.querySelector(`[data-group="${dockOpen}"]`));
     }
+    placePointer();
     syncWorld();
     save();
   }
+  let clicked = null; // the window button being handled: a refusal flashes it red (penalty level 1)
   function toast(text, kind) {
+    if (kind === 'bad' && clicked) penalty(clicked, '', null, 1, 0);
     const box = $('toasts'), el = document.createElement('div'), b = $('nib-bubble'); el.className = 'toast ' + (kind || ''); el.textContent = text;
     // Phones: an open window fills the space above the dock, so the stack starts at the top instead, over the HUD, clear of
     // the window's buttons (unless Nib's strip is docked up there). It only moves when it's empty, so toasts never jump.
     if (!box.children.length) box.classList.toggle('top', matchMedia('(max-width:700px)').matches && $('panel-dialog').open && (b.hidden || !b.classList.contains('docked')));
     toastShift(() => { box.appendChild(el); while (box.children.length > 3) box.firstChild.remove(); });
     requestAnimationFrame(() => { el.shown = true; }); // toasts that arrive together just rise; only ones already up slide
-    if (kind === 'bad' && /Coffee or sleep|Too tired|takes \d+ focus/i.test(text)) setTimeout(pointRest, 0);
+    if (kind === 'bad' && /Rest first|Too tired|takes \d+ focus/i.test(text)) setTimeout(() => pointRest(true), 0); // you need it now: it stays until clicked
     // Leaves by masking in from both ends, 20% shorter than its 340 ms entrance; the stack closes up after.
     setTimeout(() => {
       if (!el.isConnected) return; const go = () => toastShift(() => el.remove());
@@ -375,20 +381,36 @@
   // (a transform) is untouched.
   // First-time pointer (playtest 2026-11-05: Pablo couldn't find the coffee). A bouncing arrow and a pulsing ring on a
   // HUD button until it's clicked or 8 s pass. Shown when focus first runs low and whenever an action fails for focus.
-  function pointTo(el) {
+  // target: an element, or a function that finds it (dock buttons are rebuilt). sticky: stays until it's clicked (the first
+  // time a control appears); otherwise 8 s. Above the control when it sits in the lower half of the screen (the dock).
+  let pointer = null;
+  function pointTo(target, label, sticky) {
+    const get = typeof target === 'function' ? target : () => target, el = get();
     if (!el || el.hidden || el.disabled) return;
-    document.querySelectorAll('.pointer-hint').forEach(x => x.remove());
-    const r = el.getBoundingClientRect(), hint = document.createElement('div');
-    hint.className = 'pointer-hint'; hint.setAttribute('aria-hidden', 'true');
-    hint.style.left = (r.left + r.width / 2) + 'px'; hint.style.top = (r.bottom + 6) + 'px';
-    hint.innerHTML = '<span class="ring" style="width:' + (r.width + 12) + 'px;height:' + (r.height + 12) + 'px;top:' + (-r.height - 12) + 'px"></span><span class="arrow">▲</span><span class="label">' + esc(el.id === 'coffee' ? 'Coffee' : 'Sleep') + '</span>';
-    document.body.appendChild(hint); el.classList.add('pointed');
-    const done = () => { hint.remove(); el.classList.remove('pointed'); el.removeEventListener('click', done); };
-    el.addEventListener('click', done); setTimeout(done, 8000);
+    unpoint();
+    const hint = document.createElement('div'); hint.className = 'pointer-hint'; hint.setAttribute('aria-hidden', 'true');
+    hint.innerHTML = '<span class="ring"></span><span class="arrow"></span><span class="label"></span>';
+    document.body.appendChild(hint);
+    pointer = { get, hint, label, t: sticky ? 0 : setTimeout(unpoint, 8000) };
+    placePointer();
   }
-  const unpoint = () => { document.querySelectorAll('.pointer-hint').forEach(x => x.remove()); document.querySelectorAll('.pointed').forEach(x => x.classList.remove('pointed')); };
-  addEventListener('resize', unpoint); // placed for the old layout
-  const pointRest = () => pointTo(s.cups && s.focus < E.maxFocus(s) ? $('coffee') : $('sleep'));
+  function placePointer() {
+    if (!pointer) return;
+    const el = pointer.get(); if (!el || el.hidden || !el.isConnected) return unpoint();
+    const r = el.getBoundingClientRect(), up = r.top > innerHeight / 2, h = pointer.hint;
+    document.querySelectorAll('.pointed').forEach(x => { if (x !== el) x.classList.remove('pointed'); }); el.classList.add('pointed');
+    h.classList.toggle('above', up); h.style.left = (r.left + r.width / 2) + 'px'; h.style.top = (up ? r.top - 6 : r.bottom + 6) + 'px';
+    h.firstChild.style.cssText = 'width:' + (r.width + 12) + 'px;height:' + (r.height + 12) + 'px;top:' + (up ? '100%' : (-r.height - 12) + 'px');
+    h.querySelector('.arrow').textContent = up ? '▼' : '▲';
+    h.querySelector('.label').textContent = pointer.label || (el.title || el.textContent).split(/[:(]/)[0].trim();
+  }
+  function unpoint() { if (pointer) clearTimeout(pointer.t); pointer = null; document.querySelectorAll('.pointer-hint').forEach(x => x.remove()); document.querySelectorAll('.pointed').forEach(x => x.classList.remove('pointed')); }
+  document.addEventListener('click', e => { const el = pointer && pointer.get(); if (el && el.contains(e.target)) unpoint(); }, true);
+  addEventListener('resize', placePointer);
+  const pointRest = sticky => pointTo(() => $('coffee').hidden ? $('sleep') : $('coffee'), null, sticky);
+  // A dock button that just arrived: point at it once its entrance has played. In a group, the group's button.
+  const dockButton = id => document.querySelector(`#dock>[data-station="${id}"]`) || document.querySelector(`#dock>[data-group="${Object.keys(GROUPS).find(g => GROUPS[g].ids.includes(id))}"]`);
+  const pointDock = id => setTimeout(() => pointTo(() => dockButton(id), ST[id].name, true), 700);
   function toastShift(change) {
     const was = reduced ? [] : [...$('toasts').children].filter(t => t.shown).map(t => [t, t.getBoundingClientRect().top]);
     change();
@@ -539,25 +561,31 @@
   // and Nib winces on his dock portrait. n is the misses on this bug: from the 2nd the whole window shakes and a red
   // vignette flashes, harder on the 3rd, so spamming lines feels worse each time. ~700 ms in all. Reduced motion: colour only.
   const PEN = 'rgba(249,112,102,';
-  function penalty(src, text, to, n) {
+  // Level = sev + n, 1 to 5 (work/button-reduction/PLAN.md). sev: 0 a wrong line or a refused click, 1 a wrong answer or
+  // a false alarm sent, 2 an agent's incident, 3 a ban. n: wrong clicks in a row on the same thing, from 1.
+  // 1 the control flashes and shakes · 2 harder, Nib winces · 3 the window shakes, faint vignette · 4 the whole screen
+  // shakes, strong vignette, the control stays red · 5 longer and harder, a full red flash, a bigger cost chip.
+  function penalty(src, text, to, n, sev) {
     if (!src || document.hidden) return;
-    const k = Math.min(n || 1, 3), tint = a => ({ boxShadow: `inset 0 0 0 999px ${PEN}${a})` });
+    const k = Math.max(1, Math.min(5, (sev || 0) + (n || 1))), tint = a => ({ boxShadow: `inset 0 0 0 999px ${PEN}${a})` });
     const shake = (el, px, ms, delay) => el.animate([0, -1, .8, -.6, .4, -.2, 0].map(x => ({ translate: Math.round(x * px) + 'px 0' })), { duration: ms, delay, easing: 'linear', composite: 'add' });
-    src.animate([tint(.5), { ...tint(.5), offset: .1 }, tint(0)], { duration: 500, easing: 'ease-out' });
+    src.animate([tint(.5), { ...tint(.5), offset: k >= 4 ? .55 : .1 }, tint(0)], { duration: k >= 4 ? 1100 : 500, easing: 'ease-out' });
     const x = src.querySelector('.x');
     if (x) x.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [{ scale: 2.4, rotate: '-14deg', opacity: 0 }, { scale: .85, rotate: '0deg', opacity: 1, offset: .55 }, { scale: 1, rotate: '0deg', opacity: 1 }], { duration: 260, easing: 'ease-out' });
-    if (k >= 2) {
-      const v = document.body.appendChild(document.createElement('div')); v.className = 'pen-vignette';
-      v.animate([{ opacity: 0 }, { opacity: .45 + .25 * (k - 2), offset: .15 }, { opacity: 0 }], { duration: 650, easing: 'ease-out' }).onfinish = () => v.remove();
+    if (k >= 3) {
+      const v = document.body.appendChild(document.createElement('div')); v.className = 'pen-vignette' + (k >= 5 ? ' full' : '');
+      v.animate([{ opacity: 0 }, { opacity: [.4, .75, 1][k - 3], offset: .15 }, { opacity: 0 }], { duration: 500 + 150 * (k - 2), easing: 'ease-out' }).onfinish = () => v.remove();
     }
-    faceWince();
+    if (k >= 2) faceWince();
     const t = to && !to.hidden && to.getBoundingClientRect();
     const hit = () => { if (!t || !t.width) return; to.animate([tint(.5), tint(0)], { duration: 240, easing: 'ease-out' }); if (!reduced) shake(to, 3, 180, 0); };
     if (reduced) return void setTimeout(hit, 300);
-    shake(src, 3 + k, 220, 50); // after the hit-stop
-    if (k >= 2) shake($('panel-dialog'), 2 + 2 * k, 260, 50);
+    shake(src, 2 + 2 * k, 200 + 30 * k, 50); // after the hit-stop
+    if (k >= 3 && $('panel-dialog').open) shake($('panel-dialog'), 2 * k, 260, 50);
+    if (k >= 4) shake(document.body, k === 5 ? 16 : 9, k === 5 ? 560 : 360, 50); // the whole screen
+    if (!text) return;
     const s0 = src.getBoundingClientRect(), el = document.body.appendChild(document.createElement('div'));
-    el.className = 'pay-chip pen'; el.textContent = text;
+    el.className = 'pay-chip pen' + (k >= 5 ? ' big' : ''); el.textContent = text;
     const hw = el.offsetWidth / 2, hh = el.offsetHeight / 2, p0 = { x: Math.min(innerWidth - hw - 8, s0.right - hw - 12), y: s0.top + s0.height / 2 };
     const at = (x, y, sc, o) => ({ transform: `translate(${Math.round(x - hw)}px,${Math.round(y - hh)}px) scale(${sc})`, opacity: o ?? 1 });
     const kf = [{ ...at(p0.x, p0.y, .6, 0) }, { ...at(p0.x, p0.y - 4, 1.25), offset: .16 }, { ...at(p0.x, p0.y - 6, 1), offset: .26 }, { ...at(p0.x, p0.y - 2, 1), offset: .36 }]; // pop, then pull back
@@ -939,14 +967,14 @@
       <p class="fine">Precision = how often Nib's night finds are real. Only your lessons change it.</p>${mem}`;
   }
   function opsView() {
-    const cands = s.tray.map(c => {
+    const cands = s.tray.map((c, i) => { // one at a time: only the first has buttons (12 finds were 24 buttons)
       const f = F[c.fid], t = T[f.target], room = t.rooms.find(r => r[0] === f.room)[1];
-      return `<li class="cand"><div><b>${esc(C[f.cls].name)}</b><small>${esc(t.name)} · ${esc(room)}</small><span class="conf"><span class="meter"><i style="width:${c.conf}%"></i></span>${c.conf}% sure</span></div>
-        <div class="cand-acts"><button data-act="prove" data-id="${c.id}" class="accent" ${s.focus < D.COST.prove ? 'disabled' : ''}>Prove <small>−${D.COST.prove}</small></button><button data-act="raw" data-id="${c.id}">Send as-is</button></div></li>`;
+      return `<li class="cand${i ? ' rest' : ''}"><div><b>${esc(C[f.cls].name)}</b><small>${esc(t.name)} · ${esc(room)}</small><span class="conf"><span class="meter"><i style="width:${c.conf}%"></i></span>${c.conf}% sure</span></div>
+        ${i ? '' : `<div class="cand-acts"><button data-act="prove" data-id="${c.id}" class="accent" ${s.focus < D.COST.prove ? 'disabled' : ''}>Prove <small>−${D.COST.prove}</small></button><button data-act="raw" data-id="${c.id}">Send as-is</button></div>`}</li>`;
     }).join('');
     const drafts = leftoverDrafts().map(fid => `<li class="cand"><div><b>${esc(C[F[fid].cls].name)}</b><small>${esc(T[F[fid].target].name)}</small></div><button data-act="file" data-id="${fid}" class="accent">File</button></li>`).join('');
     const res = ui.result && ui.result.ops ? `<div class="feedback ${ui.result.good ? 'hit' : 'miss'}">${ui.result.html}</div>` : '';
-    return `${res}${cands ? `<p class="fine">Prove: costs focus, safe, +25% pay. Send as-is: free, −3 rep if Nib was wrong.</p><ul class="cands">${cands}</ul>` : '<p class="empty">Nothing yet. Nib works while you sleep.</p>'}
+    return `${res}${cands ? `<p class="fine">Prove: costs focus, safe, +25% pay. Send as-is: free, −3 rep if Nib was wrong.${s.tray.length > 1 ? ' ' + (s.tray.length - 1) + ' more after this one.' : ''}</p><ul class="cands">${cands}</ul>` : '<p class="empty">Nothing yet. Nib works while you sleep.</p>'}
       ${drafts ? `<h3>To file</h3><ul class="cands">${drafts}</ul>` : ''}`;
   }
   function toolsView() {
@@ -955,13 +983,13 @@
       return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(t.name)}</b><small>${esc(t.opens)}</small></div>${own ? '<span class="tag good">Owned</span>' : need ? `<span class="tag">${money(t.cost)} · needs ${esc(D.TOOLS.find(x => x.id === t.need).name)}</span>` : `<button data-act="tool" data-id="${t.id}" ${s.cash < t.cost ? 'disabled' : ''}>${money(t.cost)}</button>`}</li>`;
     }).join('');
     if (!stage3()) return `<ul class="shoplist">${tools}</ul>`;
-    const desk = D.DESK.map(d => { const own = s.desk.includes(d.id); return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(d.name)}</b><small>${esc(d.does)}</small></div><button data-act="desk" data-id="${d.id}" ${!own && s.cash < d.cost ? 'disabled' : ''}>${own ? 'Return · +' + money(d.cost) : money(d.cost)}</button></li>`; }).join('');
+    const desk = D.DESK.map(d => { const own = s.desk.includes(d.id); return `<li class="shop ${own ? 'owned' : ''}"><div><b>${esc(d.name)}</b><small>${esc(d.does)}</small></div>${own ? '<span class="tag good">Owned</span>' : `<button data-act="desk" data-id="${d.id}" ${s.cash < d.cost ? 'disabled' : ''}>${money(d.cost)}</button>`}</li>`; }).join('');
     return `<h3>Tools</h3><ul class="shoplist">${tools}</ul><h3>Desk</h3><ul class="shoplist">${desk}</ul>`;
   }
   function rigView() {
     const known = Object.keys(C).filter(k => E.knows(s, k) && E.unlocked(s, k));
     const avg = known.length ? known.reduce((a, k) => a + E.precision(s, k), 0) / known.length : 0;
-    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${E.nightTries(s, i)} ${E.nightTries(s, i) === 1 ? 'try' : 'tries'} a night${stage3() ? ' · ' + ([2, 3, 4, 6][i] || 2) + ' agents at once' : ''}</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${i < s.gpu ? 'Return · +' + money(D.RIGS[s.gpu].cost - r.cost) : money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
+    const tiers = D.RIGS.map((r, i) => `<li class="shop ${i === s.gpu ? 'owned' : ''}"><div><b>${esc(r.name)}</b><small>${E.nightTries(s, i)} ${E.nightTries(s, i) === 1 ? 'try' : 'tries'} a night${stage3() ? ' · ' + ([2, 3, 4, 6][i] || 2) + ' agents at once' : ''}</small></div>${i === s.gpu ? '<span class="tag good">Running</span>' : i < s.gpu ? '<span class="tag">Replaced</span>' : `<button data-act="rig" data-id="${i}" ${r.cost - D.RIGS[s.gpu].cost > s.cash ? 'disabled' : ''}>${money(r.cost - D.RIGS[s.gpu].cost)}</button>`}</li>`).join('');
     const tries = E.nightTries(s);
     return `<div class="estimate"><div><span>Tries a night</span><b>${tries}</b></div>${stage3() ? `<div><span>Agents at once</span><b>${[2, 3, 4, 6][s.gpu] || 2}</b></div>` : ''}<div><span>Precision</span><b>${known.length ? pct(avg) : '—'}</b></div><div><span>Real finds</span><b>≈ ${(tries * avg).toFixed(1)}</b></div></div>
       ${!known.length ? '<p class="hint-line">Teach Nib first: tries are wasted until then.</p>' : avg < 0.5 ? '<p class="hint-line">Weak patterns: more tries, more false alarms.</p>' : ''}
@@ -1078,11 +1106,8 @@
     if ($('vitals').hidden) return;
     setVitals((force ?? vmode !== 'big') ? 'big' : 'small');
   }
-  $('vitals').addEventListener('click', e => {
-    if (e.target.closest('header')) setVitals(vmode === 'mini' ? vlast : 'mini');
-    else setVitals(vmode === 'big' ? 'small' : 'big');
-  });
-  requestAnimationFrame(() => { $('vitals').classList.toggle('mini', vmode === 'mini'); if (vmode === 'big') setVitals('small'); }); // opens small at most: big is a peek
+  // The box is a readout, not a button (playtest 2026-11-05: fewer things to click). V still opens the detail view.
+  requestAnimationFrame(() => { if (vmode !== 'small') setVitals('small'); });
   $('vitals').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleVitals(); } else if (e.key === 'Escape') { toggleVitals(false); $('world').focus({ preventScroll: true }); } });
   document.addEventListener('pointerdown', e => { if (!e.target.closest('#vitals') && vmode === 'big') setVitals('small'); });
 
@@ -1132,7 +1157,7 @@
   panel.addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled || ui.busy || (e.detail > 1 && !['line', 'trace'].includes(b.dataset.act))) return; // a double-click where rows shift (Finds, Shop): only the first click counts. Code lines and chain options stay put, and touch counts quick taps on neighbours as one
     const id = b.dataset.id, act = b.dataset.act;
-    ({
+    const acts = {
       take: () => takeJob(id), board: () => { ui.view = 'board'; drawWindow(true); }, 'to-map': () => { ui.view = 'map'; ui.fid = null; ui.hit = null; ui.miss = null; drawWindow(true); },
       map: () => { const r = E.mapRoom(s, id); if (!r.ok) return toast(r.why, 'bad'); ui.room = id; noteFocus(); drawWindow(); },
       room: () => { ui.room = id; drawWindow(); },
@@ -1142,19 +1167,20 @@
       go: () => openStation(id),
       prove: () => prove(+id), raw: () => raw(+id), toss: () => { E.toss(s, +id); ui.result = null; drawWindow(); },
       tool: () => buyTool(id),
-      desk: () => { const r = E.toggleDesk(s, id); if (!r.ok) return toast(r.why, 'bad'); toast(r.sold ? 'Returned. Money back.' : id === 'monitor' ? 'Installed: more focus, right away.' : 'Installed. Sleep to use it.'); drawWindow(); },
-      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast(r.refund ? 'Returned for ' + money(r.refund) + '.' : 'Rig upgraded: ' + E.nightTries(s) + ' tries a night' + (stage3() ? ', ' + ([2, 3, 4, 6][s.gpu] || 2) + ' agents at once.' : '.')); floatAt(E.nightTries(s) + ' tries', 'rig'); drawWindow(); },
+      desk: () => { const r = E.toggleDesk(s, id); if (!r.ok) return toast(r.why, 'bad'); toast(id === 'monitor' ? 'Installed: more focus, right away.' : 'Installed. Sleep to use it.'); drawWindow(); },
+      rig: () => { const r = E.setRig(s, +id); if (!r.ok) return toast(r.why || 'No change.', 'bad'); toast('Rig upgraded: ' + E.nightTries(s) + ' tries a night' + (stage3() ? ', ' + ([2, 3, 4, 6][s.gpu] || 2) + ' agents at once.' : '.')); floatAt(E.nightTries(s) + ' tries', 'rig'); drawWindow(); },
       trace: () => traceChain(b.dataset.tid, +id)
-    }[act] || (() => {}))();
+    };
+    clicked = b; try { (acts[act] || (() => {}))(); } finally { clicked = null; }
   });
 
   function takeJob(tid) {
     const first = !s.target, r = E.takeJob(s, tid); if (!r.ok) return toast(r.why, 'bad');
     ui.view = 'map'; ui.room = null; drawWindow(true);
-    if (first) nibSay('Good pick. Lit rooms show their bugs. Click a room, then hunt. Focus is your energy for the day.', { ms: 5200 });
+    if (first) nibSay('Good pick. Click a room, then hunt. Read the code first: a wrong line costs focus, and finding the bug on your first click pays 25% more.', { ms: 6500 });
     else nibSay(T[tid].name + '. New rooms to explore.', { ms: 2400 });
   }
-  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { E.meta(s, { seen: { rest: true } }); nibSay('Focus runs out. Coffee buys a little more; sleep resets it, and I work while you\'re out.', { ms: 5200 }); requestAnimationFrame(() => { render(); pointTo($('coffee')); }); } }
+  function noteFocus() { if (!s.seen.rest && s.focus <= 70) { E.meta(s, { seen: { rest: true } }); nibSay('Focus runs out. When you\'re too tired to hunt, Coffee shows up here. Sleep ends the day, and I work while you\'re out.', { ms: 5600 }); requestAnimationFrame(() => { render(); pointRest(); }); } }
 
   async function guessLine(i) {
     if (ui.hit != null || (ui.miss && ui.miss.lines.includes(i))) return; // a line already marked fine costs nothing twice
@@ -1167,6 +1193,7 @@
     if (r.mastered) { if (!r.paid) { toast(T[F[ui.fid].target].name + ' banned the company: that find isn\'t paid.', 'bad'); ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); return; } nibSay('I know this one cold. Filed it.', { mood: 'happy', ms: 2600 }); paid(r.paid, 'hunt', ui.fid); const fid0 = ui.fid; await wait(900); if (ui.fid === fid0) { ui.view = 'map'; ui.hit = null; ui.fid = null; drawWindow(true); } return; } // not if you've started another hunt meanwhile
     await teachMoment(ui.fid, r.first);
   }
+  let teachWrong = 0, rawBad = 0; const chainMiss = {}; // wrong answers in a row: the penalty grows with them
   async function teachMoment(fid, first, resumed) { // resumed: the found line's index, when picking up after a reload
     ui.busy = true;
     if (first) { save(); render(); }
@@ -1180,9 +1207,14 @@
       if (frozen) { ui.busy = false; return; } // the game moved to another tab: never spin on a dead answer
       if (v === false) continue; // hushed (the ending): ask again
       const r = E.teach(s, v);
-      if (!r.learned) { ask = 'Hm. I don\'t think that\'s it. Look again?'; nib.setMood('sad'); continue; }
+      if (!r.ok) continue;
       ui.busy = false;
-      if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
+      teachWrong = r.wrong ? teachWrong + 1 : 0;
+      if (r.wrong) { // no second try: the right reason is shown, and the report went in at the lowest grade
+        nibSay('That\'s not it. The real reason: ' + D.fill(cls.teach.sharp, f.nouns) + ' Filed at the lowest grade.', { mood: 'sad', ms: 7000 });
+        const n = teachWrong; requestAnimationFrame(() => penalty($('nib-bubble').hidden ? $('nib-chip') : $('nib-bubble'), 'C grade', $('stats-open'), n, 1));
+      }
+      else if (r.clean) nibSay(r.firstOfClass ? 'That makes sense. I\'ll hunt ' + cls.name.toLowerCase() + 's at night now. ' + pct(r.after) + ' sure of myself.' : 'Sharper. ' + pct(r.before) + ' → ' + pct(r.after) + ' on ' + cls.name.toLowerCase() + 's.', { mood: 'happy', ms: 3800 });
       else nibSay('OK, I\'ll remember that. ' + (r.after < r.before ? 'Though I feel less sure: ' + pct(r.before) + ' → ' + pct(r.after) + '.' : 'Feels thin, but it\'s a start: ' + pct(r.after) + '.'), { mood: 'think', ms: 4200 });
       if (first && stage3()) { world.pulseAt('training'); toast('New: Nib has a desk and a pattern book.', 'good'); }
       if (r.paid) paid(r.paid, 'hunt', fid); else toast(T[f.target].name + ' banned the company: that find isn\'t paid.', 'bad'); // your explanation is the report: it's filed and paid now
@@ -1203,9 +1235,10 @@
     if (!payChip(r, station, null, key)) floatAt('+' + money(r.pay), station);
     if (r.crit) { toast('CRITICAL! That one was much worse than it looked.', 'crit'); if (!stage3() && s.crits === 1) nibSay('Wait. That one\'s critical. ' + s.player + ', that\'s the one we needed.', { mood: 'happy', ms: 4200 }); }
     else toast(r.grade + ' · +' + money(r.pay) + ' · +' + r.rep + ' rep', 'good');
+    if (r.clean) toast('Clean find: first click · +25%', 'good');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good');
-    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); nibSay('Two bounties. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
-    if (r.firsts && r.firsts.hq && !stage3() && !r.won && !s.crits) { world.pulseAt('hq'); chainTip(); }
+    if (r.firsts && r.firsts.forge) { world.pulseAt('forge'); pointDock('forge'); nibSay('Two bounties. The Shop is open: tools open new kinds of bugs.', { ms: 4600, mood: 'happy' }); }
+    if (r.firsts && r.firsts.hq && !stage3() && !r.won && !s.crits) { world.pulseAt('hq'); chainTip(); setTimeout(() => pointTo($('goal-open'), 'Goal', true), 700); }
     if (r.won) { postScore(); setTimeout(() => goal(ending, station), 1600); }
     nib.hop(); // squash & stretch: Nib hops for joy when a report is paid
   }
@@ -1226,8 +1259,9 @@
     const name = esc(C[F[c.fid].cls].name);
     if (!r.real) { ui.result = { ops: true, good: false, html: `<b>Rejected: not a bug.</b> ${name} was a false alarm.${r.repDelta < 0 ? ` −${-r.repDelta} reputation.` : ''}` }; nib.setMood('sad'); nibSay('That one\'s on me. Maybe prove the shaky ones.', { mood: 'sad', ms: 3000 }); }
     else { ui.result = { ops: true, good: true, html: `<b>Accepted.</b> ${name} ${paidTag(r.fid)}` }; paid(r, 'contract', r.fid); }
+    rawBad = r.real ? 0 : rawBad + 1;
     drawWindow();
-    if (!r.real) penalty($('panel-body').querySelector('.feedback.miss'), r.repDelta < 0 ? '−' + -r.repDelta + ' rep' : 'rejected', $('rep').parentNode, 2); // #18: rep hurts more than focus (none to lose at 0 rep)
+    if (!r.real) penalty($('panel-body').querySelector('.feedback.miss'), r.repDelta < 0 ? '−' + -r.repDelta + ' rep' : 'rejected', $('rep').parentNode, rawBad, 1); // #18: rep hurts more than focus (none to lose at 0 rep)
   }
   function buyTool(id) {
     const r = E.buyTool(s, id); if (!r.ok) return toast(r.why, 'bad');
@@ -1238,7 +1272,13 @@
   }
   function traceChain(tid, option) {
     const rep = s.rep, r = E.trace(s, tid, option); if (!r.ok) return toast(r.why, 'bad');
-    if (!r.chained) { ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other. Try again.' }; drawWindow(); return; }
+    if (!r.chained) {
+      const n = chainMiss[tid] = (chainMiss[tid] || 0) + 1;
+      ui.traceMsg = { tid, text: 'That doesn\'t explain how one bug feeds the other.' + (r.lost ? ' −' + r.lost + ' focus.' : '') + ' Read both bugs, then try again.' }; drawWindow();
+      penalty(panel.querySelector(`[data-act="trace"][data-tid="${tid}"][data-id="${option}"]`) || panel.querySelector('.feedback.miss'), r.lost ? '−' + r.lost + ' focus' : '', $('focus'), n, 1);
+      return;
+    }
+    chainMiss[tid] = 0;
     stampDue('chain:' + tid); // the chain's tag lands with the full hit-stop (motion #2)
     ui.traceMsg = null; floatAt('CRITICAL', 'hq'); toast('CRITICAL chain: ' + T[tid].chain.name + ' · +' + money(r.pay), 'crit');
     if (r.tierUp) toast('Reputation: ' + r.tierUp.name + '. ' + r.tierUp.perk, 'good'); // like every other payout
@@ -1344,8 +1384,8 @@
     while (window.Stage3UI?.isOpen()) await new Promise(r => setTimeout(r, 300)); // Team is open (you're typing there): the report waits for you, rather than closing it on you
     const heard = await nibSay('Morning, day ' + s.day + '. ' + bits.join(' '), { next: true, nextLabel: 'OK', mood: r.made ? 'happy' : 'idle' });
     if (heard === false) { try { localStorage.removeItem(REST_KEY); } catch {} ui.morning = false; render(); return; } // hushed by the ending: no tips behind it
-    if (r.firsts.rig && stage3()) { world.pulseAt('rig'); await nibSay('A bigger rig gives me more tries a night and lets more of the team work at once. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
-    if (r.firsts.ops) await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' });
+    if (r.firsts.rig && stage3()) { world.pulseAt('rig'); pointDock('rig'); await nibSay('A bigger rig gives me more tries a night and lets more of the team work at once. Not more brains: those come from you.', { next: true, nextLabel: 'Got it' }); }
+    if (r.firsts.ops) { pointDock('contract'); await nibSay('My finds wait at Finds. I\'m not always right: Prove one to be safe, or send it as-is.', { next: true, nextLabel: 'Got it' }); }
     try { localStorage.removeItem(REST_KEY); } catch {} // heard to the end: a reload before now plays it again (the tips included)
     ui.morning = false; render(); postScore();
     if (!ui.busy) nibWalk(nibHome());
@@ -1439,11 +1479,12 @@
     $('settings-body').innerHTML = `${au?.configured ? `<div class="menu-row account">${au.user ? `<span>Signed in as <b>${esc(au.user.name)}</b><small>${esc(au.user.email)}</small></span><button id="account" class="quiet">Account</button><button id="sign-out" class="quiet">Sign out</button>` : `<span>Playing without an account</span><button id="sign-in" class="accent">Sign in</button>`}</div>` : ''}<div class="menu-row"><button id="open-board" class="accent">Leaderboard (L)</button><button id="customize" class="quiet">Customize character</button></div><div class="field"><label for="pname">Your name</label><input id="pname" value="${esc(s.player)}" maxlength="24"></div>
       <div class="field"><label for="nname">Partner's name</label><input id="nname" value="${esc(s.nib)}" maxlength="24"></div>
       <div class="menu-row"><button id="save-names" class="accent">Save names</button></div>
-      <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H O B G</dt><dd>Desk, Finds, Shop, Goal</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl></details>
+      <details class="ref"><summary>Controls</summary><dl class="keyboard-help"><div><dt>WASD / arrows</dt><dd>Walk</dd></div><div><dt>E / Space</dt><dd>Use a desk</dd></div><div><dt>1 2 3 · Enter</dt><dd>Answer Nib</dd></div><div><dt>H O B G</dt><dd>Desk, Finds, Shop, Goal</dd></div><div><dt>Z</dt><dd>Zoom</dd></div><div><dt>V</dt><dd>Vitals detail</dd></div><div><dt>Esc</dt><dd>Close</dd></div></dl><div class="menu-row"><button id="zoom" class="quiet">${follow ? 'Zoom out: whole office' : 'Zoom in: follow me'}</button></div></details>
       <details class="ref"><summary>Chapters</summary>
         <div class="menu-row"><button id="ch1" class="quiet">1 · Meet Nib</button><button id="ch2" class="quiet">2 · First job</button><button id="ch3" class="quiet">3 · Hire help</button></div></details>
       <div class="menu-row"><button id="restart" data-icon="refresh" class="danger">Restart this chapter</button></div><nav class="menu-row" aria-label="Game information"><a href="/about.html" target="_blank" rel="noopener">About</a><a href="/privacy.html" target="_blank" rel="noopener">Privacy</a><a href="/terms.html" target="_blank" rel="noopener">Terms</a></nav>${saveOk ? '' : '<small id="save-status">Saving is unavailable in this browser.</small>'}`;
     $('settings-dialog').showModal(); render();
+    $('zoom').onclick = () => { setFollow(!follow); $('zoom').textContent = follow ? 'Zoom out: whole office' : 'Zoom in: follow me'; };
     $('save-names').onclick = () => { E.meta(s, { player: $('pname').value.trim().slice(0, 24) || 'friend', nib: $('nname').value.trim().slice(0, 24) || 'Nib' }); save(); postScore(); toast('Saved.'); };
     $('restart').onclick = restart;
     $('open-board').onclick = () => { $('settings-dialog').close(); openBoard(); };
@@ -1499,7 +1540,7 @@
   });
   $('goal-open').addEventListener('click', () => s.won && !stage3() ? ending() : shown('hq') ? (ui.win === 'hq' ? closeWindow() : openStation('hq')) : nibSay(E.GOAL.bugs + ' bugs and one critical. ' + (s.target ? 'The Goal board opens after 3 bugs, or with the Debugger or Tracer.' : 'Take a job at the Desk first.'), { ms: 4000 }));
   $('nib-chip').addEventListener('click', () => shown('training') ? openStation('training') : nibSay(objective(), { ms: 3600 }));
-  $('stats-open').addEventListener('click', () => stage3() || shown('forge') ? openStation(stage3() ? 'stats' : 'forge') : nibSay('The Shop opens after two bounties.', { ms: 3000 }));
+  $('stats-open').addEventListener('click', () => { if (stage3()) openStation('stats'); }); // chapter 2: a readout
   $('settings').addEventListener('click', openMenu);
   $('interact').addEventListener('click', () => world.interact());
   $('world').addEventListener('pointerdown', () => { if (ui.win) closeWindow(); });
@@ -1524,7 +1565,7 @@
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
     else if (e.key.toLowerCase() === 'l') openBoard();
     else if (e.key.toLowerCase() === 'v') toggleVitals();
-    else if (e.key.toLowerCase() === 'z' && !$('view-toggle').hidden) $('view-toggle').click();
+    else if (e.key.toLowerCase() === 'z' && s.seen.intro) setFollow(!follow);
   });
   window.addEventListener('resize', layout);
   const ro = new ResizeObserver(layout); ro.observe(document.querySelector('.dock-shell')); ro.observe($('world')); // the canvas: after world.js's own observer has resized it
@@ -1621,6 +1662,8 @@
     refresh: () => { render(); if (ui.win && !ui.busy) drawWindow(); },
     hud: () => render(), // HUD and dock only: never redraws an open window under your cursor
     restart3: () => startStage3(true), freeze: () => { frozen = true; } };
+  window.Stage2.penalty = penalty; // Team's penalties use the same red flash and shake
+  window.Stage2.reveal = k => { if (!s.seen[k]) { E.meta(s, { seen: { [k]: true } }); render(); if (k === 'gear') pointDock('rig'); } };
   window.Stage2.payChip = payChip; // agents' pay flies to the wallet too (#4)
   window.Stage2.wallet = shownWallet; // what the wallet shows, pay in flight held back: Team's footer uses it
   if (stage3()) (window.Stage3Boot || []).forEach(fn => fn());
