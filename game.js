@@ -1550,18 +1550,18 @@
   });
   ['modal', 'settings-dialog'].forEach(id => $(id).addEventListener('close', render));
   window.addEventListener('keydown', e => {
-    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input,textarea,select')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input,textarea,select')) return;
     const bubble = $('nib-bubble');
     // #11: Enter or 1-3 while Nib's line is still typing finishes it; the answers appear, nothing is picked yet.
     if ($('modal').open || $('settings-dialog').open) return; // a modal (leaderboard, ending, menu) is open, wherever focus is: Nib's lines behind it wait
-    if (nib.typing && (e.key === 'Enter' ? !e.target.closest('button') || e.target.closest('#panel-dialog .code-line') && $('nib-bubble').classList.contains('asks') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
-    if (!bubble.hidden && e.key === 'Enter' && (!e.target.closest('button') || e.target.closest('#panel-dialog .code-line') && bubble.classList.contains('asks'))) { /* a waiting line takes Enter over a code line that still has focus */ const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
+    if (nib.typing && (e.key === 'Enter' ? !e.target.closest?.('button') || e.target.closest?.('#panel-dialog .code-line') && $('nib-bubble').classList.contains('asks') : /^[1-3]$/.test(e.key)) && nib.skip()) { e.preventDefault(); return; }
+    if (!bubble.hidden && e.key === 'Enter' && (!e.target.closest?.('button') || e.target.closest?.('#panel-dialog .code-line') && bubble.classList.contains('asks'))) { /* a waiting line takes Enter over a code line that still has focus */ const b = bubble.querySelector('.nib-next'); if (b) { e.preventDefault(); b.click(); return; } }
     if (!bubble.hidden && /^[1-3]$/.test(e.key)) { const b = bubble.querySelectorAll('.nib-choice')[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } return; }
     if (e.key === 'Escape' && (dockOpen || document.activeElement.closest?.('.dock-menu'))) { const g = dockOpen; setMenu(null); const b = document.querySelector(`#dock [data-group="${g || document.activeElement.closest('.dock-menu').dataset.menu}"]`); b && b.focus(); return; }
     if (e.key === 'Escape' && ui.win && !$('modal').open && !$('settings-dialog').open) { e.preventDefault(); closeWindow(); return; } // the menu closes first
     if (e.repeat || $('modal').open || $('settings-dialog').open || ui.night) return;
     const id = ORDER.find(k => ST[k].key === e.key.toLowerCase());
-    if (id && shown(id) && !(ui.win && e.target.closest('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
+    if (id && shown(id) && !(ui.win && e.target.closest?.('#panel-dialog') && /^[a-z]$/.test(e.key) && false)) { e.preventDefault(); ui.win === id ? closeWindow() : openStation(id); }
     else if (e.key.toLowerCase() === 'g') $('goal-open').click();
     else if (e.key.toLowerCase() === 'l') openBoard();
     else if (e.key.toLowerCase() === 'v') toggleVitals();
