@@ -235,6 +235,11 @@ export function buildSkyline(yaw) {
           if (t == t3.z && hp.y < 0.38 && abs(hp.x - h1(vec3(id, 9.0))) < 0.22) shade *= 0.25; // furniture silhouette
           float lamp = exp(-pow(length(hp.xy - vec2(0.5, 0.95)), 2.0) * 6.0) * 0.6;
           col = lit > 0.5 ? tint * (shade + lamp) * (0.5 + 0.6 * h1(vec3(id, 11.0))) : vec3(0.012, 0.016, 0.026) * shade * 3.0;
+          if (lit > 0.5) { // room detail: a ceiling light strip, a desk edge, now and then a person at the window
+            if (t == t3.y && d.y > 0.0) col += tint * 0.9 * smoothstep(0.08, 0.0, abs(hp.x - 0.5) - 0.25) * step(0.35, hp.z) * step(hp.z, 0.65);
+            if (t == t3.z && abs(hp.y - 0.32) < 0.025) col *= 0.35;
+            float who = h1(vec3(id, 31.0)); if (who < 0.22 && t == t3.z) { float px = 0.25 + who * 2.2; vec2 q = hp.xy - vec2(px, 0.0); if ((abs(q.x) < 0.07 && q.y < 0.5) || length(q - vec2(0.0, 0.58)) < 0.07) col *= 0.12; }
+          }
           if (lit > 0.5 && h1(vec3(id, 21.0)) < 0.35) { float bl = h1(vec3(id, 23.0)); if (o.y > 1.0 - bl) col *= 0.18 + 0.1 * step(0.5, fract(o.y * 18.0)); } // blinds
           float F = pow(1.0 - abs(dot(V, n)), 4.0); col += vec3(0.02, 0.025, 0.04) * (0.3 + F); // glass sheen
         }
@@ -318,6 +323,8 @@ export function buildLightRig() {
   for (const [x, y, z, c, k] of [[2.6, 1.3, 2.0, 0xffcfa0, 1.6], [7.5, 1.4, 1.6, 0xffc8a8, 1.5], [12.3, 1.3, 2.2, 0xffd2a8, 1.8], [13.4, 1.2, 5.6, 0xd8dcff, 1.5], [12.6, 1.2, 9.4, 0xffd2a8, 1.6], [8.5, 1.1, 9.8, 0xffcfa0, 1.2], [2.0, 1.2, 6.0, 0xffd6b0, 1.0]])
     C.fakeLights.push({ x, y, z, color: new THREE.Color(c), intensity: k * 1.5 });
   C.scene.add(new THREE.HemisphereLight(0x6a78a0, 0x3a2a20, 0.42));
+  // soft warm key from above the open floor (no shadow; shapes read, walls and floor pick up a lit side)
+  { const key = new THREE.DirectionalLight(0xffe2c4, 0.55); key.position.set(10, 6, 9); key.target.position.set(6, 0, 4); C.scene.add(key, key.target); }
   // moon / city glow through the NW windows: the one big shadow caster (window mullions and blind slats)
   const moon = new THREE.DirectionalLight(0x9db2e6, 1.25);
   const c = new THREE.Vector3((X0 + X1) / 2, 0, (Z0 + Z1) / 2);
@@ -357,7 +364,7 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   place('desk_lamp_arm_01', r.cx + 0.85, y, dz - 0.25, -2.2, 1, g);
   lampPoint(r.cx + 0.66, y + 0.45, dz - 0.12, 0xffb46b, 0.45, 2.2, id);
   place('potted_plant_04', r.cx - 0.88, y, dz - 0.27, 0.4, 1.2, g);
-  place('office_notepads', r.cx - 0.1, y, dz + 0.31, 0.1, 0.5, g, { pick: /sticky_stack/, shadow: false });
+  place('office_notepads', r.cx - 0.5, y, dz + 0.08, 0.1, 0.5, g, { pick: /sticky_stack/, shadow: false });
   pcTower(g, r.cx + 0.72, dz + 0.02, 0, 0x6a5cff, id);
   // the chair is parked beside the desk; the robot pulls it in when it sits down
   (C.chairs || (C.chairs = {})).hunt = { g: officeChair(g, r.cx + 0.9, dz + 0.8, -Math.PI / 2, { jacket: 0x3b2f2a, exact: true, noArms: true }), park: [r.cx + 0.9, dz + 0.8, -Math.PI / 2], sit: [r.cx + 0.05, dz + 0.725, 0] };
@@ -551,7 +558,7 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   cyl(0.05, 0.07, 0.09, partM, 0, 0.09, 0, pr, 6);
   const pl = new THREE.PointLight(0xff8a3d, 0.9, 1.6, 2); pl.position.set(r.cx - 0.42, y + 0.3, r.cz - 0.06); addLight(pl, id);
   onPower(id, on => (partM.emissiveIntensity = on ? 1.4 : 0));
-  place('circuit_board', r.cx + 0.15, y, r.cz + 0.1, 0.3, 0.5, g, { shadow: false });
+  place('circuit_board', r.cx + 0.15, y, r.cz + 0.1, 0.3, 0.5, g, { shadow: false, contact: 'surface' }); // the robot solders on it
   place('retro_multimeter', r.cx + 0.5, y, r.cz - 0.15, -0.5, 1, g);
   place('metal_toolbox', r.cx + 0.3, 0.235, r.cz, 0.2, 1, g);
   const iron = cyl(0.006, 0.01, 0.2, std(0x1a3a8a, 0.4), r.cx + 0.45, y + 0.06, r.cz + 0.18, g, 8, false); iron.rotation.z = 1.2;
@@ -590,7 +597,7 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
   });
   const disp = group(g, r.cx, 1.55, Z0 + 0.1);
   rbox(2.3, 1.32, 0.05, 0.01, M.plastic, 0, 0, 0, disp).userData.contact = 'surface';
-  const gm = screenMat(goalTex, 1.2), sc = plane(2.26, 1.27, gm, 0, 0, 0.026, disp); powerScreen(id, sc, gm);
+  const gm = screenMat(goalTex, 1.2), sc = plane(2.26, 1.27, gm, 0, 0, 0.026, disp); powerScreen(id, sc, gm); disp.userData.contact = 'surface';
   rectLight(0x7ab8ff, 2.5, 2.2, 1.2, new THREE.Vector3(r.cx, 1.55, Z0 + 0.16), new THREE.Vector3(r.cx, 1.2, Z0 + 3), id);
   // neon sign above (original wordmark)
   const neon = canvasTex(1024, 192, (c, w, h) => {
@@ -635,7 +642,7 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
   const rackM = worn(0x17181b, { roughness: 0.6, metalness: 0.7, ns: 0.4 });
   for (let i = 0; i < 3; i++) {
     const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 10.05, 0); rk.scale.z = 0.83;
-    rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk);
+    rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk).userData.contact = 'surface'; // the robot's hands work on its front
     const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
     const gl = plane(0.6, 1.86, new THREE.MeshPhysicalMaterial({ color: 0x9fb0c0, roughness: 0.08, transparent: true, opacity: 0.05, envMapIntensity: 0.8, depthWrite: false }), 0, 0.98, -0.37, rk); gl.rotation.y = Math.PI; gl.userData.noAO = true;
@@ -694,12 +701,12 @@ function buildDecor() {
   place('calathea_orbifolia_01', 1.15, 0, 10.1, 0.2, 1.1, null, { pick: /_b$/ });
   place('calathea_orbifolia_01', 13.85, 0, 10.1, 2.0, 1.1, null, { pick: /_d$/ });
   // ---- lounge on the south wall, west side ----
-  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.7 }); // a low lounge sofa
+  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.6 }); // a low lounge sofa
   (C.proxyBoxes || (C.proxyBoxes = [])).push(
-    { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.388, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.777, 10.48], contact: 'seat' },
-    { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.512, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.512, 10.48] });
+    { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.333, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.666, 10.48], contact: 'seat' },
+    { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.439, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.439, 10.48] });
   C.colliders.push({ x0: 2.05, x1: 4.75, z0: Z1 - 0.95, z1: Z1 });
-  place('throw_pillows_01', 4.4, 0.316, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
+  place('throw_pillows_01', 4.4, 0.271, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
   place('side_table_01', 1.65, 0, Z1 - 0.4, 0, 1); C.colliders.push({ x0: 1.4, x1: 1.9, z0: Z1 - 0.65, z1: Z1 - 0.15 });
   
   rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);

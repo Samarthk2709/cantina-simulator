@@ -37,6 +37,17 @@ const ITEMS = {
   backpack(p, m) { rbox(0.32, 0.42, 0.18, 0.06, m.black, 0, 0.21, 0, p); rbox(0.24, 0.16, 0.06, 0.03, m.black, 0, 0.14, 0.11, p, false); box(0.26, 0.02, 0.02, m.red, 0, 0.3, 0.095, 1, p, false); },
   boxes(p, m) { box(0.34, 0.24, 0.28, m.kraft, 0, 0.12, 0, 1, p); box(0.26, 0.16, 0.22, m.kraft, 0.03, 0.32, 0.01, 1, p).rotation.y = 0.3; },
   shoes(p, m) { for (const s of [-1, 1]) rbox(0.1, 0.08, 0.27, 0.03, m.white, s * 0.07, 0.04, rr(-0.03, 0.03), p, false).rotation.y = rr(-0.2, 0.2); },
+  plant(p, m) { cyl(0.06, 0.045, 0.1, m.kraft, 0, 0.05, 0, p, 14, false); for (let i = 0; i < 6; i++) { const l = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), m.green); l.position.set(rr(-0.04, 0.04), 0.13 + rr(0, 0.07), rr(-0.04, 0.04)); l.scale.set(1, 1.4, 0.5); l.rotation.set(rr(0, 3), rr(0, 3), 0); p.add(l); } },
+  trophy(p, m) { box(0.07, 0.03, 0.07, m.black, 0, 0.015, 0, 1, p, false); cyl(0.008, 0.008, 0.06, m.yellow, 0, 0.06, 0, p, 8, false); cyl(0.04, 0.015, 0.06, m.yellow, 0, 0.12, 0, p, 14, false); },
+  frame(p, m) { const f = box(0.16, 0.12, 0.012, m.black, 0, 0.06, 0, 1, p, false); f.rotation.x = -0.15; const ph = box(0.13, 0.09, 0.004, rnd() < 0.5 ? m.teal : m.orange, 0, 0.06, 0.007, 1, p, false); ph.rotation.x = -0.15; },
+  figure(p, m) { rbox(0.04, 0.05, 0.035, 0.012, m.white, 0, 0.025, 0, p, false); rbox(0.045, 0.035, 0.04, 0.014, m.white, 0, 0.07, 0, p, false); box(0.03, 0.01, 0.004, m.black, 0, 0.072, 0.021, 1, p, false); box(0.045, 0.006, 0.042, m.red, 0, 0.05, 0, 1, p, false); },
+  magazines(p, m) { for (let i = 0; i < 4; i++) { const b = box(0.21, 0.008, 0.28, [m.blue, m.white, m.red, m.teal][i], rr(-0.01, 0.01), 0.004 + i * 0.008, rr(-0.01, 0.01), 1, p, false); b.rotation.y = rr(-0.2, 0.2); } },
+  laptop(p, m) { rbox(0.32, 0.018, 0.22, 0.006, std(0x2b2d31, 0.4, 0.5), 0, 0.009, 0, p, false); },
+  tray(p, m) { box(0.25, 0.01, 0.32, m.black, 0, 0.005, 0, 1, p, false); for (const [x, z] of [[-0.12, 0], [0.12, 0], [0, -0.155], [0, 0.155]]) box(x ? 0.008 : 0.25, 0.03, x ? 0.32 : 0.008, m.black, x, 0.015, z, 1, p, false); box(0.21, 0.012, 0.28, m.paper, 0, 0.014, 0, 1, p, false); },
+  speaker(p, m) { rbox(0.12, 0.2, 0.12, 0.02, m.black, 0, 0.1, 0, p, false); cyl(0.04, 0.04, 0.008, std(0x2b2d31, 0.4, 0.5), 0, 0.13, 0.06, p, 16, false).rotation.x = Math.PI / 2; },
+  boxSmall(p, m) { box(0.2, 0.12, 0.15, m.kraft, 0, 0.06, 0, 1, p, false); box(0.2, 0.004, 0.04, std(0xd9c99a, 0.5), 0, 0.122, 0, 1, p, false); },
+  controller(p, m) { rbox(0.15, 0.03, 0.09, 0.03, m.black, 0, 0.015, 0, p, false); },
+  mugF(p, m) { cyl(0.04, 0.036, 0.095, rnd() < 0.5 ? m.white : m.blue, 0, 0.0475, 0, p, 14, false); },
   cable(p, m) { const c = cyl(0.005, 0.005, 1.2, m.black, 0, 0.005, 0, p, 6, false); c.rotation.z = Math.PI / 2; },
 };
 export function placeClutter(scene, use) {
@@ -56,5 +67,13 @@ export function placeClutter(scene, use) {
   put('shoes', 4.55, 9.35, -0.01, 0.03, 0.2);
   put('cable', 9.2, 3.4, -0.01, 0.03, 0.1); put('cable', 3.6, 3.9, -0.01, 0.03, 1.4);
   put('boxes', 13.6, 4.4, -0.01, 0.03, 0.2); put('paperBall', 8.3, 4.2, -0.01, 0.03);
+  // clusters where the camera looks: the east bookshelf, the lounge, the HQ credenza, the founder's desk
+  const X1 = 14.25;
+  [[0.12, 6.05, 'boxSmall'], [0.59, 6.1, 'plant'], [0.59, 5.9, 'figure'], [1.06, 6.05, 'trophy'], [1.06, 6.18, 'frame'], [1.53, 6.0, 'magazines'], [1.53, 6.18, 'mugF'], [2.0, 6.05, 'boxSmall']]
+    .forEach(([y, z, k]) => put(k, X1 - 0.3, z, y - 0.05, y + 0.25, -Math.PI / 2 + rr(-0.3, 0.3)));
+  put('magazines', 4.98, 9.75, -0.01, 0.05, 0.4); put('mugF', 4.92, 9.45, -0.01, 0.05); put('controller', 1.6, 10.1, 0.5, 0.62, 0.7);
+  put('laptop', 4.05, 9.85, 0.25, 0.42, 0.25); put('magazines', 2.6, 8.7, -0.01, 0.05, 1.2);
+  [[-1.0, 'speaker'], [-0.6, 'frame'], [0.45, 'figure'], [0.65, 'magazines']].forEach(([dx, k]) => put(k, 7.25 + dx, 1.05, 0.6, 0.75, rr(-0.3, 0.3)));
+  if (hu) { put('tray', hu.spot[0] + 0.95, hu.spot[1] - 0.72, 0.6, 1.0, 0.1); put('plant', hu.spot[0] - 0.95, hu.spot[1] - 0.78, 0.6, 1.0); put('frame', hu.spot[0] - 0.7, hu.spot[1] - 0.82, 0.6, 1.0, Math.PI + 0.3); put('mugF', hu.spot[0] + 0.72, hu.spot[1] - 0.5, 0.6, 1.0); }
   C.clutter = n; return n;
 }

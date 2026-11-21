@@ -70,12 +70,12 @@ float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5;
   vec3 wp = vBPWorld; float n1 = wNoise(wp * 1.3); wN2 = wNoise(wp * 5.1 + 7.1); wN3 = wNoise(wp * 19.0 + 3.7);
   vec3 gn = normalize(cross(dFdx(wp), dFdy(wp))); float up = abs(gn.y), vert = 1.0 - up;
   float dw = min(min(wp.x - ${f(X0)}, ${f(X1)} - wp.x), min(wp.z - ${f(Z0)}, ${f(Z1)} - wp.z));
-  float low = (1.0 - smoothstep(0.0, 0.3 + 0.35 * n1, wp.y)) * vert;                                 // kick marks, dust
+  float low = (1.0 - smoothstep(0.0, 0.35 + 0.4 * n1, wp.y)) * vert;                                 // kick marks, dust
   float skirt = (1.0 - smoothstep(0.0, 0.25 + 0.35 * wN2, dw)) * step(0.8, up) * step(wp.y, 0.04);   // floor along walls
   float soot = smoothstep(${f(H - 0.6)}, ${f(H)}, wp.y) * vert * step(dw, 0.05);                       // above the windows / pipes
   float drip = step(dw, 0.04) * vert * smoothstep(0.72, 0.95, wNoise(vec3(wp.x * 9.0 + wp.z * 9.0, wp.y * 0.6, 1.0))) * 0.5;
   wGrime = clamp((low * 0.75 + skirt * 0.6 + soot * 0.5 + drip) * (0.55 + 0.6 * wN2), 0.0, 1.0);
-  diffuseColor.rgb *= (0.8 + 0.38 * n1) * (0.92 + 0.16 * wN3) * (1.0 - 0.6 * wGrime);
+  diffuseColor.rgb *= (0.78 + 0.42 * n1) * (0.9 + 0.2 * wN3) * (1.0 - 0.72 * wGrime);
 }
 #endif
 `;
@@ -108,7 +108,7 @@ roughnessFactor = clamp(roughnessFactor * (0.8 + 0.4 * wN2) + (wN3 - 0.5) * 0.08
 // adds the light that bounces off what it hits (spot pools on the floor, lamp shades, screens, moonlit floor patches,
 // the city glow at the windows). Every lit material adds it as ambient irradiance, sampled a little off the surface
 // along its normal, so walls, beams and the ceiling pick up soft colour from nearby lamps instead of falling to black.
-const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 1.05) } } };
+const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 1.35) } } };
 function irrSources() {
   const src = [], add = (x, y, z, col, p, r0) => src.push({ x, y, z, r: col.r * p, g: col.g * p, b: col.b * p, r0 });
   for (const l of C.lights) {
@@ -335,8 +335,8 @@ const USE = {
   stats: { spot: [12.165, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
   training: { spot: [11.55, 7.82, Math.PI], stand: [11.58, 8.7] },
   forge: { spot: [3.75, 8.62, Math.PI], stand: [3.75, 9.25] },
-  hq: { spot: [7.25, 1.62, Math.PI], stand: [7.25, 2.45] },
-  rig: { spot: [12.38, 9.31, 0], stand: [11.6, 9.36], step: 0.15 },
+  hq: { spot: [7.25, 1.53, Math.PI], stand: [7.25, 2.45] },
+  rig: { spot: [12.38, 9.4, 0], stand: [11.6, 9.4], step: 0.15 },
   terminals: { spot: [13.125, 7.38, 0], stand: [13.125, 6.75] },
   lounge: { spot: [3.05, 9.8, Math.PI], seat: 'sofa', side: [3.05, 9.25], stand: [2.4, 9.0] },
 };
@@ -359,7 +359,7 @@ const chairOf = id => (C.chairs && C.chairs[id] ? C.chairs[id] : null);
 // place a pull-in chair: k = 0 parked beside the desk, 1 at the desk; yaw = absolute rotation once at the desk
 function setChair(c, k, yaw) { if (!c) return; const e = k * k * (3 - 2 * k);
   // the seat stays 5 cm behind the robot's root whichever way it swivels (sit = spot + 5 cm behind, facing the desk)
-  const h = yaw + Math.PI, tx = c.sit[0] - Math.sin(h) * 0.05, tz = c.sit[1] - 0.05 - Math.cos(h) * 0.05;
+  const h = yaw + Math.PI, D = 0.11, tx = c.sit[0] - Math.sin(h) * D, tz = c.sit[1] - 0.05 - Math.cos(h) * D;
   c.g.position.set(c.park[0] + (tx - c.park[0]) * e, 0, c.park[1] + (tz - c.park[1]) * e); c.g.rotation.y = c.park[2] + angDiff(c.park[2], yaw) * e; if (c.g.userData.base) c.g.userData.base.rotation.y = c.park[2] - c.g.rotation.y; }
 function stepInteraction(dt) {
   const A = act, u = A.u; A.t += dt;
@@ -449,9 +449,9 @@ function stationFX(dt) {
   // vault: spin the dial, swing the door, leaf through the ledger
   const S = C.safe;
   if (S) {
-    const ph = st === 'stats' ? t % 9 : 0, open = st === 'stats' ? Math.min(1, Math.max(0, (ph - 3) / 0.9)) * (1 - Math.min(1, Math.max(0, (ph - 8) / 0.9))) : 0;
+    const ph = st === 'stats' ? t % 9 : 0, open = 0; // the door stays shut: the hand keeps working the dial (contact), the ledger does the reading
     S.door.rotation.y += (-1.5 * open - S.door.rotation.y) * Math.min(1, dt * 6);
-    if (st === 'stats' && ph < 3) S.dial.rotation.z = Math.sin(t * 2.6) * 2.2;
+    if (st === 'stats') S.dial.rotation.z = Math.sin(t * 2.6) * 2.2;
     if (st === 'stats' && ph >= 2.6 && ph < 3.4) S.wheel.rotation.z += dt * 6;
     S.key.intensity += ((st === 'stats' ? 9 : 3.5) - S.key.intensity) * Math.min(1, dt * 4);
     if (!ledger) ledger = buildLedger();
@@ -678,7 +678,8 @@ const GradeShader = {
       c = mix(c, c * vec3(1.07,1.0,0.9), smoothstep(0.4,1.0,l)*0.55);
       c = mix(vec3(l), c, 1.1);
       // gentle S-curve around mid grey
-      c = clamp(c, 0.0, 1.0); c = mix(c, c*c*(3.0-2.0*c), 0.28);
+      // lift the mid-tones (readable surfaces, like the references), then a gentle S-curve that keeps the blacks
+      c = clamp(c, 0.0, 1.0); c = pow(c, vec3(0.86)); c = mix(c, c*c*(3.0-2.0*c), 0.14);
       c *= 1.0 - vig * smoothstep(0.08, 0.9, r2*2.2);
       gl_FragColor = vec4(clamp(c,0.0,1.0), 1.0);
     }`,
@@ -885,9 +886,15 @@ function collectColliders() {
     const base = g.name || 'moving'; let i = 0;
     const mesh = g.children.find(c => c.isMesh);
     for (const pt of g.userData.parts || []) {
-      const e = { name: uniq((station ? station + '/' : 'room/') + base + '_' + pt.kind + '_' + (i++)), box: pt.local.clone().applyMatrix4(g.matrixWorld), moving: true, group: g, local: pt.local };
-      if (mesh) e.mesh = mesh; if (station) e.station = station; if (pt.contact) e.contact = pt.contact;
-      COLLIDERS.push(e); MOVING.push(e);
+      // a rotated part's world AABB balloons, so each part is cut into small cells (<= 8 cm) that stay tight when it turns
+      const L = pt.local, sz = L.getSize(new THREE.Vector3()), n = [Math.max(1, Math.ceil(sz.x / 0.08)), Math.max(1, Math.ceil(sz.y / 0.08)), Math.max(1, Math.ceil(sz.z / 0.08))], k = i++;
+      for (let a = 0; a < n[0]; a++) for (let b = 0; b < n[1]; b++) for (let c = 0; c < n[2]; c++) {
+        const lo = new THREE.Vector3(L.min.x + sz.x * a / n[0], L.min.y + sz.y * b / n[1], L.min.z + sz.z * c / n[2]), hi = new THREE.Vector3(L.min.x + sz.x * (a + 1) / n[0], L.min.y + sz.y * (b + 1) / n[1], L.min.z + sz.z * (c + 1) / n[2]);
+        const local = new THREE.Box3(lo, hi);
+        const e = { name: uniq((station ? station + '/' : 'room/') + base + '_' + pt.kind + '_' + k + (n[0] * n[1] * n[2] > 1 ? '.' + a + b + c : '')), box: local.clone().applyMatrix4(g.matrixWorld), moving: true, group: g, local };
+        if (mesh) e.mesh = mesh; if (station) e.station = station; if (pt.contact) e.contact = pt.contact;
+        COLLIDERS.push(e); MOVING.push(e);
+      }
     }
   }
   for (const pb of C.proxyBoxes || []) { const b = pb.box; COLLIDERS.push({ name: uniq(pb.name), box: new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5])), ...(pb.contact ? { contact: pb.contact } : {}) }); }
@@ -1055,7 +1062,7 @@ async function start() {
   buildPost(); applyQuality(); setupReflection(C.M.floor);
   syncStations(true); for (const id in C.chairs || {}) { C.chairs[id].g.name = 'chair_' + id; if (C.chairs[id].g.userData.base) C.chairs[id].g.userData.base.name = 'chair_' + id + '_base'; }
   compactGroups(); collectColliders();
-  setSofaSeat(0.388 - 0.04); Office3D_SOFA = 0.388; // the lounge sofa's seat proxy top
+  setSofaSeat(0.333 - 0.04); Office3D_SOFA = 0.333; // the lounge sofa's seat proxy top
   mergeStatic(); prepass.collect();
   { const tc = performance.now(); camCol = buildCamCol(scene, { x0: X0, x1: X1, z0: Z0, z1: Z1, y1: H + 0.3, skip: o => { for (let p = o; p; p = p.parent) if (p === player || p.userData.city || p.userData.cityDetail || p.userData.proxy) return true; return false; } }); camCol.ms = performance.now() - tc; }
   for (const l of C.lights) if (l.castShadow && l !== C.moon) { l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }

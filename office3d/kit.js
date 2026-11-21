@@ -165,7 +165,7 @@ export function makeMaterials() {
     floor: pbr('herringbone_parquet', { color: 0xb59d86, env: 1.0, ns: 0.8, physical: { clearcoat: 0.8, clearcoatRoughness: 0.09 } }),
     brick: pbr('red_brick_03', { color: 0xc9ada0, ns: 1.6 }),
     plaster: pbr('plastered_wall_04', { color: 0x9aa39f }),
-    plasterDark: pbr('plastered_wall_04', { color: 0x3a4648 }),
+    plasterDark: pbr('plastered_wall_04', { color: 0x4f5c60 }),
     ceiling: pbr('rough_plaster_03', { color: 0x9a958c }),
     concrete: pbr('concrete_floor_02', { color: 0x8c8a86 }),
     oak: pbr('oak_veneer_01', { color: 0xe3cfb8, roughness: 0.75, env: 0.9 }),
@@ -440,7 +440,7 @@ export function keyboard(parent, x, y, z, rotY) {
   const k = rbox(0.42, 0.018, 0.13, 0.005, kbM, x, y + 0.009, z, parent, false); k.rotation.y = rotY; k.userData.contact = 'surface';
   const mx = x + Math.cos(rotY) * 0.3, mz = z - Math.sin(rotY) * 0.3;
   const pad = box(0.3, 0.003, 0.24, std(0x16181a, 0.9), mx, y + 0.0015, mz, 1, parent, false); pad.rotation.y = rotY;
-  const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), M.plastic); m.scale.set(0.9, 0.45, 1.5); m.position.set(mx, y + 0.014, mz); parent.add(m);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), M.plastic); m.scale.set(0.9, 0.45, 1.5); m.position.set(mx, y + 0.014, mz); m.userData.contact = 'surface'; pad.userData.contact = 'surface'; parent.add(m);
 }
 const mugMats = {}; let coffeeM;
 export function mug(parent, x, y, z, color = 0xf1eee8, full = true) {
@@ -551,8 +551,8 @@ export function officeChair(parent, x, z, rotY, o = {}) {
   cyl(0.025, 0.025, 0.3, M.steelLight, 0, 0.25, 0, g);
   const seat = o.mat || M.leather;
   rbox(0.5, 0.07, 0.46, 0.03, seat, 0, 0.405, 0, g).userData.contact = 'seat'; // seat top at 0.44
-  const back = rbox(0.5, 0.62, 0.07, 0.03, seat, 0, 0.86, 0.25, g); back.rotation.x = -0.12;
-  box(0.06, 0.4, 0.03, M.steel, 0, 0.62, 0.28, 1, g).rotation.x = -0.12;
+  const back = rbox(0.5, 0.62, 0.07, 0.03, seat, 0, 0.86, 0.25, g); back.rotation.x = -0.12; back.userData.contact = 'seat'; // the robot leans on it
+  const spine = box(0.06, 0.4, 0.03, M.steel, 0, 0.62, 0.28, 1, g); spine.rotation.x = -0.12; spine.userData.contact = 'seat';
   if (!o.noArms) for (const s of [-1, 1]) { box(0.035, 0.2, 0.035, M.steel, s * 0.27, 0.58, 0.02, 1, g); rbox(0.06, 0.03, 0.26, 0.012, M.plastic, s * 0.27, 0.69, 0.02, g); }
   if (o.jacket) jacket(g, o.jacket);
   return g;
@@ -560,7 +560,7 @@ export function officeChair(parent, x, z, rotY, o = {}) {
 // A jacket draped over a chair back: a few bent slabs of cloth.
 export function jacket(chair, color = 0x2f3a4a) {
   const m = pbr('fabric_pattern_07', { color }); m.map.repeat?.set(2, 2);
-  const g = group(chair, 0, 0, 0.27);
+  const g = group(chair, 0, 0, 0.27); g.userData.contact = 'seat'; // draped cloth: something to lean on
   const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.54, 12, 1, false, 0, Math.PI), m); sh.rotation.z = Math.PI / 2; sh.rotation.y = 0; sh.position.set(0, 1.17, 0.02); sh.castShadow = true; g.add(sh);
   const back = box(0.5, 0.5, 0.02, m, 0, 0.93, 0.08, 1, g); back.rotation.x = -0.18;
   for (const s of [-1, 1]) { const sl = cyl(0.045, 0.04, 0.5, m, s * 0.24, 0.9, 0.1, g, 10); sl.rotation.x = -0.15; }

@@ -27,7 +27,7 @@ function atlas() {
 export function decalMaterial() {
   if (mat) return mat;
   mat = new THREE.MeshStandardMaterial({ map: atlas(), transparent: true, depthWrite: false, roughness: 0.75, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-  mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n diffuseColor.a = min(1.0, diffuseColor.a * 1.9); diffuseColor.rgb *= 0.85;'); };
+  mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n diffuseColor.a = min(1.0, diffuseColor.a * 2.6); diffuseColor.rgb *= 0.75;'); };
   mat.customProgramCacheKey = () => 'fo-decal';
   mat.name = 'decal'; return mat;
 }

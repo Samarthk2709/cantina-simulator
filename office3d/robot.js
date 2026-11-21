@@ -169,15 +169,22 @@ export function buildRobot() {
     part(sh, rb(0.122, 0.014, 0.162, 0.006), P.orange, s * 0.022, 0.012, 0, 0, 0, -s * 0.32);
     part(sh, lathe([[0, -0.03], [0.04, -0.036], [0.05, -0.06], [0.053, -0.1], [0.049, -0.16], [0.042, -0.205], [0.03, -0.228], [0, -0.234]]), P.ivory, 0, 0, 0);
     part(sh, tor(0.05, 0.006), P.seam, 0, -0.07, 0, Math.PI / 2, 0, 0);
+    part(sh, pillow(taper(rb(0.022, 0.13, 0.07, 0.008), 0.8, 1.0), 0.3), P.ivoryDark, s * 0.046, -0.135, 0);   // outer armour plate
+    for (let i = 0; i < 3; i++) part(sh, rb(0.004, 0.006, 0.05, 0.002), P.seam, s * 0.058, -0.105 - i * 0.022, 0); // vent slits
+    part(sh, tor(0.046, 0.005), P.seam, 0, -0.2, 0, Math.PI / 2, 0, 0);
     part(el, sph(0.047, 16, 12), P.rubber, 0, 0, 0);
     part(el, new THREE.SphereGeometry(0.05, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.45), P.graphite, 0, 0, -0.008, -Math.PI / 2 - 0.3, 0, 0); // elbow cap (back)
     part(el, lathe([[0, -0.028], [0.043, -0.034], [0.054, -0.068], [0.055, -0.098], [0.047, -0.16], [0.04, -0.196], [0, -0.2]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
     part(el, cyl(0.054, 0.05, 0.045, 20), P.orange, 0, -0.2, 0);                 // cuff
     part(el, rb(0.035, 0.07, 0.012, 0.006), P.graphite, s * 0.0, -0.11, 0.05);    // forearm panel
+    part(el, pillow(taper(rb(0.062, 0.12, 0.02, 0.008), 0.75, 1.0), 0.5), P.ivoryDark, 0, -0.105, -0.046);  // dorsal shell plate
+    part(el, rb(0.012, 0.1, 0.03, 0.005), P.orange, s * 0.05, -0.11, -0.01);        // outer stripe
     part(el, cyl(0.007, 0.007, 0.14, 8), P.chrome, s * 0.045, -0.1, -0.03, 0, 0, s * 0.08);  // hydraulic rod
     part(el, tor(0.051, 0.005), P.seam, 0, -0.06, 0, Math.PI / 2, 0, 0);
     part(wr, sph(0.03, 12, 10), P.graphite, 0, 0, 0);
-    part(wr, rb(0.085, 0.085, 0.038, 0.016), P.graphite, 0, -0.045, 0.0);       // palm
+    part(wr, taper(rb(0.085, 0.085, 0.038, 0.016), 1.0, 0.82), P.graphite, 0, -0.045, 0.0);       // palm (narrower at the wrist)
+    part(wr, rb(0.09, 0.018, 0.046, 0.008), P.orange, 0, -0.082, 0.0);           // knuckle guard
+    part(wr, sph(0.02, 12, 8), P.rubber, s * 0.03, -0.04, 0.018);                 // thumb base pad
     part(wr, rb(0.06, 0.03, 0.04, 0.012), P.ivory, 0, -0.03, 0.0, 0, 0, 0);    // back-of-hand plate
     // thumb: two segments with a knuckle
     part(wr, sph(0.013, 10, 8), P.graphite, s * 0.045, -0.035, 0.016);
@@ -192,6 +199,7 @@ export function buildRobot() {
       part(fi, rb(0.0185, 0.004, 0.02, 0.002), P.seam, fx, -0.006, 0.0);
       part(f2, sph(0.0095, 8, 6), P.graphite, fx, 0.0, 0.0);
       part(f2, cap(0.0085, 0.022 * len, 8), P.rubber, fx, -0.018 * len, 0.0);
+      part(f2, rb(0.016, 0.012, 0.012, 0.005), P.ivoryDark, fx, -0.03 * len, -0.004); // nail plate
     }
   }
   // --- legs ---
@@ -202,10 +210,14 @@ export function buildRobot() {
     part(hp, lathe([[0, -0.035], [0.056, -0.045], [0.066, -0.09], [0.065, -0.16], [0.058, -0.25], [0.05, -0.305], [0.035, -0.326], [0, -0.332]]), P.ivory, 0, 0, 0);
     part(hp, tor(0.066, 0.006), P.seam, 0, -0.11, 0, Math.PI / 2, 0, 0);
     part(hp, rb(0.05, 0.12, 0.02, 0.008), P.orange, s * 0.06, -0.19, 0.0, 0, Math.PI / 2, 0);
+    part(hp, pillow(taper(rb(0.09, 0.17, 0.022, 0.01), 0.75, 1.0), 0.5), P.ivoryDark, 0, -0.17, 0.058);  // front thigh plate
+    part(hp, tor(0.06, 0.005), P.seam, 0, -0.27, 0, Math.PI / 2, 0, 0);
     part(kn, sph(0.056, 16, 12), P.rubber, 0, 0, 0);
     part(kn, rb(0.08, 0.075, 0.04, 0.018), P.orange, 0, 0.0, 0.05);             // kneecap
     part(kn, lathe([[0, -0.035], [0.048, -0.045], [0.06, -0.1], [0.059, -0.16], [0.05, -0.25], [0.042, -0.305], [0.03, -0.33], [0, -0.336]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
-    part(kn, rb(0.07, 0.2, 0.035, 0.015), P.graphite, 0, -0.18, 0.052);         // shin guard
+    part(kn, pillow(taper(rb(0.075, 0.21, 0.03, 0.012), 0.7, 1.0), 0.45), P.ivoryDark, 0, -0.17, 0.05);   // shaped shin guard
+    part(kn, rb(0.04, 0.12, 0.012, 0.005), P.graphite, 0, -0.16, 0.066);                         // guard inset
+    part(kn, pillow(taper(rb(0.07, 0.12, 0.025, 0.01), 0.8, 1.0), 0.4), P.ivoryDark, 0, -0.12, -0.05);   // calf plate
     part(kn, tor(0.06, 0.006), P.seam, 0, -0.3, 0, Math.PI / 2, 0, 0);
     part(kn, cyl(0.008, 0.008, 0.2, 8), P.chrome, s * 0.05, -0.2, -0.04);           // calf piston
     part(kn, rb(0.04, 0.05, 0.03, 0.01), P.orange, 0, -0.32, 0.05);
@@ -257,7 +269,7 @@ export function buildRobot() {
   proxy('head', 'head', 0.29, 0.25, 0.27, 0, 0.12, 0.005);
   for (const [sd, S] of [['l', 'L'], ['r', 'R']]) {
     proxy('upperarm_' + S, sd + 'Sh', 0.09, 0.2, 0.09, 0, -0.14, 0);
-    proxy('forearm_' + S, sd + 'El', 0.095, 0.2, 0.095, 0, -0.12, 0);
+    proxy('forearm_' + S, sd + 'El', 0.082, 0.19, 0.082, 0, -0.115, 0);
     proxy('hand_' + S, sd + 'Wr', 0.08, 0.11, 0.04, 0, -0.065, 0);
     proxy('thigh_' + S, sd + 'Hip', 0.112, 0.3, 0.112, 0, -0.19, 0);
     proxy('shin_' + S, sd + 'Kn', 0.104, 0.3, 0.104, 0, -0.19, 0.0);
@@ -322,6 +334,7 @@ function seated(p, seatTop = 0.42, footZ = 0.4) {
 // sitting on / rising from a swivel chair: height leads when rising and lags when sitting (same curve both ways)
 const sm = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
 export function chairProg(q) { return { h: sm((q - 0.15) / 0.85), v: sm(q * 1.5) }; }
+const LOUNGE_ARM = [-2.636, -0.915, 2.313, -1.35], LOUNGE_WAY = [-1.6, 0.9, 1.6, -1.356];
 export let SOFA_SEAT = 0.44; export function setSofaSeat(v) { SOFA_SEAT = v; }
 function sitIdle(t, seatTop, footZ) { // seated, hands resting on the thighs (used while sitting down / swivelling)
   const p = blank(); seated(p, seatTop, footZ);
@@ -336,7 +349,7 @@ const STATION = {
   rise(k) { // k: 0 seated on the sofa -> 1 standing (root moves forward by `side - spot`, feet stay put)
     const p = blank(), seatTop = SOFA_SEAT + 0.05, drop = 0.86 - (seatTop + 0.102), e = k * k * (3 - 2 * k);
     p.root[1] -= drop * (1 - e); const fz = Math.max(0, 0.45 - 0.55 * k); p.feet = [[0.12, 0.08, fz], [-0.12, 0.08, fz]];
-    if (k < 0.45) { addTo(p, 'lSh', -1.6, -0.4, 2.2); addTo(p, 'lEl', -2.0, 0, 0); } // lift the arm off the backrest first (same waypoint)
+    if (k < 0.45) { const A = LOUNGE_WAY; addTo(p, 'lSh', A[0], A[1], A[2]); addTo(p, 'lEl', A[3], 0, 0); addTo(p, 'rSh', A[0], -A[1], -A[2]); addTo(p, 'rEl', A[3], 0, 0); } // off the backrest via the same low waypoint
     addTo(p, 'chest', 0.25 * Math.sin(Math.PI * k)); addTo(p, 'lSh', -0.5 * (1 - e), 0, 0.1); addTo(p, 'rSh', -0.5 * (1 - e), 0, -0.1); addTo(p, 'lEl', -0.7 * (1 - e)); addTo(p, 'rEl', -0.7 * (1 - e));
     return p;
   },
@@ -355,7 +368,7 @@ const STATION = {
     addTo(p, 'chest', 0.16, 0, 0); addTo(p, 'spine', 0.05);
     const ty = (side, ph) => { addTo(p, side + 'Sh', -0.98 + Math.sin(t * 9 + ph) * 0.04, 0, (side === 'l' ? 1 : -1) * 0.2); addTo(p, side + 'El', -0.62 + Math.sin(t * 11 + ph) * 0.05, side === 'l' ? -0.3 : 0.3); addTo(p, side + 'Wr', 0.35 + Math.sin(t * 13 + ph) * 0.1); addTo(p, side + 'Fi', -0.6 + Math.sin(t * 17 + ph) * 0.35); };
     ty('l', 0); ty('r', 1.7);
-    p.hands = { l: [0.21, 0.855 + Math.max(0, Math.sin(t * 9)) * 0.03, 0.53 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.855 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.03, 0.53 + Math.sin(t * 1.1) * 0.02] };
+    p.hands = { l: [0.21, 0.8 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.55 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.8 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.55 + Math.sin(t * 1.1) * 0.02] };
     const g = Math.sin(t * 0.55), glance = g > 0.35 ? 0.42 : g < -0.35 ? -0.42 : 0;
     addTo(p, 'head', 0.06, glance, 0); addTo(p, 'neck', 0, glance * 0.3, 0);
     return p;
@@ -367,7 +380,7 @@ const STATION = {
     addTo(p, 'rSh', -0.55, 0, -1.15); addTo(p, 'rEl', -2.25, 0.4); addTo(p, 'rWr', 0.2, 0, 0.3); addTo(p, 'rFi', -0.9);
     addTo(p, 'lSh', -0.95 - gest * 0.45, 0, 0.22 + gest * 0.25); addTo(p, 'lEl', -0.62 - gest * 0.7 + Math.sin(t * 6) * 0.15 * gest, -0.3); addTo(p, 'lWr', 0.2 + Math.sin(t * 5) * 0.35, Math.sin(t * 3) * 0.4 * gest); addTo(p, 'lFi', -0.4 + Math.sin(t * 5) * 0.4);
     addTo(p, 'head', 0.06 + Math.sin(t * 3.1) * 0.14 * talk, 0.25 + Math.sin(t * 0.6) * 0.45, -0.14 + Math.sin(t * 1.3) * 0.08);
-    p.hands = { l: [0.1 + Math.sin(t * 0.9) * 0.05 * gest, 0.82 + gest * 0.06 + Math.max(0, Math.sin(t * 5)) * 0.02, 0.5 - gest * 0.08], r: [-0.17, 1.3, 0.04] }; p.handDir = { r: 'up' };
+    p.hands = { l: [0.1 + Math.sin(t * 0.9) * 0.05 * gest, 0.78 + gest * 0.01 + Math.max(0, Math.sin(t * 5)) * 0.008, 0.5 - gest * 0.08], r: [-0.17, 1.3, 0.04] }; p.handDir = { r: 'up' };
     return p;
   },
   stats(t) { // crouch at the safe, turn the dial, flip the ledger
@@ -398,13 +411,13 @@ const STATION = {
     addTo(p, 'chest', 0.32); addTo(p, 'spine', 0.1); addTo(p, 'lKn', 0.12); addTo(p, 'rKn', 0.12); addTo(p, 'lHip', -0.08); addTo(p, 'rHip', -0.08);
     addTo(p, 'lSh', -1.05 + Math.sin(t * 6.1) * 0.06, 0, 0.12); addTo(p, 'lEl', -0.65, -0.4); addTo(p, 'lWr', Math.sin(t * 7.3) * 0.35, 0, 0); addTo(p, 'lFi', -0.9);
     addTo(p, 'rSh', -1.05 + Math.sin(t * 4.3 + 1) * 0.08, 0, -0.08 + Math.sin(t * 3.1) * 0.08); addTo(p, 'rEl', -0.65 + Math.sin(t * 8.5) * 0.1, 0.35); addTo(p, 'rWr', 0, Math.sin(t * 9) * 0.5, 0); addTo(p, 'rFi', -1.1);
-    p.hands = { l: [0.15 + Math.sin(t * 6.1) * 0.03, 1.08 + Math.max(0, Math.sin(t * 7.3)) * 0.04, 0.47], r: [-0.14 + Math.sin(t * 3.1) * 0.04, 1.05 + Math.max(0, Math.sin(t * 8.5)) * 0.05, 0.47 + Math.sin(t * 4.3) * 0.03] };
+    p.hands = { l: [0.15 + Math.sin(t * 6.1) * 0.03, 0.97 + Math.max(0, Math.sin(t * 7.3)) * 0.012, 0.47], r: [-0.14 + Math.sin(t * 3.1) * 0.04, 0.965 + Math.max(0, Math.sin(t * 8.5)) * 0.012, 0.47 + Math.sin(t * 4.3) * 0.03] };
     addTo(p, 'head', 0.38, Math.sin(t * 0.7) * 0.15, 0);
     return p;
   },
   hq(t) { // face the goal board: point and tap at it, then cross the arms and review
     const p = blank(), ph = t % 8, point = 1 - sstep(3.4, 4.0, ph) + sstep(7.4, 8.0, ph), cross = 1 - point;
-    const tap = point * Math.max(0, Math.sin(t * 7)) * (ph > 1.5 && ph < 3.2 ? 1 : 0);
+    const tf = (ph - 1.5) % 0.6, tap = point * (ph > 1.5 && ph < 3.3 ? sstep(0, 0.12, tf) * (1 - sstep(0.38, 0.5, tf)) : 0); // three taps, each held ~0.25 s on the board
     addTo(p, 'rSh', -1.75 * point - 0.55 * cross + tap * 0.18, 0, -0.25 * point + 0.55 * cross); addTo(p, 'rEl', -0.12 * point - 1.95 * cross, 0.8 * cross); addTo(p, 'rFi', -0.2 * point - 0.8 * cross);
     addTo(p, 'lSh', 0.05 * point - 0.6 * cross, 0, 0.12 * point - 0.5 * cross); addTo(p, 'lEl', -0.3 * point - 1.9 * cross, -0.8 * cross); addTo(p, 'lFi', -0.5);
     addTo(p, 'chest', -0.04 * cross, 0.05 * point); addTo(p, 'head', -0.18 + Math.sin(t * 1.3) * 0.05 * cross, Math.sin(t * 0.5) * 0.2 * cross, 0.08 * cross);
@@ -415,7 +428,7 @@ const STATION = {
     const p = blank(), ph = t % 6, door = sstep(0, 0.8, ph) * (1 - sstep(5.2, 6, ph)), tap = sstep(1.6, 2.0, ph) * (1 - sstep(4.6, 5.0, ph));
     addTo(p, 'chest', 0.04 + tap * 0.04, -0.15 * door); addTo(p, 'spine', 0.02);
     addTo(p, 'lSh', 0.05, 0, 0.12); addTo(p, 'lEl', -0.5 * door - 0.2, -0.3); addTo(p, 'lFi', -1.1 * door - 0.3);
-    addTo(p, 'rFi', -0.3 - tap * 0.5); if (tap > 0.02) { p.hands = { r: [-0.05, 1.05 + (1 - tap) * -0.3, 0.12 + tap * (0.22 + Math.max(0, Math.sin(t * 8)) * 0.02)] }; p.handDir = { r: 'up' }; }
+    addTo(p, 'rFi', -0.3 - tap * 0.5); if (tap > 0.02) { p.hands = { r: [-0.05, 1.05 + (1 - tap) * -0.3, 0.12 + tap * (0.205 + Math.max(0, Math.sin(t * 8)) * 0.01)] }; p.handDir = { r: 'up' }; }
     addTo(p, 'lSh', 0, 0, 0); // door gesture stays sideways (out of the racks)
     addTo(p, 'head', 0.05 + tap * 0.06, 0.35 * door - tap * 0.15, 0);
     return p;
@@ -425,31 +438,28 @@ const STATION = {
     addTo(p, 'chest', 0.38 + Math.sin(t * 0.9) * 0.12, Math.sin(t * 0.5) * 0.12); addTo(p, 'spine', 0.12); addTo(p, 'lKn', 0.08); addTo(p, 'rKn', 0.08 + Math.max(0, Math.sin(t * 0.45)) * 0.15); addTo(p, 'lHip', -0.1); addTo(p, 'rHip', -0.1);
     const ty = (side, ph2, w) => { addTo(p, side + 'Sh', (-0.9 + Math.sin(t * 9 + ph2) * 0.06) * w, 0, (side === 'l' ? 1 : -1) * 0.15); addTo(p, side + 'El', (-0.62 + Math.sin(t * 12 + ph2) * 0.08) * w, side === 'l' ? -0.4 : 0.4); addTo(p, side + 'Wr', 0.35 * w + Math.sin(t * 10 + ph2) * 0.15); addTo(p, side + 'Fi', -0.5 + Math.sin(t * 16 + ph2) * 0.6); };
     ty('l', 0, 1); ty('r', 2.1, 1 - point); p.root[1] -= 0.06;
-    p.hands = { l: [0.17, 0.8 + Math.max(0, Math.sin(t * 9)) * 0.03, 0.47] }; if (point < 0.5) p.hands.r = [-0.07, 0.8 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.03, 0.47];
+    p.hands = { l: [0.17, 0.752 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.47] }; if (point < 0.5) p.hands.r = [-0.07, 0.775 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.47];
     addTo(p, 'rSh', -1.35 * point, 0, -0.1 * point); addTo(p, 'rEl', -0.15 * point); addTo(p, 'rFi', -0.3 * point);
     addTo(p, 'head', -0.05 + Math.sin(t * 0.8) * 0.1, Math.sin(t * 0.6) * 0.5 * (1 - point), Math.sin(t * 0.4) * 0.08);
     return p;
   },
-  lounge(t) { // sit back on the sofa, forearms resting on top of the backrest, elbows bent, head tipped back
+  lounge(t) { // sit back, both arms hooked over the backrest: upper arms ~40 deg down, elbows ~100 deg, forearms on its top
     const p = blank(); seated(p, SOFA_SEAT + 0.05, 0.45);
-    addTo(p, 'chest', -0.28 + Math.sin(t * 1.4) * 0.015); addTo(p, 'spine', -0.1);
-    addTo(p, 'lFi', -0.55); addTo(p, 'rFi', -0.55);
+    addTo(p, 'chest', -0.28 + Math.sin(t * 1.4) * 0.005); addTo(p, 'spine', -0.1);
+    addTo(p, 'lFi', -0.35); addTo(p, 'rFi', -0.35);
     addTo(p, 'head', -0.05, Math.sin(t * 0.25) * 0.4, 0.05);
-    // solved offline against the sofa back (top 0.78 m): elbows rest on the top ~35 deg below the shoulders, forearms along it
-    // lift the arm up and over, straighten the elbow while it is high, then lower it onto the backrest (never through it)
-    const up = t < 1.1 ? 1 : 0;
-    // waypoint solved offline so that lap -> waypoint -> backrest never dips into the cushion
-    if (up) { addTo(p, 'lSh', -1.6, -0.4, 2.2); addTo(p, 'lEl', -2.0, 0, 0); }
-    else { addTo(p, 'lSh', -0.85, 1.1, 2.45); addTo(p, 'lEl', -0.7, -0.6, 0); }
-    // the other hand rests on the right thigh (relaxed, asymmetric: no outstretched-arms silhouette)
-    addTo(p, 'rSh', -0.45, 0, -0.12); addTo(p, 'rEl', -0.8, 0.2); p.hands = { r: [-0.13, SOFA_SEAT + 0.05 + 0.16, 0.2 + Math.sin(t * 0.5) * 0.01] };
+    // solved by aiming the bones at points on the sofa_back proxy (top 0.666 m): elbow 3 cm and wrist 2.5 cm above it;
+    // the first 0.9 s go through a low side waypoint (found by sampling the shortest-arc path) so the arm never cuts it
+    const A = t < 0.9 ? LOUNGE_WAY : LOUNGE_ARM;
+    addTo(p, 'lSh', A[0], A[1], A[2]); addTo(p, 'lEl', A[3], 0, 0); addTo(p, 'rSh', A[0], -A[1], -A[2]); addTo(p, 'rEl', A[3], 0, 0);
     return p;
   },
 };
 STATION.minis = STATION.terminals;
 
 function makeAnimator(bones, rest) {
-  let gY = 0; const cur = blank(), state = { ph: 0, blink: 0, nextBlink: 2 }; cur.ikW = 1; cur.feet = STAND_FEET.map(f => f.slice()); cur.hw = { l: 0, r: 0 }; cur.hand = { l: null, r: null };
+  const QJ = ['lSh', 'rSh'], _qT = new THREE.Quaternion(), _eT = new THREE.Euler();
+  let gY = 0; const cur = blank(), state = { ph: 0, blink: 0, nextBlink: 2 }; cur.ikW = 1; cur.feet = STAND_FEET.map(f => f.slice()); cur.hw = { l: 0, r: 0 }; cur.hand = { l: null, r: null }; cur.q = { lSh: new THREE.Quaternion(), rSh: new THREE.Quaternion() };
   const A = 0.37, B = 0.38;
   const mHips = new THREE.Matrix4(), qH = new THREE.Quaternion(), eH = new THREE.Euler(), v = new THREE.Vector3(), hj = new THREE.Vector3();
   // two-bone leg IK in the robot's root space: ankle at `foot`, knee bending forward, sole kept level
@@ -498,7 +508,11 @@ function makeAnimator(bones, rest) {
     for (let i = 0; i < 3; i++) cur.root[i] += (target.root[i] - cur.root[i]) * k;
     cur.ikW += ((target.feet ? 1 : 0) - cur.ikW) * Math.min(1, dt * 10);
     if (target.feet) for (let f = 0; f < 2; f++) for (let i = 0; i < 3; i++) cur.feet[f][i] += (target.feet[f][i] - cur.feet[f][i]) * k;
-    for (const j of J) bones[j].rotation.set(cur[j][0], cur[j][1], cur[j][2]);
+    for (const j of J) if (!QJ.includes(j)) bones[j].rotation.set(cur[j][0], cur[j][1], cur[j][2]);
+    for (const j of QJ) { // shoulders: rotate toward the target orientation along the shortest arc
+      const qt = _qT.setFromEuler(_eT.set(target[j][0], target[j][1], target[j][2])), qc = cur.q[j];
+      const ang = qc.angleTo(qt), step = Math.min(ang * k, (calm ? 2.8 : 4.5) * dt); if (ang > 1e-5) qc.rotateTowards(qt, step);
+      bones[j].quaternion.copy(qc); _eT.setFromQuaternion(qc); cur[j][0] = _eT.x; cur[j][1] = _eT.y; cur[j][2] = _eT.z; }
     bones.lF2.rotation.x = cur.lFi[0] * 0.9; bones.rF2.rotation.x = cur.rFi[0] * 0.9;
     bones.hips.position.set(rest.hips.x + cur.root[0], rest.hips.y + cur.root[1], rest.hips.z + cur.root[2]);
     eH.set(cur.hips[0], cur.hips[1], cur.hips[2]); qH.setFromEuler(eH); mHips.compose(bones.hips.position, qH, new THREE.Vector3(1, 1, 1));
