@@ -183,7 +183,7 @@ export function makeMaterials() {
 
 // ---------- screen content ----------
 export function screenMat(t, k = 1.4) {
-  k = Math.min(k, 1.0) * 0.95;
+  k = Math.min(k, 1.0) * 0.62;
   const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: k, roughness: 0.16, metalness: 0, envMapIntensity: 0.6 });
   m.userData.k = k; return m;
 }
@@ -442,15 +442,41 @@ export function crumpled(parent, x, y, z) { // a crumpled paper ball
   const g = new THREE.IcosahedronGeometry(0.035, 1); const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * rr(0.7, 1.2), p.getY(i) * rr(0.7, 1.2), p.getZ(i) * rr(0.7, 1.2)); g.computeVertexNormals();
   const m = new THREE.Mesh(g, C.M.paper); m.position.set(x, y + 0.03, z); m.castShadow = false; m.receiveShadow = true; parent.add(m); return m;
 }
+// Books: cloth/paper covers with a printed spine (title, bands, publisher mark), a cream page block showing on the top
+// and fore-edge, and slightly rounded spines; spines face +z.
+let spineMats = null, pageMat = null;
+const TITLES = ['THE WEB HACKER', 'CRYPTO 101', 'DEEP WORK', 'SYSTEMS', 'NETWORKS', 'THE BUG HUNT', 'COMPILERS', 'ZERO TRUST', 'LEDGERS', 'GROWTH', 'PATTERNS', 'RUST', 'ASSEMBLY', 'THE FOUNDER', 'FUZZING', 'LINUX'];
+function spines() {
+  if (spineMats) return spineMats;
+  const cols = ['#6b2a22', '#1f3550', '#2f4a33', '#b88a3a', '#2a2a2e', '#7a6a55', '#8c1f1f', '#3d3550', '#d9d2c0', '#355f6b', '#e8e2d2', '#14304a'];
+  spineMats = cols.map((c, i) => {
+    const t = canvasTex(64, 256, (g, w, h) => {
+      g.fillStyle = c; g.fillRect(0, 0, w, h);
+      const light = parseInt(c.slice(1, 3), 16) > 180; const ink = light ? '#222' : (i % 3 ? '#e9dcb4' : '#d9b77a');
+      g.fillStyle = ink; g.fillRect(0, 16, w, 3); g.fillRect(0, h - 26, w, 3); if (i % 2) g.fillRect(0, 22, w, 1);
+      g.save(); g.translate(w / 2 + 6, h - 40); g.rotate(-Math.PI / 2); g.font = 'bold 15px Georgia, serif'; g.fillText(TITLES[i % TITLES.length], 0, 0); g.font = '10px Arial'; g.globalAlpha = 0.7; g.fillText(['M. OKAFOR', 'L. CHEN', 'R. DIAZ', 'S. PATEL'][i % 4], 0, -14); g.restore();
+      g.globalAlpha = 1; g.beginPath(); g.arc(w / 2, h - 12, 5, 0, 7); g.fill();
+      for (let k = 0; k < 400; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '0,0,0' : '255,255,255'},.05)`; g.fillRect(rnd() * w, rnd() * h, 1, 1); } // cloth grain / wear
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, 3, h); g.fillRect(w - 3, 0, 3, h);
+    });
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.75, envMapIntensity: 0.6 });
+  });
+  const pt = canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#e8e0cc'; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(120,100,70,.35)'; for (let y = 0; y < h; y += 2) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + rr(-0.5, 0.5)); g.stroke(); } });
+  pageMat = new THREE.MeshStandardMaterial({ map: pt, roughness: 0.9 });
+  return spineMats;
+}
 export function books(parent, x, y, z, n, rotY = 0, lean = false) {
-  const cols = [0x6b2a22, 0x1f3550, 0x2f4a33, 0xb88a3a, 0x2a2a2e, 0x7a6a55, 0x8c1f1f, 0x3d3550, 0xd9d2c0, 0x355f6b];
-  const g = group(parent, x, y, z, rotY);
+  const S = spines(), g = group(parent, x, y, z, rotY);
   let px = 0;
   for (let i = 0; i < n; i++) {
-    const w = 0.022 + rnd() * 0.035, h = 0.17 + rnd() * 0.1, d = 0.13 + rnd() * 0.06;
-    const b = box(w, h, d, std(pick(cols), rr(0.55, 0.85)), px + w / 2, h / 2, 0, 1, g, false);
+    const w = 0.022 + rnd() * 0.035, h = 0.17 + rnd() * 0.1, d = 0.13 + rnd() * 0.06, sm = pick(S), cover = new THREE.MeshStandardMaterial({ color: sm.map ? 0xffffff : 0x333333, map: sm.map, roughness: 0.75 });
+    cover.map = sm.map; // the cover cloth uses the spine texture's colour field
+    const mats = [cover, cover, pageMat, cover, sm, pageMat]; // +x, -x, top (pages), bottom, +z spine, -z fore-edge
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats); b.position.set(px + w / 2, h / 2, 0); b.castShadow = false; b.receiveShadow = true; g.add(b);
+    // covers overhang the page block a little
+    for (const sx of [-1, 1]) box(0.0025, h + 0.004, d + 0.004, cover, px + w / 2 + sx * (w / 2), h / 2, 0, 1, g, false);
     if (lean && i === n - 1) { b.rotation.z = -0.35; b.position.x += 0.04; b.position.y -= 0.01; }
-    px += w + 0.002;
+    px += w + 0.003;
   }
   return g;
 }
@@ -505,6 +531,13 @@ export function desk(parent, cx, cz, w, d, rotY, top, h = 0.74, o = {}) {
   }
   return g;
 }
+// Soft contact shadow on the floor under furniture (grounds things that the AO alone leaves floating).
+let contactT;
+export function contactShadow(parent, x, z, w, d, k = 0.55, ry = 0) {
+  if (!contactT) contactT = canvasTex(128, 128, (g, W, Hh) => { const gr = g.createRadialGradient(64, 64, 10, 64, 64, 64); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, Hh); });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ map: contactT, transparent: true, opacity: k, depthWrite: false, color: 0x000000, alphaMap: contactT }));
+  m.rotation.x = -Math.PI / 2; m.rotation.z = ry; m.position.set(x, 0.012, z); m.userData.noAO = true; m.renderOrder = 1; (parent || C.scene).add(m); return m;
+}
 export function powerStrip(parent, x, z, rotY = 0) {
   const g = group(parent, x, 0, z, rotY);
   rbox(0.3, 0.035, 0.06, 0.008, C.M.plasticWhite, 0, 0.0175, 0, g, false);
@@ -513,14 +546,25 @@ export function powerStrip(parent, x, z, rotY = 0) {
   return g;
 }
 export function pcTower(parent, x, z, rotY, rgb = 0x6a5cff, id) {
-  const M = C.M, g = group(parent, x, 0, z, rotY);
-  rbox(0.21, 0.46, 0.45, 0.01, M.plastic, 0, 0.24, 0, g);
-  const on = new THREE.MeshStandardMaterial({ color: 0x050507, emissive: rgb, emissiveIntensity: 0.6, roughness: 0.05, metalness: 0.2 });
-  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.38), on);
-  glass.rotation.y = Math.PI / 2; glass.position.set(0.106, 0.25, 0); g.add(glass);
-  const fans = [];
-  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.05, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb).multiplyScalar(1.4) })); f.position.set(0.0, 0.12 + i * 0.12, 0.226); g.add(f); fans.push(f); }
-  if (id) onPower(id, p => { glass.material = p ? on : M.blackGloss; fans.forEach(f => (f.visible = p)); });
+  // mid-tower: bevelled steel case, mesh front with three RGB fans, tempered-glass side showing the board, GPU and RAM
+  const M = C.M, g = group(parent, x, 0, z, rotY), caseM = worn(0x141518, { roughness: 0.5, metalness: 0.6, ns: 0.2 });
+  rbox(0.21, 0.46, 0.45, 0.012, caseM, 0, 0.245, 0, g);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) cyl(0.012, 0.014, 0.015, M.rubber, sx * 0.08, 0.0075, sz * 0.19, g, 10, false);
+  const mesh = canvasTex(64, 128, (q, w, h) => { q.fillStyle = '#0c0c0e'; q.fillRect(0, 0, w, h); q.fillStyle = '#26272b'; for (let yy = 1; yy < h; yy += 3) for (let xx = (yy % 2) + 1; xx < w; xx += 3) q.fillRect(xx, yy, 1.4, 1.4); }, {});
+  plane(0.18, 0.42, new THREE.MeshStandardMaterial({ map: mesh, roughness: 0.6, metalness: 0.4 }), 0, 0.245, 0.2255, g);
+  const fanM = new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb).multiplyScalar(1.2) }), fans = [];
+  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.045, 0.052, 28), fanM); f.position.set(0, 0.1 + i * 0.13, 0.227); g.add(f); fans.push(f); const hub = cyl(0.014, 0.014, 0.004, M.plastic, 0, 0.1 + i * 0.13, 0.226, g, 12, false); hub.rotation.x = Math.PI / 2; }
+  // interior behind the glass (+x side)
+  const board = canvasTex(128, 128, (q, w, h) => { q.fillStyle = '#10161a'; q.fillRect(0, 0, w, h); q.strokeStyle = '#2b4a3a'; for (let i = 0; i < 40; i++) { q.beginPath(); q.moveTo(rnd() * w, rnd() * h); q.lineTo(rnd() * w, rnd() * h); q.stroke(); } q.fillStyle = '#2a2d33'; q.fillRect(40, 20, 34, 34); q.fillStyle = '#555'; q.fillRect(86, 14, 4, 50); q.fillRect(94, 14, 4, 50); });
+  const mb = plane(0.38, 0.36, new THREE.MeshStandardMaterial({ map: board, roughness: 0.6, metalness: 0.3 }), -0.09, 0.26, 0, g); mb.rotation.y = Math.PI / 2;
+  rbox(0.05, 0.05, 0.28, 0.004, std(0x222429, 0.4, 0.6), -0.04, 0.17, -0.01, g); // GPU
+  const gpuStrip = box(0.002, 0.008, 0.24, fanM, -0.014, 0.19, -0.01, 1, g, false);
+  for (let i = 0; i < 2; i++) box(0.03, 0.04, 0.006, fanM, -0.06, 0.34, 0.06 + i * 0.012, 1, g, false); // RAM RGB
+  rbox(0.06, 0.06, 0.06, 0.01, M.aluDark, -0.05, 0.33, -0.04, g); // CPU cooler
+  const gl = new THREE.MeshPhysicalMaterial({ color: 0x2a2e36, roughness: 0.04, transparent: true, opacity: 0.35, envMapIntensity: 1.5, depthWrite: false });
+  const glass = plane(0.4, 0.4, gl, 0.106, 0.25, 0, g); glass.rotation.y = Math.PI / 2; glass.userData.noAO = true;
+  const glow = new THREE.PointLight(rgb, 0.12, 0.6, 2); glow.position.set(0.02, 0.25, 0); g.add(glow);
+  if (id) onPower(id, p => { fans.forEach(f => (f.visible = p)); gpuStrip.visible = p; glow.intensity = p ? 0.12 : 0; });
   return g;
 }
 export function bin(parent, x, z, n = 3) { // mesh office bin with crumpled paper

@@ -5,7 +5,7 @@ import {
   C, onPower, tr, X0, X1, Z0, Z1, H, rnd, rr, pick, tex, pbr, canvasTex, box, rbox, cyl, plane, std, group, cable, floorCable,
   screenMat, powerScreen, worn, codeScreen, dashScreen, termScreen, kanbanScreen, ledgerScreen, agentScreen, nodeScreen, courseScreen, gpuScreen,
   docTex, posterTex, stickyMat, place, monitor, laptop, keyboard, mug, coffeeCup, can, papers, crumpled, books, binders, officeChair, desk,
-  powerStrip, pcTower, bin, headphones, pizzaBox, backpack, lightCone, hazeMaterial,
+  powerStrip, pcTower, contactShadow, bin, headphones, pizzaBox, backpack, lightCone, hazeMaterial,
 } from './kit.js';
 
 export const MOON_DIR = new THREE.Vector3(0.62, -0.5, 0.6).normalize(); // direction the moon/city light travels (from NW, down)
@@ -29,7 +29,7 @@ function pendant(x, z, drop, o = {}) {
   const l = new THREE.SpotLight(color, o.intensity ?? 28, 8, o.angle ?? 0.95, 0.7, 2); l.position.set(x, H - drop - 0.13, z); l.target.position.set(x + (o.tx || 0), 0, z + (o.tz || 0));
   if (o.shadow) { l.castShadow = true; l.shadow.mapSize.set(1024, 1024); l.shadow.bias = -0.0003; l.shadow.normalBias = 0.02; l.shadow.radius = 5; l.shadow.camera.near = 0.15; l.shadow.camera.far = 6; }
   addLight(l, o.id);
-  const cone = lightCone(null, x, H - drop - 0.14, z, 0.19, 1.15, H - drop - 0.14, color, o.haze ?? 0.1);
+  const cone = { visible: true }; // (no geometric light cones: the haze comes from the post height fog)
   if (o.id) onPower(o.id, on => { bulbM.emissiveIntensity = on ? 5 : 0.02; cone.visible = on; });
   return l;
 }
@@ -87,8 +87,7 @@ function windowFrame(axis, at, a0, a1, y0, y1, inward, blind) {
   g.updateMatrixWorld(true);
   const u = new THREE.Vector3(1, 0, 0).applyQuaternion(g.quaternion), v = MOON_DIR.clone().negate(), ww = new THREE.Vector3().crossVectors(u, v).normalize(); u.crossVectors(v, ww).normalize();
   const len = 4.6, geo = new THREE.BoxGeometry(w * 0.92, len, h * 0.8); geo.translate(0, -len / 2, 0);
-  const sh = new THREE.Mesh(geo, hazeMaterial(0x9db6ff, blind ? 0.04 : 0.06, { len })); sh.renderOrder = 10; sh.userData.noAO = true;
-  sh.matrixAutoUpdate = false; sh.matrix.makeBasis(u, v, ww).setPosition(g.position.clone().add(new THREE.Vector3(0, 0, 0))); C.scene.add(sh);
+  void geo; void len;
 }
 
 // ---------- shell ----------
@@ -97,7 +96,7 @@ export function buildShell() {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0, Z1 - Z0), M.floor);
   floor.rotation.x = -Math.PI / 2; floor.position.set((X0 + X1) / 2, 0, (Z0 + Z1) / 2); floor.receiveShadow = true;
   const uv = floor.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (X1 - X0) / 2.2, uv.getY(i) * (Z1 - Z0) / 2.2);
-  C.scene.add(floor); C.occluders.push(floor);
+  C.scene.add(floor); C.occluders.push(floor); C.floorMesh = floor;
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(X1 - X0, Z1 - Z0), M.ceiling);
   ceil.rotation.x = Math.PI / 2; ceil.position.set((X0 + X1) / 2, H, (Z0 + Z1) / 2); ceil.receiveShadow = true;
   const cu = ceil.geometry.attributes.uv; for (let i = 0; i < cu.count; i++) cu.setXY(i, cu.getX(i) * (X1 - X0) / 3, cu.getY(i) * (Z1 - Z0) / 3);
@@ -189,8 +188,8 @@ function facadeTex(kind, seed) {
 export function buildSkyline(yaw) {
   const t = tex('sky/skyline.jpg', true); t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4;
   const R = 150, top = R * Math.tan(THREE.MathUtils.degToRad(50.4)), bot = R * Math.tan(THREE.MathUtils.degToRad(28.6));
-  t.repeat.x = -1; const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, top + bot, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, color: 0x6a7490 }));
-  m.position.set((X0 + X1) / 2, (top - bot) / 2 - 14, (Z0 + Z1) / 2); m.rotation.y = yaw; C.scene.add(m);
+  t.repeat.x = -1; const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, top + bot, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, color: 0x4a5266 }));
+  m.position.set((X0 + X1) / 2, (top - bot) / 2 - 14, (Z0 + Z1) / 2); m.rotation.y = yaw; m.userData.city = true; C.scene.add(m);
   // street level: dark asphalt with sodium street-light pools and car light streaks
   const st = canvasTex(1024, 1024, (g, w, h) => {
     g.fillStyle = '#06080b'; g.fillRect(0, 0, w, h);
@@ -199,19 +198,57 @@ export function buildSkyline(yaw) {
     for (let i = 0; i < 120; i++) { const y = 60 + Math.floor(rnd() * 12) * 80 + rr(4, 22), x = rnd() * w; g.fillStyle = rnd() < 0.5 ? 'rgba(255,60,40,.8)' : 'rgba(255,245,220,.8)'; g.fillRect(x, y, rr(8, 30), 2); }
   });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshBasicMaterial({ map: st, color: 0xaaaaaa })); ground.rotation.x = -Math.PI / 2; ground.position.set(7, -9, 5); C.scene.add(ground);
-  // towers
-  const facs = [0, 1, 2, 0, 1, 2].map((k, i) => facadeTex(k, 11 + i * 97)), roofM = new THREE.MeshBasicMaterial({ color: 0x07090c });
-  const haze = new THREE.Color(0x1b2436), cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+  // towers: an interior-mapped window shader. Every window cell is a little room (back wall, side walls, floor and
+  // ceiling) seen in parallax through the glass, lit warm or cool or dark per cell, with mullions, blinds and furniture
+  // silhouettes, so the near towers have depth instead of flat coloured rectangles.
+  const cityM = new THREE.ShaderMaterial({
+    uniforms: { haze: { value: new THREE.Color(0x141c2a) }, gain: { value: 0.62 } },
+    vertexShader: `attribute float seed; varying vec3 vW; varying vec3 vN; varying float vSeed; varying vec3 vLocal;
+      void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vSeed = seed; vLocal = position; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform vec3 haze; uniform float gain; varying vec3 vW; varying vec3 vN; varying float vSeed; varying vec3 vLocal;
+      float h1(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+      void main(){
+        vec3 n = normalize(vN);
+        if (abs(n.y) > 0.5) { gl_FragColor = vec4(0.012, 0.014, 0.02, 1.0); return; }
+        vec3 up = vec3(0.0, 1.0, 0.0), rt = normalize(cross(up, n));
+        float kind = floor(h1(vec3(vSeed, 1.0, 2.0)) * 3.0);
+        vec2 cs = kind == 1.0 ? vec2(1.8, 3.2) : kind == 2.0 ? vec2(1.5, 3.6) : vec2(2.6, 3.4);
+        vec2 uv = vec2(dot(vW, rt), vW.y) / cs; vec2 id = floor(uv), f = fract(uv);
+        float rowLit = h1(vec3(id.y, vSeed, dot(n, vec3(1.0, 0.0, 3.0))));
+        float r = h1(vec3(id, vSeed + dot(n, vec3(7.0, 0.0, 13.0))));
+        float lit = step(r, rowLit < 0.45 ? 0.75 : 0.08);
+        vec2 fr = kind == 2.0 ? vec2(0.04, 0.06) : vec2(0.14, 0.2);
+        bool frame = f.x < fr.x || f.x > 1.0 - fr.x || f.y < fr.y || f.y > 1.0 - fr.y;
+        vec3 V = normalize(vW - cameraPosition);
+        vec3 col;
+        if (frame) col = vec3(0.025, 0.027, 0.032) * (kind == 2.0 ? 0.6 : 1.0);
+        else {
+          vec3 d = vec3(dot(V, rt), dot(V, up), dot(V, -n)); vec2 o = (f - fr) / (1.0 - 2.0 * fr);
+          float depth = 0.8; vec3 t3 = vec3(d.x > 0.0 ? (1.0 - o.x) / d.x : -o.x / d.x, d.y > 0.0 ? (1.0 - o.y) / d.y : -o.y / d.y, depth / max(d.z, 1e-3));
+          float t = min(min(t3.x, t3.y), t3.z); vec3 hp = vec3(o, 0.0) + d * t;
+          vec3 tint = h1(vec3(id, vSeed + 5.0)) < 0.72 ? mix(vec3(1.0, 0.72, 0.42), vec3(1.0, 0.86, 0.66), h1(vec3(id, 3.0))) : vec3(0.6, 0.78, 1.0);
+          float shade = t == t3.z ? 0.9 : t == t3.x ? 0.62 : (d.y > 0.0 ? 0.78 : 0.42 + 0.3 * hp.z);
+          if (t == t3.z && hp.y < 0.38 && abs(hp.x - h1(vec3(id, 9.0))) < 0.22) shade *= 0.25; // furniture silhouette
+          float lamp = exp(-pow(length(hp.xy - vec2(0.5, 0.95)), 2.0) * 6.0) * 0.6;
+          col = lit > 0.5 ? tint * (shade + lamp) * (0.5 + 0.6 * h1(vec3(id, 11.0))) : vec3(0.012, 0.016, 0.026) * shade * 3.0;
+          if (lit > 0.5 && h1(vec3(id, 21.0)) < 0.35) { float bl = h1(vec3(id, 23.0)); if (o.y > 1.0 - bl) col *= 0.18 + 0.1 * step(0.5, fract(o.y * 18.0)); } // blinds
+          float F = pow(1.0 - abs(dot(V, n)), 4.0); col += vec3(0.02, 0.025, 0.04) * (0.3 + F); // glass sheen
+        }
+        float dist = length(vW - cameraPosition), k = clamp((dist - 25.0) / 110.0, 0.0, 1.0);
+        col = mix(col * gain, haze, k * 0.7);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  const cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
   let n = 0;
   for (let tries = 0; tries < 600 && n < 75; tries++) {
     const x = rr(-110, 40), z = rr(-110, 40);
     if (!(x < -6 || z < -6)) continue;
     const d = Math.hypot(x - cx, z - cz); if (d < 28 || d > 125) continue;
     const w = rr(10, 26), dd = rr(10, 26), hgt = d < 45 ? rr(14, 45) : rr(30, 120);
-    const fi = Math.floor(rnd() * facs.length), ft = facs[fi].clone(); ft.needsUpdate = true; ft.repeat.set(Math.max(1, Math.round(w / ((fi % 3) === 1 ? 14 : 11))), Math.max(1, Math.round(hgt / ((fi % 3) === 1 ? 60 : 44))));
-    const k = Math.min(1, (d - 28) / 100), fm = new THREE.MeshBasicMaterial({ map: ft, color: new THREE.Color(0.8, 0.8, 0.82).lerp(haze, k * 0.7) });
-    const b = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, dd), [fm, fm, roofM, roofM, fm, fm]); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2); C.scene.add(b);
-    if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.2, 0.15) })); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
+    const geo = new THREE.BoxGeometry(w, hgt, dd), sd = rnd() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
+    const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2); b.userData.city = true; C.scene.add(b);
+    if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) })); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
   }
 }
@@ -341,8 +378,8 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   lampPoint(r.cx - 0.25, 1.28, r.z0 + 0.3, 0xffc27a, 1.8, 2.6, id);
   // filing cabinet
   const fc = group(g, r.cx + 0.05, 0, r.z1 - 0.32, -Math.PI / 2);
-  rbox(0.46, 1.32, 0.6, 0.012, worn(0x5d6466, { ns: 0.45 }), 0, 0.66, 0, fc);
-  for (let i = 0; i < 4; i++) { box(0.42, 0.3, 0.01, std(0x6b7376, 0.38, 0.7), 0, 0.18 + i * 0.32, 0.305, 1, fc); box(0.12, 0.015, 0.025, M.alu, 0, 0.27 + i * 0.32, 0.32, 1, fc); box(0.08, 0.04, 0.003, M.paper, 0, 0.22 + i * 0.32, 0.312, 1, fc); }
+  rbox(0.46, 1.32, 0.6, 0.012, worn(0x5d6466, { ns: 0.12 }), 0, 0.66, 0, fc);
+  for (let i = 0; i < 4; i++) { const dy = 0.18 + i * 0.32; rbox(0.42, 0.3, 0.018, 0.006, worn(0x6b7376, { ns: 0.12 }), 0, dy, 0.305, fc); box(0.13, 0.03, 0.012, M.steel, 0, dy + 0.09, 0.318, 1, fc); box(0.11, 0.016, 0.02, M.alu, 0, dy + 0.085, 0.326, 1, fc); box(0.09, 0.045, 0.004, M.alu, 0, dy + 0.035, 0.316, 1, fc); box(0.08, 0.035, 0.003, M.paper, 0, dy + 0.035, 0.319, 1, fc); }
   place('ceramic_vase_01', r.cx + 0.05, 1.32, r.z1 - 0.2, 0, 0.6, g);
   binders(g, r.cx - 0.1, 1.32, r.z1 - 0.48, 3, Math.PI / 2);
   // wall-mounted ledger screen above
@@ -415,7 +452,7 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   const head = rbox(0.07, 0.06, 0.06, 0.008, std(0xc8501e, 0.5), 0.04, 0.3, 0, pr); cyl(0.004, 0.001, 0.02, M.brass, 0.04, 0.26, 0, pr, 8, false);
   cyl(0.006, 0.006, 0.4, M.steelLight, 0, 0.3, 0, pr, 8, false).rotation.z = Math.PI / 2;
   const disp = plane(0.08, 0.05, screenMat(termScreen(5, '#ff9a5a'), 0.8), 0.12, 0.03, 0.222, pr); // status display
-  const spool = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.02, 10, 28), std(0xb8501a, 0.6)); spool.position.set(0.25, 0.4, 0); spool.rotation.y = Math.PI / 2; pr.add(spool);
+  const spool = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.02, 10, 28), std(0xb8501a, 0.6)); spool.position.set(0.25, 0.4, 0); spool.scale.setScalar(0.7); spool.rotation.y = Math.PI / 2; pr.add(spool);
   cyl(0.035, 0.035, 0.045, M.plastic, 0.25, 0.4, 0, pr, 20).rotation.z = Math.PI / 2;
   cable(pr, [[0.25, 0.47, 0], [0.18, 0.56, 0], [0.04, 0.4, 0], [0.04, 0.33, 0]], 0.0015, std(0xb8501a, 0.6));
   const enc = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.44, 0.4), new THREE.MeshStandardMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.16, roughness: 0.05, depthWrite: false })); enc.position.y = 0.26; enc.userData.noAO = true; pr.add(enc);
@@ -497,10 +534,16 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
 const rackLeds = [];
 function buildRig() { // GPU Rig: server racks with blinking LEDs.
   const id = 'rig', r = tr(16, 12, 3, 1), g = stationGroup(id), M = C.M;
-  const face = canvasTex(256, 512, (c, w, h) => {
-    c.fillStyle = '#0a0b0d'; c.fillRect(0, 0, w, h);
-    for (let u = 0; u < 16; u++) { const y = 8 + u * 31; c.fillStyle = '#16181c'; c.fillRect(10, y, w - 20, 27); c.fillStyle = '#25282e'; for (let i = 0; i < 14; i++) c.fillRect(60 + i * 12, y + 6, 8, 15);
-      for (let i = 0; i < 3; i++) { c.fillStyle = rnd() < 0.6 ? '#2bff88' : rnd() < 0.5 ? '#2bb8ff' : '#ffb02b'; c.fillRect(20 + i * 10, y + 10, 5, 5); } }
+  const face = canvasTex(512, 1024, (c, w, h) => {
+    c.fillStyle = '#08090b'; c.fillRect(0, 0, w, h);
+    for (let u = 0; u < 22; u++) {
+      const y = 12 + u * 45, kind = u % 5; c.fillStyle = '#15171b'; c.fillRect(16, y, w - 32, 41); c.fillStyle = '#202329'; c.fillRect(16, y, w - 32, 2);
+      c.fillStyle = '#6a6e75'; c.beginPath(); c.arc(26, y + 20, 4, 0, 7); c.arc(w - 26, y + 20, 4, 0, 7); c.fill(); // rack screws
+      if (kind === 0) { for (let i = 0; i < 12; i++) { c.fillStyle = '#1d2026'; c.fillRect(70 + i * 33, y + 6, 29, 29); c.fillStyle = '#0d0e10'; c.fillRect(74 + i * 33, y + 12, 21, 4); c.fillStyle = rnd() < 0.7 ? '#2bff88' : '#ffb02b'; c.fillRect(92 + i * 33, y + 28, 4, 3); } }
+      else if (kind === 4) { c.fillStyle = '#0e1013'; c.fillRect(60, y + 6, w - 120, 29); c.fillStyle = '#2bb8ff'; c.font = 'bold 18px Menlo, monospace'; c.fillText('GPU-NODE-' + String(u).padStart(2, '0') + '  OK', 80, y + 27); }
+      else { c.fillStyle = '#25282e'; for (let yy = y + 8; yy < y + 34; yy += 5) for (let xx = 120; xx < w - 60; xx += 6) c.fillRect(xx, yy, 3, 3); c.fillStyle = '#0d0e10'; c.fillRect(40, y + 10, 60, 20); }
+      for (let i = 0; i < 4; i++) { c.fillStyle = rnd() < 0.6 ? '#2bff88' : rnd() < 0.5 ? '#2bb8ff' : '#ffb02b'; c.fillRect(46 + i * 12, y + 16, 6, 6); }
+    }
   });
   const rackM = worn(0x17181b, { roughness: 0.6, metalness: 0.7, ns: 0.4 });
   for (let i = 0; i < 3; i++) {
@@ -509,7 +552,8 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
     const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
     const gl = plane(0.6, 1.86, new THREE.MeshPhysicalMaterial({ color: 0x9fb0c0, roughness: 0.08, transparent: true, opacity: 0.05, envMapIntensity: 0.8, depthWrite: false }), 0, 0.98, -0.37, rk); gl.rotation.y = Math.PI; gl.userData.noAO = true;
-    box(0.03, 1.2, 0.03, M.alu, 0.26, 1.0, -0.38, 1, rk);
+    box(0.03, 1.2, 0.03, M.alu, 0.26, 1.0, -0.38, 1, rk); rbox(0.7, 0.05, 0.74, 0.01, M.steel, 0, 1.975, 0, rk); rbox(0.66, 0.06, 0.7, 0.008, M.rubber, 0, 0.03, 0, rk);
+    for (const sx of [-1, 1]) box(0.025, 1.86, 0.02, M.steel, sx * 0.3, 0.98, -0.372, 1, rk); for (const yy of [0.06, 1.9]) box(0.62, 0.025, 0.02, M.steel, 0, yy, -0.372, 1, rk);
     // warning label
     const wl = plane(0.12, 0.08, new THREE.MeshStandardMaterial({ map: canvasTex(64, 48, (q, w, h) => { q.fillStyle = '#f5c518'; q.fillRect(0, 0, w, h); q.fillStyle = '#111'; q.beginPath(); q.moveTo(32, 6); q.lineTo(56, 42); q.lineTo(8, 42); q.closePath(); q.fill(); q.fillStyle = '#f5c518'; q.font = 'bold 22px Arial'; q.fillText('!', 28, 38); }), roughness: 0.6 }), -0.2, 1.75, -0.375, rk); wl.rotation.y = Math.PI;
     rackLeds.push(fm);
@@ -554,7 +598,6 @@ function sconce(x, y, z, ry, color = 0xffb878) {
   const dx = Math.sin(ry) * 0.16, dz = Math.cos(ry) * 0.16;
   const l = new THREE.SpotLight(color, 7, 4, 0.75, 0.85, 2); l.position.set(x + dx, y - 0.08, z + dz); l.target.position.set(x + dx * 2.2, 0, z + dz * 2.2); addLight(l);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), emissive(color, 4)); b.position.set(x + dx, y - 0.1, z + dz); C.scene.add(b);
-  lightCone(null, x + dx, y - 0.1, z + dz, 0.06, 0.45, 1.2, color, 0.035).rotation.x = Math.sin(ry) * 0 ;
 }
 function buildDecor() {
   const M = C.M;
@@ -585,7 +628,6 @@ function buildDecor() {
   const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 5)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
   const fll = new THREE.SpotLight(0xffb070, 14, 6, 1.1, 0.8, 2); fll.position.set(3.85, 1.75, Z1 - 0.7); fll.target.position.set(3.6, 0, Z1 - 1.0);
   fll.castShadow = true; fll.shadow.mapSize.set(1024, 1024); fll.shadow.bias = -0.0004; fll.shadow.radius = 5; addLight(fll);
-  lightCone(null, 3.85, 1.74, Z1 - 0.7, 0.15, 0.9, 1.7, 0xffb070, 0.05);
   C.colliders.push({ x0: 4.75, x1: 5.15, z0: Z1 - 0.55, z1: Z1 - 0.15 });
   poster('ship', 2.7, 1.65, Z1 - 0.02, Math.PI, 0.62); poster('nib', 4.0, 1.65, Z1 - 0.02, Math.PI, 0.62);
   // ---- coffee corner on the south wall, east side ----
@@ -650,9 +692,22 @@ function buildDecor() {
   place('vintage_suitcase', X0 + 0.35, 0, 4.95, Math.PI / 2, 0.9, null, { pick: /suitcase_02/ });
 }
 
+// contact shadows under the big pieces (desks, cabinets, sofa, racks, boxes)
+function grounding() {
+  const S = (x, z, w, d, k) => contactShadow(null, x, z, w, d, k);
+  let r = tr(8, 5, 3, 1); S(r.cx, r.cz - 0.02, 2.3, 1.1, 0.6);
+  r = tr(2, 3, 3, 1); S(r.cx, r.cz, 2.4, 1.05, 0.6);
+  r = tr(12, 10, 3, 1); S(r.cx, r.cz, 2.3, 1.0, 0.6);
+  r = tr(4, 10, 2, 1); S(r.cx, r.cz, 1.8, 1.0, 0.65);
+  r = tr(7, 1, 6, 2); S(r.cx, Z0 + 0.32, 3.6, 0.8, 0.6);
+  S(13.15, 9.46, 2.5, 0.9, 0.75); S(13.1, 8.25, 2.5, 1.5, 0.45);
+  S(13.18, 2.6, 0.95, 0.95, 0.6); S(13.18, 3.45, 0.85, 0.75, 0.6);
+  S(3.4, Z1 - 0.48, 3.0, 1.2, 0.6); S(10.6, Z1 - 0.4, 2.3, 1.1, 0.55); S(X1 - 0.3, 5.6, 0.8, 1.6, 0.55);
+  S(12.75, 1.25, 1.3, 1.1, 0.6); S(X0 + 0.45, 3.5, 0.8, 1.0, 0.55); S(3.4, Z1 - 1.35, 1.3, 0.75, 0.45);
+}
 export function buildRoom(G) {
   buildShell(); buildLightRig();
-  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor(); buildDust();
+  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor(); grounding(); buildDust();
 }
 // Dust motes drifting in the lamp light: each mote's brightness is baked from the nearby practicals, so they only show
 // where light would catch them.
