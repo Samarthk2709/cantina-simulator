@@ -1,18 +1,15 @@
 First Office 3D: asset credits
 
-Characters
-- founder3.glb: Microsoft Rocketbox Avatar Library, "Male_Adult_12" (MIT, Copyright (c) Microsoft Corporation).
-  Full licence: char/LICENSE-rocketbox.txt
-- founder.glb (fallback, ?char=rpm): Ready Player Me sample avatar distributed with the three.js examples (readyplayer.me.glb).
-- anims.glb: idle / walk / run clips from the three.js examples "Xbot.glb" (distributed in the three.js repository; clips originally from Adobe Mixamo), retargeted at runtime.
+Character
+- FO-1, the founder robot: original design, modelled procedurally in office3d/robot.js (no external assets).
 
-Models (Poly Haven, CC0, https://polyhaven.com):
-  CoffeeCart_01, alarm_clock_01, bananas, bar_chair_round_01, binder_notebook, book_encyclopedia_set_01, boombox, calathea_orbifolia_01, cardboard_box_01, cassette_player, ceramic_vase_01, chess_set, circuit_board, classic_laptop, clipboard, coffee_table_round_01, croissant, dartboard, desk_lamp_arm_01, drawer_cabinet, fire_alarm, food_apple_01, gamepad, hanging_industrial_lamp, hanging_picture_frame_01, hanging_picture_frame_02, hanging_picture_frame_03, industrial_wall_lamp, korean_fire_extinguisher_01, lightbulb_led, magnifying_glass_01, measuring_tape_01, metal_office_desk, metal_toolbox, metal_trash_can, mid_century_lounge_chair, modern_arm_chair_01, modern_coffee_table_01, modern_wooden_cabinet, modified_thermos, modular_airduct_rectangular_01, office_notepads, pachira_aquatica_01, plastic_bottle_gallon, plastic_crate_01, plastic_crate_02, pliers, portable_cassette_player, postcard_set_01, potted_plant_01, potted_plant_02, potted_plant_04, power_box_01, retro_multimeter, round_spectacles, rubber_duck_toy, screwdriver, security_camera_01, side_table_01, sofa_03, spray_paint_bottles, standing_chalkboard_01, standing_picture_frame_01, standing_picture_frame_02, stationery_supplies, steel_frame_shelves_01, steel_frame_shelves_02, tea_set_01, television_02, throw_pillows_01, tool_cart, trashbag, vintage_electric_kettle, vintage_stapler, vintage_suitcase, wall_clock, wicker_basket_01, wooden_bookshelf_worn, worn_metal_rack
+Models (Poly Haven, CC0, https://polyhaven.com), textures downsized to 512-1024 px:
+  CoffeeCart_01, alarm_clock_01, binder_notebook, calathea_orbifolia_01, cardboard_box_01, ceramic_vase_01, circuit_board, clipboard, dartboard, desk_lamp_arm_01, fire_alarm, gamepad, industrial_wall_lamp, korean_fire_extinguisher_01, magnifying_glass_01, measuring_tape_01, metal_toolbox, metal_trash_can, modern_coffee_table_01, office_notepads, pachira_aquatica_01, plastic_crate_02, pliers, potted_plant_04, retro_multimeter, rubber_duck_toy, screwdriver, side_table_01, sofa_03, spray_paint_bottles, standing_picture_frame_01, standing_picture_frame_02, stationery_supplies, throw_pillows_01, tool_cart, trashbag, vintage_electric_kettle, vintage_stapler, wall_clock, wooden_bookshelf_worn
 
 Textures (Poly Haven, CC0):
-  concrete_floor_02, dirty_carpet, fabric_leather_02, fabric_pattern_07, herringbone_parquet, metal_plate_02, oak_veneer_01, painted_metal_shutter, painted_plaster_wall, plastered_wall_04, red_brick_03, rough_plaster_03, rusty_painted_metal, walnut_veneer
+  concrete_floor_02, dirty_carpet, fabric_leather_02, fabric_pattern_07, herringbone_parquet, metal_plate_02, oak_veneer_01, plastered_wall_04, red_brick_03, rough_plaster_03, rusty_painted_metal, walnut_veneer
 
-HDRI / sky: Poly Haven "shanghai_bund" (CC0), used as the far skyline plate (sky/skyline.jpg) and hdri/.
+Sky: Poly Haven "shanghai_bund" (CC0), used as the far skyline plate (sky/skyline.jpg, 2048 px).
 
 Everything else (screens, posters, signage, rug, city towers, Nib) is generated procedurally in office3d/*.js.
 Engine: three.js r186 (MIT), vendored under vendor/three.

@@ -250,7 +250,7 @@ class GTAOPass extends Pass {
 		this.height = height;
 
 		this.gtaoRenderTarget.setSize( width, height );
-		this.normalRenderTarget.setSize( width, height );
+		if ( this.normalRenderTarget ) this.normalRenderTarget.setSize( width, height );
 		this.pdRenderTarget.setSize( width, height );
 
 		this.gtaoMaterial.uniforms.resolution.value.set( width, height );
@@ -338,7 +338,7 @@ class GTAOPass extends Pass {
 		this.pdMaterial.uniforms.tNormal.value = this.normalTexture;
 		this.pdMaterial.uniforms.tDepth.value = this.depthTexture;
 
-		this.depthRenderMaterial.uniforms.tDepth.value = this.normalRenderTarget.depthTexture;
+		this.depthRenderMaterial.uniforms.tDepth.value = this.depthTexture; // First Office: works with an external depth texture too
 
 	}
 

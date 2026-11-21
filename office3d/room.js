@@ -185,6 +185,7 @@ function facadeTex(kind, seed) {
     if (kind !== 2) { g.fillStyle = 'rgba(255,255,255,.04)'; for (let y = 0; y < rows; y++) g.fillRect(0, y * rh, w, 2); }
   }, { repeat: true });
 }
+let beaconM;
 export function buildSkyline(yaw) {
   const t = tex('sky/skyline.jpg', true); t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4;
   const R = 150, top = R * Math.tan(THREE.MathUtils.degToRad(50.4)), bot = R * Math.tan(THREE.MathUtils.degToRad(28.6));
@@ -234,28 +235,28 @@ export function buildSkyline(yaw) {
           if (lit > 0.5 && h1(vec3(id, 21.0)) < 0.35) { float bl = h1(vec3(id, 23.0)); if (o.y > 1.0 - bl) col *= 0.18 + 0.1 * step(0.5, fract(o.y * 18.0)); } // blinds
           float F = pow(1.0 - abs(dot(V, n)), 4.0); col += vec3(0.02, 0.025, 0.04) * (0.3 + F); // glass sheen
         }
-        float dist = length(vW - cameraPosition), k = clamp((dist - 25.0) / 110.0, 0.0, 1.0);
+        float dist = length(vW - cameraPosition), k = clamp((dist - 25.0) / 190.0, 0.0, 1.0);
         col = mix(col * gain, haze, k * 0.7);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
   const cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
   let n = 0;
-  for (let tries = 0; tries < 600 && n < 75; tries++) {
-    const x = rr(-110, 40), z = rr(-110, 40);
+  for (let tries = 0; tries < 1600 && n < 150; tries++) {
+    const far = n >= 75, x = far ? rr(-230, 60) : rr(-110, 40), z = far ? rr(-230, 60) : rr(-110, 40);
     if (!(x < -6 || z < -6)) continue;
-    const d = Math.hypot(x - cx, z - cz); if (d < 28 || d > 125) continue;
-    const w = rr(10, 26), dd = rr(10, 26), hgt = d < 45 ? rr(14, 45) : rr(30, 120);
+    const d = Math.hypot(x - cx, z - cz); if (far ? d < 120 || d > 230 : d < 28 || d > 125) continue;
+    const w = rr(10, 30), dd = rr(10, 30), hgt = d < 45 ? rr(14, 45) : far ? rr(50, 190) : rr(30, 120);
     const geo = new THREE.BoxGeometry(w, hgt, dd), sd = rnd() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
     const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2); b.userData.city = true; C.scene.add(b);
-    if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) })); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
+    if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconM || (beaconM = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) }))); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
   }
 }
 
 // ---------- global light rig ----------
 export function buildLightRig() {
-  C.scene.add(new THREE.HemisphereLight(0x5d6c94, 0x3a2a20, 0.3));
+  C.scene.add(new THREE.HemisphereLight(0x6a78a0, 0x3a2a20, 0.42));
   // moon / city glow through the NW windows: the one big shadow caster (window mullions and blind slats)
   const moon = new THREE.DirectionalLight(0x9db2e6, 1.25);
   const c = new THREE.Vector3((X0 + X1) / 2, 0, (Z0 + Z1) / 2);
@@ -276,7 +277,7 @@ function stationGroup(id) { const g = new THREE.Group(); g.name = id; C.scene.ad
 // little "standby" ribbon over powered-down desks
 function standbyTag(g, x, y, z, ry, id) {
   const t = canvasTex(256, 64, (q, w, h) => { q.fillStyle = '#f5c518'; q.fillRect(0, 0, w, h); q.fillStyle = '#111'; for (let i = -2; i < 12; i++) { q.beginPath(); q.moveTo(i * 28, 0); q.lineTo(i * 28 + 14, 0); q.lineTo(i * 28 - 6, h); q.lineTo(i * 28 - 20, h); q.fill(); } q.fillStyle = '#f5c518'; q.fillRect(40, 16, 176, 32); q.fillStyle = '#111'; q.font = 'bold 22px Arial'; q.textAlign = 'center'; q.fillText('NOT YET OPEN', 128, 40); });
-  const m = plane(0.5, 0.125, new THREE.MeshStandardMaterial({ map: t, roughness: 0.7, side: THREE.DoubleSide }), x, y, z, g); m.rotation.y = ry; m.rotation.z = rr(-0.08, 0.08);
+  const m = plane(0.5, 0.125, new THREE.MeshStandardMaterial({ map: t, roughness: 0.7, side: THREE.DoubleSide }), x, y, z, g); m.rotation.y = ry; m.rotation.z = rr(-0.08, 0.08); m.userData.dynamic = true;
   onPower(id, on => (m.visible = !on));
 }
 
@@ -296,7 +297,6 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   lampPoint(r.cx + 0.66, y + 0.45, dz - 0.12, 0xffb46b, 0.45, 2.2, id);
   place('potted_plant_04', r.cx - 0.88, y, dz - 0.27, 0.4, 1.2, g);
   place('office_notepads', r.cx - 0.1, y, dz + 0.31, 0.1, 0.5, g, { pick: /sticky_stack/, shadow: false });
-  place('round_spectacles', r.cx + 0.2, y, dz + 0.3, 2.4, 1, g, { shadow: false });
   place('alarm_clock_01', r.cx - 0.95, y, dz + 0.0, 0.7, 0.9, g, { shadow: false });
   pcTower(g, r.cx + 0.72, dz + 0.02, 0, 0x6a5cff, id);
   officeChair(g, r.cx + 0.05, dz + 0.72, 0.15, { jacket: 0x3b2f2a });
@@ -397,7 +397,7 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
   desk(g, r.cx, r.cz, 2.0, 0.72, 0, M.oak);
   laptop(g, r.cx - 0.25, y, r.cz + 0.02, 0.1, codeScreen(77, false), id);
   monitor(g, r.cx + 0.42, y, r.cz - 0.14, -0.15, 0.62, 0.36, courseScreen(41), { id, sticky: 1 });
-  place('book_encyclopedia_set_01', r.cx - 0.85, y, r.cz - 0.2, 0.1, 1, g, { pick: /book0[1-9]/, shadow: false });
+  books(g, r.cx - 0.95, y, r.cz - 0.22, 7, 0);
   books(g, r.cx - 0.85, y, r.cz + 0.15, 1);
   const open = group(g, r.cx + 0.05, y + 0.012, r.cz + 0.22, -0.2); for (const s of [-1, 1]) { const p = box(0.16, 0.012, 0.22, M.paper, s * 0.08, 0, 0, 1, open, false); p.rotation.z = s * -0.06; }
   papers(g, r.cx + 0.6, y, r.cz + 0.2, 2);
@@ -467,9 +467,9 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   laptop(g, r.cx + 0.1, y, r.cz - 0.12, -0.15, nodeScreen(61), id);
   place('vintage_stapler', r.cx + 0.6, y, r.cz + 0.22, 0.5, 1, g, { shadow: false });
   place('cardboard_box_01', r.cx - 0.4, 0.25, r.cz + 0.05, 0.3, 0.7, g);
-  place('spray_paint_bottles', r.cx + 0.62, y, r.cz + 0.0, 0.3, 1, g, { shadow: false });
+  can(g, r.cx + 0.6, y, r.cz - 0.02, 0x2a5fd0); can(g, r.cx + 0.67, y, r.cz + 0.05, 0xc8401e);
   // bench stool
-  const st = group(g, r.cx - 0.1, 0, r.cz + 0.7); cyl(0.17, 0.17, 0.04, M.leatherBrown, 0, 0.66, 0, st); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.4, lg = cyl(0.012, 0.012, 0.68, M.steel, Math.cos(a) * 0.12, 0.33, Math.sin(a) * 0.12, st, 6); lg.rotation.set(Math.sin(a) * 0.12, 0, -Math.cos(a) * 0.12); } const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 6, 20), M.steel); ring.rotation.x = Math.PI / 2; ring.position.y = 0.25; st.add(ring);
+  const st = group(g, r.cx + 0.62, 0, r.cz + 0.78); cyl(0.17, 0.17, 0.04, M.leatherBrown, 0, 0.66, 0, st); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.4, lg = cyl(0.012, 0.012, 0.68, M.steel, Math.cos(a) * 0.12, 0.33, Math.sin(a) * 0.12, st, 6); lg.rotation.set(Math.sin(a) * 0.12, 0, -Math.cos(a) * 0.12); } const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.008, 6, 20), M.steel); ring.rotation.x = Math.PI / 2; ring.position.y = 0.25; st.add(ring);
   // tool cart beside the bench
   place('tool_cart', r.x0 - 0.75, 0, r.cz + 0.05, Math.PI / 2, 0.75, g);
   C.colliders.push({ x0: r.x0 - 1.1, x1: r.x0 - 0.35, z0: r.cz - 0.5, z1: r.cz + 0.55 });
@@ -529,7 +529,7 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
   const tab = rbox(0.25, 0.008, 0.18, 0.004, M.plastic, 0.02, 1.04, 0, ct); tab.rotation.y = 0.2;
   const tm = screenMat(dashScreen(61, '#22d3ee'), 1.1), ts = plane(0.23, 0.16, tm, 0.02, 1.045, 0, ct); ts.rotation.x = -Math.PI / 2; ts.rotation.z = 0.2; powerScreen(id, ts, tm);
   coffeeCup(ct, -0.2, 1.035, 0.08);
-  place('potted_plant_01', r.x0 + 0.2, 0, Z0 + 0.35, 0, 0.9, g);
+  place('calathea_orbifolia_01', r.x0 + 0.2, 0, Z0 + 0.35, 0.4, 0.9, g, { pick: /_c$/ });
 }
 const rackLeds = [];
 function buildRig() { // GPU Rig: server racks with blinking LEDs.
@@ -563,7 +563,6 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
   lampPoint(r.cx, 1.6, 8.95, 0x3fb8ff, 0.8, 2.0, id);
   // floor fan and a crate of spare parts
   place('plastic_crate_02', r.x0 - 0.15, 0, r.cz + 0.5, 0.3, 1, g);
-  place('power_box_01', X1 - 0.03, 1.4, r.z1 + 0.3, -Math.PI / 2, 1, g);
 }
 function buildTerminals() { // six one-tile agent terminals: compact pods where the AI agents run
   const id = 'terminals', g = stationGroup(id), M = C.M, names = ['scout', 'fuzzer', 'triage', 'repro', 'writer', 'ledger'];
@@ -605,7 +604,7 @@ function buildDecor() {
   sconce(6.1, 2.1, Z1 - 0.01, Math.PI); sconce(8.3, 2.1, Z1 - 0.01, Math.PI);
   // corner plants (solid tiles in the 2D office)
   place('pachira_aquatica_01', 1.15, 0, 1.15, 0.3, 0.9, null, { pick: /_b$/ });
-  place('potted_plant_01', 13.9, 0, 1.15, 1.2, 1.0);
+  place('pachira_aquatica_01', 13.9, 0, 1.15, 1.2, 0.85, null, { pick: /_c$/ });
   place('calathea_orbifolia_01', 1.15, 0, 10.1, 0.2, 1.1, null, { pick: /_b$/ });
   place('calathea_orbifolia_01', 13.85, 0, 10.1, 2.0, 1.1, null, { pick: /_d$/ });
   // ---- lounge on the south wall, west side ----
@@ -639,7 +638,7 @@ function buildDecor() {
   // water cooler
   const wc = group(null, 9.45, 0, Z1 - 0.3);
   rbox(0.32, 1.0, 0.32, 0.02, M.plasticWhite, 0, 0.5, 0, wc);
-  const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.38, 20), new THREE.MeshPhysicalMaterial({ color: 0x7fb8e8, roughness: 0.05, transmission: 0.6, thickness: 0.2, transparent: true, opacity: 0.7 })); jug.position.y = 1.2; wc.add(jug);
+  const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.38, 20), new THREE.MeshPhysicalMaterial({ color: 0x7fb8e8, roughness: 0.05, transparent: true, opacity: 0.55, clearcoat: 1 })); jug.position.y = 1.2; wc.add(jug);
   for (const s of [-1, 1]) { const tap = box(0.03, 0.05, 0.04, s < 0 ? std(0x2a5fd0, 0.4) : std(0xc0392b, 0.4), s * 0.06, 0.75, 0.17, 1, wc, false); }
   C.colliders.push({ x0: 9.25, x1: 9.65, z0: Z1 - 0.5, z1: Z1 });
   poster('bug', 8.4, 1.7, Z1 - 0.02, Math.PI, 0.55);
@@ -649,13 +648,11 @@ function buildDecor() {
   place('wooden_bookshelf_worn', X1 - 0.3, 0, 5.6, -Math.PI / 2, 1);
   C.colliders.push({ x0: X1 - 0.6, x1: X1, z0: 4.85, z1: 6.35 });
   for (let s = 0; s < 4; s++) { binders(C.scene, X1 - 0.3, 0.12 + s * 0.47, 5.05, 3 + (s % 2), -Math.PI / 2); books(C.scene, X1 - 0.3, 0.12 + s * 0.47, 5.6, 6 + s, -Math.PI / 2, true); }
-  place('chess_set', X1 - 0.3, 2.06, 5.6, 0.3, 0.6, null, { shadow: false });
   poster('map', X1 - 0.02, 1.7, 7.2, -Math.PI / 2, 0.6);
   poster('crit', X1 - 0.02, 1.7, 3.95 + 0.0, -Math.PI / 2, 0.42);
   place('dartboard', 0.77, 1.75, 5.0, Math.PI / 2, 1);
   place('korean_fire_extinguisher_01', 8.1, 0, Z1 - 0.15, Math.PI, 1);
   place('fire_alarm', 8.1, 1.5, Z1 - 0.01, Math.PI, 1, null, { shadow: false });
-  place('security_camera_01', X1 - 0.1, H - 0.35, Z0 + 0.15, -2.3, 1, null, { shadow: false });
   // boxes stacked in the NE corner by the plant
   place('cardboard_box_01', 12.6, 0, 1.0, 0.2, 1); place('cardboard_box_01', 12.9, 0.0, 1.45, -0.3, 0.8); place('cardboard_box_01', 12.65, 0.335, 1.05, 0.5, 0.75);
   C.colliders.push({ x0: 12.2, x1: 13.3, z0: 0.75, z1: 1.8 });
@@ -663,8 +660,8 @@ function buildDecor() {
   for (const z of [3.0, 7.5]) { const rg = group(null, X0 + 0.08, 0.35, z); for (let i = 0; i < 14; i++) box(0.06, 0.5, 0.05, std(0xd8d8d2, 0.4, 0.3), 0, 0, -0.45 + i * 0.07, 1, rg, false); }
   // window sill clutter
   place('potted_plant_04', X0 + 0.1, 0.62, 6.0, 0.4, 1.1); books(C.scene, X0 + 0.1, 0.62, 8.6, 5, Math.PI / 2);
-  coffeeCup(C.scene, X0 + 0.1, 0.62, 7.0); place('cassette_player', X0 + 0.12, 0.62, 9.1, 1.2, 1, null, { shadow: false });
-  place('potted_plant_04', 11.2, 0.77, Z0 + 0.1, 0.4, 1.0); place('portable_cassette_player', 12.5, 0.77, Z0 + 0.12, 0.2, 1, null, { shadow: false });
+  coffeeCup(C.scene, X0 + 0.1, 0.62, 7.0);
+  place('potted_plant_04', 11.2, 0.77, Z0 + 0.1, 0.4, 1.0);
   // big lounge rug in the middle of the floor (where Nib floats around)
   const rugT = canvasTex(1024, 512, (g, w, h) => { // an original geometric wool rug, slightly worn
     g.fillStyle = '#2f3d3c'; g.fillRect(0, 0, w, h);
@@ -680,7 +677,7 @@ function buildDecor() {
   // a few floor details: a stray paper, a cable run, a box by the forge
   crumpled(C.scene, 6.0, 0, 6.0); papers(C.scene, 11.4, 0, 5.1, 1, 2);
   floorCable(C.scene, [11.6, 7.4], [12.3, 9.0]); floorCable(C.scene, [X1 - 0.05, 8.5], [13.6, 8.9]);
-  place('plastic_crate_01', 5.15, 0, 7.75, 0.3, 1); C.colliders.push({ x0: 4.95, x1: 5.4, z0: 7.5, z1: 8.0 });
+  place('plastic_crate_02', 5.15, 0, 7.75, 0.3, 0.8); C.colliders.push({ x0: 4.95, x1: 5.4, z0: 7.5, z1: 8.0 });
   // Nib's charging dock: a small pedestal with a glowing ring (Nib floats home here at night)
   const dock = group(null, 10.9, 0, 5.6);
   cyl(0.24, 0.3, 0.06, std(0x1a1c1e, 0.35, 0.7), 0, 0.03, 0, dock, 32); cyl(0.06, 0.09, 0.7, std(0xe8e6e0, 0.25, 0.1), 0, 0.41, 0, dock, 24);
@@ -689,7 +686,6 @@ function buildDecor() {
   const dr2 = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.006, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 0.9, 1.1) })); dr2.rotation.x = Math.PI / 2; dr2.position.y = 0.065; dock.add(dr2);
   lampPoint(10.9, 0.95, 5.6, 0x6ee7ff, 0.5, 1.6);
   C.colliders.push({ x0: 10.6, x1: 11.2, z0: 5.3, z1: 5.9 });
-  place('vintage_suitcase', X0 + 0.35, 0, 4.95, Math.PI / 2, 0.9, null, { pick: /suitcase_02/ });
 }
 
 // contact shadows under the big pieces (desks, cabinets, sofa, racks, boxes)
@@ -707,7 +703,7 @@ function grounding() {
 }
 export function buildRoom(G) {
   buildShell(); buildLightRig();
-  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor(); grounding(); buildDust();
+  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor(); grounding();
 }
 // Dust motes drifting in the lamp light: each mote's brightness is baked from the nearby practicals, so they only show
 // where light would catch them.

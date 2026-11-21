@@ -9,9 +9,13 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { C, A, K, T, X0, X1, Z0, Z1, H, makeMaterials, allTextures, gltf, hazeMats } from './kit.js';
 import { buildRoom, buildSkyline, tickRoom, getGoalTex } from './room.js';
+import { buildRobot } from './robot.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const Q = new URLSearchParams(location.search);
 const SKY_YAW = +(Q.get('sky') || 0.75);
@@ -62,7 +66,7 @@ vec3 bpParallax( vec3 v ) {
 // adds the light that bounces off what it hits (spot pools on the floor, lamp shades, screens, moonlit floor patches,
 // the city glow at the windows). Every lit material adds it as ambient irradiance, sampled a little off the surface
 // along its normal, so walls, beams and the ceiling pick up soft colour from nearby lamps instead of falling to black.
-const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 0.65) } } };
+const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 0.8) } } };
 function irrSources() {
   const src = [], add = (x, y, z, col, p, r0) => src.push({ x, y, z, r: col.r * p, g: col.g * p, b: col.b * p, r0 });
   for (const l of C.lights) {
@@ -115,11 +119,12 @@ const REFL = { rt: null, cam: new THREE.PerspectiveCamera(), u: { reflMap: { val
 function setupReflection(floorMat) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   REFL.rt = new THREE.WebGLRenderTarget(Math.round(size.x / 2), Math.round(size.y / 2), { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
-  REFL.u.reflMap.value = REFL.rt.texture;
+  REFL.u.reflMap.value = REFL.rt.texture; REFL.k = REFL.u.reflK.value;
   scene.traverse(o => {
     if (!o.isMesh || !o.material || Array.isArray(o.material)) return; const m = o.material;
     const glow = (m.emissive && (m.emissiveIntensity > 0.3) && (m.emissiveMap || m.emissive.getHex() !== 0)) || (m.isMeshBasicMaterial && Math.max(m.color.r, m.color.g, m.color.b) > 1.0);
-    if (glow && o.getWorldPosition(new THREE.Vector3()).y > 0.05) o.layers.enable(1);
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    if (glow && o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 0.12 && o.getWorldPosition(new THREE.Vector3()).y > 0.05) o.layers.enable(1);
     if (o.userData.city) o.layers.enable(1); // the night city shows through the reflected windows
   });
   // walls and ceiling block the mirror view as black silhouettes, so the city only shows through the window openings
@@ -145,7 +150,8 @@ function setupReflection(floorMat) {
 }
 const _bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 function renderReflection() {
-  if (!REFL.rt) return;
+  if (!REFL.rt || REFL.on === false) { REFL.u.reflK.value = 0; return; }
+  REFL.u.reflK.value = REFL.k;
   const c = REFL.cam; c.fov = camera.fov; c.aspect = camera.aspect; c.near = 0.05; c.far = 60; c.updateProjectionMatrix();
   const p = camera.position, dir = camera.getWorldDirection(new THREE.Vector3()), up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
   c.position.set(p.x, -p.y, p.z); c.up.set(up.x, -up.y, up.z); c.lookAt(p.x + dir.x, -p.y - dir.y, p.z + dir.z); c.updateMatrixWorld();
@@ -172,74 +178,18 @@ function buildNib() {
   const l = new THREE.PointLight(0x7ae8ff, 0.15, 1.2, 2); l.position.set(0, -0.1, 0.25); g.add(l);
 }
 
-// ---------- the player ----------
-// The founder: the Ready Player Me sample avatar from the three.js examples, animated with the X Bot's idle/walk/run
-// (Mixamo clips), retargeted at load because the two rigs have different rest poses (A-pose vs T-pose).
-let charLight, rimLight, player, model, mixer, actions = {}, playerRadius = 0.2;
-async function buildPlayer() {
-  const CH = Q.get('char') === 'rpm' ? 'founder.glb' : 'founder3.glb';
-  const [dst, src] = await Promise.all([gltf.loadAsync(A + 'char/' + CH), gltf.loadAsync(A + 'char/anims.glb')]);
-  model = dst.scene;
-  const clips = {}; for (const n of ['idle', 'walk', 'run']) clips[n] = retarget(src.scene, src.animations.find(a => a.name === n), model);
-  const tl = new THREE.TextureLoader(), roughT = {};
-  if (CH === 'founder3.glb') for (const part of ['body', 'head']) { const t = tl.load(A + `char/founder3_${part}_rough.jpg`); t.flipY = false; roughT[part] = t; }
-  model.traverse(o => {
-    if (!o.isMesh) return; o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-    const m = o.material; if (!m) return;
-    if (CH === 'founder3.glb') {
-      // The founder (Microsoft Rocketbox avatar, MIT): photo-sourced diffuse + normal maps, roughness from its specular
-      // map. Denim and cotton get a cloth sheen; the head is skin with a slightly tighter highlight.
-      const head = /head/.test(m.name);
-      o.material = new THREE.MeshPhysicalMaterial({
-        map: m.map, normalMap: m.normalMap, normalScale: new THREE.Vector2(1, 1), roughnessMap: roughT[head ? 'head' : 'body'],
-        roughness: head ? 0.78 : 1.0, metalness: 0, envMapIntensity: 0.85, side: THREE.FrontSide,
-        sheen: head ? 0.35 : 0.6, sheenRoughness: head ? 0.5 : 0.75, sheenColor: new THREE.Color(head ? 0xa05a44 : 0x5a6a80), specularIntensity: head ? 0.7 : 0.4,
-      });
-      o.material.name = m.name;
-    } else {
-      m.envMapIntensity = 0.7;
-      if (/Skin|Body|Head/.test(m.name)) m.roughness = 0.58;
-      if (/Outfit|Headwear/.test(m.name)) m.roughness = Math.max(0.75, m.roughness ?? 1);
-    }
-  });
-  model.updateMatrixWorld(true);
-  const b = new THREE.Box3().setFromObject(model); model.scale.multiplyScalar((CH === 'founder3.glb' ? 1.78 : 1.8) / (b.max.y - b.min.y));
-  player = new THREE.Group(); player.add(model); scene.add(player);
-  // soft 'character light' that keeps the founder readable against the dark room (a standard third-person trick)
-  charLight = new THREE.PointLight(0xffe0c4, 0.9, 2.6, 2); scene.add(charLight);
-  rimLight = new THREE.PointLight(0x9fbfff, 1.6, 2.4, 2); scene.add(rimLight); // cool rim from behind the shoulders
-  // soft contact shadow blob under the feet (grounds the character under any light)
-  const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const gr = g.createRadialGradient(64, 64, 4, 64, 64, 62); gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return c; })());
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; player.add(blob);
-  mixer = new THREE.AnimationMixer(model); window.__fo = { model, src: src.scene, clips: src.animations };
-  for (const k in clips) { actions[k] = mixer.clipAction(clips[k]); actions[k].play(); actions[k].setEffectiveWeight(k === 'idle' ? 1 : 0); }
-}
-const base = n => n.replace(/^mixamorig:?/, '');
-function retarget(src, clip, dst) {
-  const sb = {}, db = []; src.traverse(o => { if (o.isBone) sb[base(o.name)] = o; }); dst.traverse(o => { if (o.isBone && sb[base(o.name)]) db.push(o); });
-  src.updateMatrixWorld(true); dst.updateMatrixWorld(true);
-  const wq = o => o.getWorldQuaternion(new THREE.Quaternion()), wp = o => o.getWorldPosition(new THREE.Vector3());
-  const sRestInv = {}; for (const k in sb) sRestInv[k] = wq(sb[k]).invert();
-  const dRest = new Map(), dParent = new Map(), align = new Map();
-  for (const b of db) {
-    const kids = b.children.filter(c => c.isBone && sb[base(c.name)]), kid = kids.find(c => /Middle1|Spine|Neck|Head|ForeArm|Hand$|Leg$|Foot$|ToeBase/.test(c.name)) || kids[0];
-    const a = new THREE.Quaternion();
-    if (kid) { const dd = wp(kid).sub(wp(b)).normalize(), sd = wp(sb[base(kid.name)]).sub(wp(sb[base(b.name)])).normalize(); if (dd.lengthSq() > 0 && sd.lengthSq() > 0) a.setFromUnitVectors(dd, sd); }
-    else if (align.has(b.parent)) a.copy(align.get(b.parent));
-    align.set(b, a); dRest.set(b, a.clone().multiply(wq(b))); dParent.set(b, db.includes(b.parent) ? null : wq(b.parent));
-  }
-  const hip = db.find(b => base(b.name) === 'Hips'), sHip = wp(sb.Hips), dHipW = wp(hip), hipParentInv = hip.parent.matrixWorld.clone().invert(), scale = dHipW.y / sHip.y;
-  const mx = new THREE.AnimationMixer(src); mx.clipAction(clip).play();
-  const fps = 30, n = Math.max(2, Math.round(clip.duration * fps) + 1), times = new Float32Array(n), qv = new Map(db.map(b => [b, new Float32Array(n * 4)])), pv = new Float32Array(n * 3), desired = new Map(), tmp = new THREE.Quaternion();
-  for (let i = 0; i < n; i++) {
-    times[i] = i / fps; mx.setTime(Math.min(clip.duration - 1e-4, i / fps)); src.updateMatrixWorld(true);
-    for (const b of db) { const k = base(b.name), w = wq(sb[k]).multiply(sRestInv[k]).multiply(dRest.get(b)); desired.set(b, w); tmp.copy(dParent.get(b) || desired.get(b.parent)).invert().multiply(w); tmp.toArray(qv.get(b), i * 4); }
-    const w = dHipW.clone(); w.y += (wp(sb.Hips).y - sHip.y) * scale; w.applyMatrix4(hipParentInv); pv.set([w.x, w.y, w.z], i * 3);
-  }
-  mx.stopAllAction(); mx.uncacheRoot(src);
-  const tracks = db.map(b => new THREE.QuaternionKeyframeTrack(b.name + '.quaternion', times, qv.get(b)));
-  tracks.push(new THREE.VectorKeyframeTrack(hip.name + '.position', times, pv));
-  return new THREE.AnimationClip(clip.name, (n - 1) / fps, tracks);
+// ---------- the player: FO-1, the founder robot (robot.js) ----------
+let charLight, rimLight, player, robot, playerRadius = 0.2;
+function buildPlayer() {
+  robot = buildRobot();
+  player = new THREE.Group(); player.add(robot.mesh); scene.add(player);
+  // soft key + cool rim on the character (keeps the robot readable against the dark room)
+  charLight = new THREE.PointLight(0xffe6cc, 0.8, 2.6, 2); scene.add(charLight);
+  rimLight = new THREE.PointLight(0x9fbfff, 1.4, 2.4, 2); scene.add(rimLight);
+  // soft contact shadow blob under the feet
+  const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; })());
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; blob.userData.dynamic = true; player.add(blob);
+  player.traverse(o => (o.userData.dynamic = true));
 }
 
 // ---------- input + camera ----------
@@ -279,7 +229,6 @@ function blockedAt(x, z) {
   return false;
 }
 const ray = new THREE.Raycaster();
-const blend = { idle: 1, walk: 0, run: 0 };
 const keysHeld = () => keys.f || keys.b || keys.l || keys.r;
 function updatePlayer(dt) {
   const st = world.getState(), active = world.active() && st.room === 'office';
@@ -299,49 +248,94 @@ function updatePlayer(dt) {
     if (moved) { const facing = Math.abs(dirx) > Math.abs(dirz) ? (dirx < 0 ? 'left' : 'right') : (dirz < 0 ? 'up' : 'down'); world.setPose(pos.x / K, pos.z / K, facing, true); }
   }
   const routeMoving = world.routing();
-  player.position.copy(pos); player.rotation.y = heading;
   const sp = routeMoving ? 1.55 : moved ? speedNow : 0;
-  const wWalk = THREE.MathUtils.clamp(sp / 1.55, 0, 1) * (1 - THREE.MathUtils.clamp((sp - 1.55) / 2.0, 0, 1));
-  const wRun = THREE.MathUtils.clamp((sp - 1.55) / 2.0, 0, 1), wIdle = 1 - THREE.MathUtils.clamp(sp / 1.0, 0, 1);
-  blend.idle += (wIdle - blend.idle) * Math.min(1, dt * 8); blend.walk += (wWalk - blend.walk) * Math.min(1, dt * 8); blend.run += (wRun - blend.run) * Math.min(1, dt * 8);
-  const sum = blend.idle + blend.walk + blend.run || 1;
-  for (const k in actions) actions[k].setEffectiveWeight(blend[k] / sum);
-  // stride-matched playback: the clip's foot speed follows the ground speed so the feet don't slide
-  actions.walk.timeScale = sp > 0.1 ? THREE.MathUtils.clamp(sp / 1.55, 0.6, 1.3) : 1; actions.run.timeScale = sp > 2 ? THREE.MathUtils.clamp(sp / 4.2, 0.7, 1.2) : 1;
-  mixer.update(dt);
-  relaxArms();
+  // the visual body follows the logical (2D) position unless a station interaction drives it
+  let anim = { speed: sp };
+  if (act) anim = stepInteraction(dt);
+  else { vis.copy(pos); visH = heading; }
+  player.position.copy(vis); player.rotation.y = visH;
+  robot.anim.update(dt, performance.now() / 1000, anim);
 }
-// The Rocketbox rest pose is an A-pose, so after retargeting the arms still hang a little wide of the body. Pull each
-// upper arm in toward the torso (in world space, so it works under any clip) and let the elbows soften slightly.
-let armBones = null;
-const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _ax = new THREE.Vector3();
-function relaxArms() {
-  if (!armBones) { const f = n => { let o; model.traverse(x => { if (x.isBone && x.name.replace(/^mixamorig:?/, '') === n) o = x; }); return o; }; armBones = ['Left', 'Right'].map(sd => ({ u: f(sd + 'Arm'), fa: f(sd + 'ForeArm'), h: f(sd + 'Hand') })); armBones.spine = f('Spine2'); }
-  if (!armBones.spine) return;
-  model.updateMatrixWorld(true);
-  const ps = armBones.spine.getWorldPosition(_v3);
-  for (const a of armBones) {
-    if (!a.u || !a.fa) continue;
-    const pu = a.u.getWorldPosition(_v1), pf = a.fa.getWorldPosition(_v2);
-    const dir = pf.sub(pu).normalize(), lat = pu.clone().sub(ps).setY(0).normalize().negate();
-    _ax.crossVectors(dir, lat); if (_ax.lengthSq() < 1e-6) continue; _ax.normalize();
-    _q.setFromAxisAngle(_ax, 0.2);
-    a.u.getWorldQuaternion(_q2); _q2.premultiply(_q);
-    a.u.parent.getWorldQuaternion(_q).invert(); a.u.quaternion.copy(_q.multiply(_q2));
-    a.u.updateMatrixWorld(true);
+
+// ---------- station interactions ----------
+// Each usable station has a use-spot (where the robot stands or sits, and which way it faces) and a pose in robot.js.
+// E (or Office3D.interact) walks the robot to the spot, turns it, then loops the station animation while the window
+// is open; closing the window plays the exit (stand up / step back) and returns control.
+const vis = new THREE.Vector3(); let visH = Math.PI;
+const USE = {
+  hunt: [7.175, 4.83, Math.PI], contract: [2.725, 3.31, Math.PI], stats: [12.5, 2.67, Math.PI / 2], training: [11.55, 7.75, -1.94],
+  forge: [3.75, 8.55, Math.PI], hq: [7.5, 2.55, Math.PI], rig: [12.38, 8.93, 0], terminals: [13.125, 7.4, 0], lounge: [3.2, 9.95, Math.PI],
+};
+let act = null;
+const angDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+function startInteraction(id) {
+  if (!USE[id]) return Promise.reject(new Error('no such station: ' + id));
+  if (act && act.id === id && act.phase === 'loop') return Promise.resolve(id);
+  let resolve; const p = new Promise(r => (resolve = r));
+  const [x, z, h] = USE[id];
+  act = { id, phase: 'walk', t: 0, st: 0, spot: new THREE.Vector3(x, 0, z), h, resolve };
+  if (vis.distanceTo(act.spot) > 4) { vis.set(x - Math.sin(h) * 0.9, 0, z - Math.cos(h) * 0.9); } // far away: start a short walk from just behind the spot
+  return p;
+}
+function stepInteraction(dt) {
+  const A = act; A.t += dt;
+  if (A.phase === 'walk' || A.phase === 'return') {
+    const goal = A.phase === 'walk' ? A.spot : pos, d = goal.clone().sub(vis).setY(0), dist = d.length(), sp = Math.min(1.45, dist * 4);
+    if (dist > 0.03) { const want = Math.atan2(d.x, d.z); visH += angDiff(visH, want) * Math.min(1, dt * 10); vis.addScaledVector(d.normalize(), Math.min(dist, sp * dt)); }
+    if (dist <= 0.03 || A.t > 6) { if (A.phase === 'walk') { A.phase = 'turn'; A.t = 0; } else { act = null; return { speed: 0 }; } }
+    return { speed: sp };
   }
+  if (A.phase === 'turn') { visH += angDiff(visH, A.h) * Math.min(1, dt * 9); if (A.t > 0.35) { A.phase = 'enter'; A.t = 0; } return { speed: 0 }; }
+  if (A.phase === 'enter' || A.phase === 'loop') {
+    visH += angDiff(visH, A.h) * Math.min(1, dt * 9); A.st += dt;
+    if (A.phase === 'enter' && A.t > 0.45) { A.phase = 'loop'; A.resolve && A.resolve(A.id); A.resolve = null; }
+    return { station: A.id, stationT: A.st };
+  }
+  if (A.phase === 'exit') { if (A.t > 0.7) { A.phase = 'return'; A.t = 0; } return { speed: 0, rate: 6 }; }
+  return { speed: 0 };
 }
+function leaveInteraction() {
+  if (!act) return Promise.resolve();
+  if (act.resolve) { act.resolve(act.id); act.resolve = null; }
+  act.phase = 'exit'; act.t = 0;
+  const dlg = document.getElementById('panel-dialog'); if (dlg?.open) { suppressClose = true; dlg.close(); suppressClose = false; }
+  return new Promise(r => { const chk = () => (!act || act.phase === 'return' ? r() : setTimeout(chk, 50)); chk(); });
+}
+let suppressClose = false;
+// The game opens a station window when E is pressed near a usable station: start that station's interaction.
+function watchWindows() {
+  const dlg = document.getElementById('panel-dialog'); if (!dlg) return;
+  new MutationObserver(() => {
+    if (dlg.open && !act) { const id = nearestStation(); if (id) startInteraction(id); }
+    else if (!dlg.open && act && act.phase !== 'exit' && act.phase !== 'return' && !suppressClose) leaveInteraction();
+  }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
+}
+function nearestStation() {
+  let best = null, bd = 1.6;
+  for (const s of window.CantinaWorld.stations) { if (s.room !== 'office' || !USE[s.id]) continue; const d = Math.hypot(s.approach.x * K - pos.x, s.approach.y * K - pos.z); if (d < bd) { bd = d; best = s.id; } }
+  return best;
+}
+// Office3D.interact(id): put the founder at the station's approach (so the game agrees), open its window when the game
+// allows it (locked stations still play their animation), and resolve once the station animation is playing.
+function interact(id) {
+  const s = window.CantinaWorld.stations.find(s => s.id === id && s.room === 'office');
+  if (s) { pos.set(s.approach.x * K, 0, s.approach.y * K); world.setPose(s.approach.x, s.approach.y, 'up', false); }
+  const p = startInteraction(id);
+  if (s) setTimeout(() => { const btn = document.getElementById('interact'); if (btn && !btn.disabled && !document.getElementById('panel-dialog')?.open) btn.click(); }, 120);
+  return p;
+}
+
 const DOF = { focus: 2.6, ap: 0.12 };
 function updateCamera(dt) {
-  const head = new THREE.Vector3(pos.x, 1.5, pos.z);
+  const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'walk' ? 1.15 : 1.5, vis.z);
   if (freeCam) {
     let p = freeCam.p, t = freeCam.t;
-    if (freeCam.follow) { t = pos.clone().add(new THREE.Vector3(0, freeCam.ty ?? 1.05, 0)); p = t.clone().add(freeCam.follow); }
+    if (freeCam.follow) { t = vis.clone().add(new THREE.Vector3(0, freeCam.ty ?? 1.05, 0)); p = t.clone().add(freeCam.follow); }
     camPos.copy(p); camera.position.copy(p); camera.lookAt(t);
     if (camera.fov !== (freeCam.fov || 50)) { camera.fov = freeCam.fov || 50; camera.updateProjectionMatrix(); }
     DOF.focus = freeCam.focus ?? p.distanceTo(t); DOF.ap = freeCam.ap ?? 0.35;
     player.visible = !freeCam.hidePlayer; if (nib3d) nib3d.visible = !freeCam.hidePlayer;
-    if (charLight) { const hd = new THREE.Vector3(pos.x, 1.55, pos.z), toCam = p.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
+    if (charLight) { const hd = new THREE.Vector3(vis.x, 1.45, vis.z), toCam = p.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
       charLight.position.copy(hd).addScaledVector(toCam, 0.9).addScaledVector(side, 0.6).add(new THREE.Vector3(0, 0.3, 0)); rimLight.position.copy(hd).addScaledVector(toCam, -0.8).addScaledVector(side, -0.4).add(new THREE.Vector3(0, 0.3, 0)); }
     return;
   }
@@ -378,24 +372,32 @@ function updatePrompt() {
 // The lit materials are expensive (many practical lights), so opaque geometry first lays down depth with a trivial
 // shader; the lit pass then shades each pixel once instead of once per overlapping surface.
 class PrepassRenderPass {
+  // Renders the scene (optional depth pre-pass, then the lit pass) into its own MSAA target whose depth texture is shared
+  // with the AO and depth-of-field passes (so no separate normal/depth pass is needed), then copies the colour into the
+  // composer's read buffer.
   constructor(scene, camera) {
     this.scene = scene; this.camera = camera; this.enabled = true; this.needsSwap = false; this.clear = true; this.renderToScreen = false;
     this.mat = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     this.skip = [];
+    const d = new THREE.DepthTexture(1, 1); d.type = THREE.UnsignedIntType;
+    this.rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: quality === 'ultra' ? 4 : 0, depthTexture: d });
+    this.copy = new FullScreenQuad(new THREE.ShaderMaterial({ ...CopyShader, uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms) })); this.copy.material.uniforms.tDiffuse.value = this.rt.texture;
   }
-  collect() { this.skip = []; this.scene.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; if (o.userData.noAO || o.isSkinnedMesh || ms.some(m => m.transparent || m.alphaTest > 0 || m.alphaMap || m.isShaderMaterial || m.side === THREE.BackSide)) this.skip.push(o); }); }
-  setSize() {}
-  dispose() {}
+  collect() { this.skip = []; this.scene.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); const big = g.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 1.5; if (!big || o.userData.noAO || o.isSkinnedMesh || ms.some(m => m.transparent || m.alphaTest > 0 || m.alphaMap || m.isShaderMaterial || m.side === THREE.BackSide)) this.skip.push(o); }); }
+  setSize(w, h) { this.rt.setSize(w, h); }
+  dispose() { this.rt.dispose(); }
   render(renderer, writeBuffer, readBuffer) {
-    const S = this.scene, bg = S.background, vis = this.skip.map(o => o.visible);
-    renderer.setRenderTarget(readBuffer); renderer.setClearColor(0x05070b, 1); renderer.clear(true, true, false);
+    const S = this.scene, bg = S.background;
+    renderer.setRenderTarget(this.rt); renderer.setClearColor(0x05070b, 1); renderer.clear(true, true, false);
     if (prepassOn) {
+      const vis = this.skip.map(o => o.visible);
       this.skip.forEach(o => (o.visible = false)); S.overrideMaterial = this.mat; S.background = null;
       renderer.shadowMap.autoUpdate = true; renderer.autoClear = false; renderer.render(S, this.camera);
       S.overrideMaterial = null; S.background = bg; this.skip.forEach((o, i) => (o.visible = vis[i]));
       renderer.shadowMap.autoUpdate = false;
     }
     renderer.autoClear = false; renderer.render(S, this.camera); renderer.autoClear = true; renderer.shadowMap.autoUpdate = true;
+    renderer.setRenderTarget(readBuffer); this.copy.render(renderer);
   }
 }
 let prepassOn = true, prepass;
@@ -441,7 +443,7 @@ const GradeShader = {
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec2 d = vUv - 0.5; float r2 = dot(d,d);
-      vec3 c = vec3(texture2D(tDiffuse, vUv - d*0.0003*r2*4.0).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv + d*0.0003*r2*4.0).b);
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
       float l = dot(c, vec3(0.2126,0.7152,0.0722));
       // split tone: cool teal shadows, warm highlights
       c = mix(c, c * vec3(0.9,1.0,1.1) + vec3(0.0,0.004,0.01), smoothstep(0.45,0.0,l)*0.7);
@@ -450,34 +452,131 @@ const GradeShader = {
       // gentle S-curve around mid grey
       c = clamp(c, 0.0, 1.0); c = mix(c, c*c*(3.0-2.0*c), 0.28);
       c *= 1.0 - vig * smoothstep(0.08, 0.9, r2*2.2);
-      c += (h(vUv*res + fract(time)*91.0) - 0.5) * grain;
       gl_FragColor = vec4(clamp(c,0.0,1.0), 1.0);
     }`,
 };
 function buildPost() {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 0 }));
+  composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType }));
   prepass = new PrepassRenderPass(scene, camera); composer.addPass(prepass);
-  gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  gtao = new GTAOPass(scene, camera, innerWidth, innerHeight, { depthTexture: prepass.rt.depthTexture });
   gtao.updateGtaoMaterial({ radius: 1.0, distanceExponent: 1.3, thickness: 2.0, scale: 1.35, samples: 16 });
   gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
   gtao.blendIntensity = 1.0;
   composer.addPass(gtao);
-  cine = new ShaderPass(CineShader); cine.uniforms.tDepth.value = gtao.depthTexture; composer.addPass(cine);
+  cine = new ShaderPass(CineShader); cine.uniforms.tDepth.value = prepass.rt.depthTexture; composer.addPass(cine);
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.2, 0.45, 1.6);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
   smaa = new SMAAPass(); composer.addPass(smaa);
 }
+// Quality tiers. high: everything at DPR <= 1.5 (1.25 by default); medium: DPR 1, no AO depth-of-field blur taps
+// reduced; low: DPR 1, no AO / reflections / DOF / bloom / depth pre-pass, static shadows (CPU-light for weak laptops).
 function applyQuality() {
-  const dpr = quality === 'ultra' ? 1.5 : Math.min(devicePixelRatio || 1, quality === 'low' ? 0.75 : quality === 'medium' ? 1 : 1.25);
+  const dpr = quality === 'ultra' ? 1.5 : quality === 'high' ? Math.min(devicePixelRatio || 1, 1.25) : 1;
   renderer.setPixelRatio(dpr); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(dpr); composer.setSize(innerWidth, innerHeight);
-  gtao.enabled = quality !== 'low'; cine.enabled = quality !== 'low';
+  const low = quality === 'low';
+  gtao.enabled = !low; cine.enabled = !low; bloom.enabled = !low; prepassOn = !low; REFL.on = !low;
+  gtao.updateGtaoMaterial({ samples: quality === 'medium' ? 8 : 16 });
+  if (C.moon) { C.moon.shadow.autoUpdate = !low; C.moon.shadow.needsUpdate = true; }
   renderer.shadowMap.enabled = true;
   grade.uniforms.res.value.set(innerWidth * dpr, innerHeight * dpr);
   cine.uniforms.res.value.set(innerWidth * dpr, innerHeight * dpr);
-  cine.uniforms.tDepth.value = gtao.depthTexture;
+  cine.uniforms.tDepth.value = prepass.rt.depthTexture;
+}
+
+// ---------- static geometry merge ----------
+// Everything that never moves is merged per material (and per shadow / layer flags) into a few big meshes: the room
+// draws in tens of calls per pass instead of thousands. Meshes that animate, toggle or swap materials are left alone.
+function mergeStatic() {
+  scene.updateMatrixWorld(true);
+  // split multi-material meshes into one mesh per material group first (each part can then batch with its kind)
+  const multi = []; scene.traverse(o => { if (o.isMesh && Array.isArray(o.material) && !o.isSkinnedMesh && !o.userData.dynamic) multi.push(o); });
+  for (const o of multi) {
+    const g = o.geometry.index ? o.geometry : null; if (!g || !g.groups.length) continue;
+    for (const gr of g.groups) {
+      const sub = new THREE.BufferGeometry(); for (const n in g.attributes) sub.setAttribute(n, g.attributes[n]);
+      sub.setIndex(new THREE.BufferAttribute(g.index.array.slice(gr.start, gr.start + gr.count), 1));
+      const part = new THREE.Mesh(sub, o.material[gr.materialIndex]); part.castShadow = o.castShadow; part.receiveShadow = o.receiveShadow; part.layers.mask = o.layers.mask; part.userData = { ...o.userData };
+      o.matrixWorld.decompose(part.position, part.quaternion, part.scale); scene.add(part);
+    }
+    o.parent.remove(o);
+  }
+  scene.updateMatrixWorld(true);
+  const buckets = new Map(), victims = [];
+  const isDyn = o => { for (let p = o; p; p = p.parent) if (p.userData.dynamic) return true; return false; };
+  scene.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || !o.visible || isDyn(o)) return;
+    const g = o.geometry; if (!g.attributes.position || g.morphAttributes.position) return;
+    const flags = '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0) + '|' + o.layers.mask + '|' + o.renderOrder + '|' + (o.userData.noAO ? 1 : 0) + '|' + (o.userData.city ? 1 : 0);
+    const m = o.material, vc = vcSig(m);
+    const key = (vc ? 'VC' + vc : m.uuid) + flags;
+    (buckets.get(key) || buckets.set(key, []).get(key)).push(o);
+  });
+  let merged = 0;
+  for (const objs of buckets.values()) {
+    if (objs.length < 2) continue;
+    const vc = !!vcSig(objs[0].material);
+    const names = Object.keys(objs[0].geometry.attributes).filter(n => ['position', 'normal', 'uv', 'seed'].includes(n)); if (vc) names.push('color');
+    if (vc && !names.includes('uv') && objs.some(o => o.geometry.attributes.uv)) names.push('uv');
+    const geos = [];
+    for (const o of objs) {
+      let g = o.geometry.clone();
+      for (const n of Object.keys(g.attributes)) if (!names.includes(n)) g.deleteAttribute(n);
+      for (const n of names) if (!g.attributes[n]) { const sz = n === 'uv' ? 2 : n === 'seed' ? 1 : 3; g.setAttribute(n, new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * sz), sz)); }
+      if (!g.index) { const n = g.attributes.position.count, idx = n > 65535 ? new Uint32Array(n) : new Uint16Array(n); for (let i = 0; i < n; i++) idx[i] = i; g.setIndex(new THREE.BufferAttribute(idx, 1)); }
+      for (const n of names) { const a = g.attributes[n]; if (a.isInterleavedBufferAttribute || a.normalized || !(a.array instanceof Float32Array)) { const f = new Float32Array(a.count * a.itemSize); for (let i = 0; i < a.count; i++) for (let k = 0; k < a.itemSize; k++) f[i * a.itemSize + k] = a.getComponent(i, k); g.setAttribute(n, new THREE.BufferAttribute(f, a.itemSize)); } }
+      if (vc) { const c = o.material.color, n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); }
+      g.applyMatrix4(o.matrixWorld); geos.push(g);
+    }
+    let mg; try { mg = mergeGeometries(geos, false); } catch { mg = null; }
+    geos.forEach(g => g.dispose()); if (!mg) continue;
+    const o0 = objs[0], m = new THREE.Mesh(mg, vc ? vcMaterial(o0.material) : o0.material);
+    m.castShadow = o0.castShadow; m.receiveShadow = o0.receiveShadow; m.layers.mask = o0.layers.mask; m.renderOrder = o0.renderOrder; m.userData = { ...o0.userData, merged: true };
+    m.matrixAutoUpdate = false; scene.add(m); merged += objs.length;
+    for (const o of objs) victims.push(o);
+  }
+  const old = new Set();
+  for (const o of victims) { o.parent && o.parent.remove(o); if (!C.occluders.includes(o)) old.add(o.geometry); }
+  old.forEach(g => g.dispose());
+  // empty groups left behind
+  const empties = []; scene.traverse(o => { if (o !== scene && !o.isMesh && !o.isLight && !o.isBone && o.type === 'Group' && o.children.length === 0) empties.push(o); });
+  empties.forEach(o => o.parent && o.parent.remove(o));
+  return merged;
+}
+
+// Plain standard materials that differ only in colour share one vertex-coloured material per (maps, roughness,
+// metalness, side) signature, so e.g. all the dark-steel / plastic / painted bits batch together.
+const vcMats = new Map();
+function vcSig(m) {
+  if (m.type !== 'MeshStandardMaterial' || m.transparent || m.vertexColors || m.opacity < 1 || m.alphaTest > 0 || m.onBeforeCompile !== THREE.MeshStandardMaterial.prototype.onBeforeCompile) return null;
+  if (m.emissiveMap || (m.emissive && m.emissive.getHex() !== 0 && m.emissiveIntensity > 0)) return null;
+  const id = t => (t ? t.uuid.slice(0, 8) : '-');
+  return [id(m.map), id(m.normalMap), id(m.roughnessMap), id(m.metalnessMap), id(m.aoMap), m.roughness.toFixed(2), m.metalness.toFixed(2), m.normalScale ? m.normalScale.x.toFixed(2) : '', m.side, m.envMapIntensity, m.flatShading ? 1 : 0].join(',');
+}
+function vcMaterial(m) {
+  const k = vcSig(m); let v = vcMats.get(k);
+  if (!v) { v = m.clone(); v.vertexColors = true; v.color.set(0xffffff); v.onBeforeCompile = THREE.MeshStandardMaterial.prototype.onBeforeCompile; vcMats.set(k, v); }
+  return v;
+}
+
+// ---------- frame stats / GPU memory estimate ----------
+const STATS = { calls: 0, tris: 0, frameMs: 16, gpuMB: 0 };
+function estimateGPU() {
+  let bytes = 0; const seen = new Set();
+  const texBytes = t => { if (!t || seen.has(t.uuid)) return; seen.add(t.uuid); const im = t.image; const w = im?.width || 0, h = im?.height || 0, d = im?.depth || 1; const bpp = t.type === THREE.HalfFloatType ? 8 : t.type === THREE.FloatType ? 16 : 4; bytes += w * h * d * bpp * (t.generateMipmaps !== false && t.minFilter !== THREE.LinearFilter && t.minFilter !== THREE.NearestFilter ? 1.33 : 1); };
+  scene.traverse(o => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) for (const k in m) { const v = m[k]; if (v && v.isTexture) texBytes(v); } for (const m of ms) if (m.uniforms) for (const u in m.uniforms) { const v = m.uniforms[u].value; if (v && v.isTexture) texBytes(v); } });
+  texBytes(IRR.tex); if (scene.environment) bytes += 256 * 256 * 8 * 6 * 1.6; // PMREM
+  const geoSeen = new Set(); scene.traverse(o => { const g = o.geometry; if (!g || geoSeen.has(g.uuid)) return; geoSeen.add(g.uuid); for (const n in g.attributes) bytes += g.attributes[n].array.byteLength; if (g.index) bytes += g.index.array.byteLength; });
+  const sz = renderer.getDrawingBufferSize(new THREE.Vector2()), px = sz.x * sz.y;
+  bytes += px * 8 * 2;                                      // composer ping-pong targets
+  bytes += px * (8 + 4) * (quality === 'ultra' ? 5 : 1);   // scene colour + depth (MSAA renderbuffers on ultra)
+  bytes += px * (4 + 4);                                    // AO + denoise targets
+  bytes += px * 8 * 0.7;                                   // bloom mip chain
+  bytes += px / 4 * 8 * 1.33;                              // reflection target
+  for (const l of C.lights) if (l.castShadow) bytes += l.shadow.mapSize.x * l.shadow.mapSize.y * 4;
+  return bytes / 1048576;
 }
 
 // Environment for reflections and soft bounce: a cube capture of the lit room itself, prefiltered. Captured twice so
@@ -518,6 +617,11 @@ function syncStations(force) {
 
 // ---------- screenshot / photo views ----------
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+// camera for station shots, in the robot's frame: [forward, height, side, target forward, target height]
+const USE_CAM = {
+  hunt: [-1.3, 1.55, 1.25, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.5, 1.6, -1.2, 0.6, 1.3],
+  forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.6, 1.6, 1.4, 0.8, 1.35], rig: [-1.4, 1.5, -0.25, 0.6, 1.1], terminals: [-1.5, 1.7, 1.0, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
+};
 const DESK_VIEWS = {
   'desk-hunt': { p: V3(8.15, 1.18, 5.05), t: V3(7.0, 0.92, 3.95), fov: 48, ap: 0.16 },
   'desk-contract': { p: V3(3.75, 1.3, 3.85), t: V3(2.45, 0.95, 2.45), fov: 50, ap: 0.16 },
@@ -529,10 +633,10 @@ const DESK_VIEWS = {
   'desk-terminals': { p: V3(11.2, 1.6, 6.7), t: V3(13.0, 0.95, 8.2), fov: 50, ap: 0.14 },
   'lounge': { p: V3(5.7, 1.45, 7.6), t: V3(3.3, 0.6, 9.9), fov: 52, ap: 0.1 },
 };
-function setPlayer(x, z, h, facing) { pos.set(x, 0, z); heading = h; world.setPose(x / K, z / K, facing || 'up', false); speedNow = 0; for (const k in blend) blend[k] = k === 'idle' ? 1 : 0; }
+function setPlayer(x, z, h, facing) { act = null; pos.set(x, 0, z); vis.set(x, 0, z); heading = visH = h; world.setPose(x / K, z / K, facing || 'up', false); speedNow = 0; }
 function approach(id) { const s = window.CantinaWorld.stations.find(s => s.id === id); return s ? [s.approach.x * K, s.approach.y * K] : [7.1, 7.1]; }
 function shots() {
-  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'wide-ne' }, { name: 'portrait' }, { name: 'walk-side', wait: 1500 }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
+  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'wide-ne' }, { name: 'portrait' }, { name: 'walk-side', wait: 1500 }, { name: 'use-terminals' }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
     ...Object.keys(DESK_VIEWS).map(name => ({ name }))];
 }
 function shot(name) {
@@ -548,14 +652,51 @@ function shot(name) {
   else if (name === 'gameplay') { setPlayer(7.6, 7.4, Math.PI * 1.05, 'up'); yaw = -0.18; pitch = 0.16; dist = 2.4; }
   else if (name === 'walking') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-1.75, 0.25, 1.95), ty: 0.95, fov: 50, ap: 0.25 }; }
   else if (name === 'using-desk') { const [x, z] = approach('hunt'); setPlayer(x, z, Math.PI, 'up'); yaw = 0.35; pitch = 0.2; dist = 2.0; }
-  else if (DESK_VIEWS[name]) { setPlayer(1.6, 5.2, 0, 'down'); freeCam = { ...DESK_VIEWS[name], hidePlayer: true }; }
+  else if (DESK_VIEWS[name] || name.startsWith('use-')) {
+    const id = name.replace(/^(desk|use)-/, '') ; const sp = USE[id];
+    if (sp) { // the robot is at the station, already in its animation
+      setPlayer(sp[0], sp[1], sp[2], 'up'); act = { id, phase: 'loop', t: 0, st: 0, spot: new THREE.Vector3(sp[0], 0, sp[1]), h: sp[2], resolve: null };
+      const f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x), c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95];
+      const p = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]);
+      const t = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]);
+      freeCam = name.startsWith('use-') || !DESK_VIEWS[name] ? { p, t, fov: 50, ap: 0.12 } : { p, t, fov: 50, ap: 0.12 };
+    } else { setPlayer(1.6, 5.2, 0, 'down'); freeCam = { ...DESK_VIEWS[name], hidePlayer: true }; }
+  }
   if (name === 'gameplay' || name === 'using-desk') keys.shot = false;
 }
 
 // ---------- main ----------
 let fpsEl, frames = 0, fpsT = 0, fpsNow = 0, slowFor = 0;
+// ---------- loading screen ----------
+// Shown from the moment the 3D office is chosen until its first frame, over the play area (the 2D office never flashes).
+let loadEl = null;
+function showLoading() {
+  document.documentElement.classList.add('o3d-loading');
+  const st = document.createElement('style');
+  st.textContent = `html.o3d-loading #world-wrap,html.o3d-loading #nib-layer,html.o3d-loading .world-actions,html.o3d-loading .dpad{visibility:hidden!important}
+#load3d{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 40%,#1a1d24 0%,#08090c 70%);color:#e9e4da;font:500 14px/1.4 var(--sans,system-ui);transition:opacity .5s;pointer-events:none}
+#load3d.done{opacity:0}#load3d .box{width:min(420px,80vw);text-align:center}#load3d h2{margin:0 0 6px;font:700 13px/1 var(--mono,monospace);letter-spacing:.32em;color:#d4561f}
+#load3d .bar{height:4px;border-radius:2px;background:#22262e;overflow:hidden;margin:18px 0 10px}#load3d .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#d4561f,#ffb46b);transition:width .25s}
+#load3d small{color:#8a8f99;font:12px var(--mono,monospace)}
+html.o3d-fallback-note #note3d{display:block}#note3d{display:none;position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:60;background:#14171c;color:#e9e4da;padding:8px 14px;border-radius:6px;font:13px var(--sans,system-ui);box-shadow:0 6px 20px rgba(0,0,0,.4)}`;
+  document.head.appendChild(st);
+  loadEl = document.createElement('div'); loadEl.id = 'load3d';
+  loadEl.innerHTML = '<div class="box"><h2>FIRST OFFICE</h2><div>Opening the office…</div><div class="bar"><i></i></div><small>starting</small></div>';
+  document.body.appendChild(loadEl);
+}
+function setLoading(frac, text) { if (!loadEl) return; loadEl.querySelector('i').style.width = Math.round(frac * 100) + '%'; if (text) loadEl.querySelector('small').textContent = text; }
+function hideLoading() { document.documentElement.classList.remove('o3d-loading'); if (!loadEl) return; loadEl.classList.add('done'); const el = loadEl; setTimeout(() => el.remove(), 600); loadEl = null; }
+function fallback2D(msg) {
+  hideLoading(); document.documentElement.classList.remove('o3d');
+  try { window.Stage2.world.setExternal(false); } catch {}
+  document.getElementById('o3d')?.remove();
+  const n = document.createElement('div'); n.id = 'note3d'; n.textContent = msg || '3D view unavailable here, showing the 2D office.'; document.body.appendChild(n);
+  document.documentElement.classList.add('o3d-fallback-note'); setTimeout(() => n.remove(), 6000);
+}
+
 async function start() {
   G = window.Stage2; world = G.world;
+  THREE.DefaultLoadingManager.onProgress = (url, done, total) => setLoading(0.05 + 0.65 * done / Math.max(1, total), 'loading ' + done + ' / ' + total);
   RectAreaLightUniformsLib.init();
   patchShaders(); installIrradiance();
   const canvas = document.createElement('canvas'); canvas.id = 'o3d'; canvas.tabIndex = 0; canvas.setAttribute('aria-label', 'Your office in 3D. WASD to walk, Shift to run, drag to look, E to use a desk.');
@@ -563,18 +704,35 @@ async function start() {
   renderer.toneMapping = Q.get('tm') === 'aces' ? THREE.ACESFilmicToneMapping : THREE.AgXToneMapping; renderer.toneMappingExposure = +(Q.get('exp') || 0.82);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.info.autoReset = false;
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x05070b); C.scene = scene;
   camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.05, 400);
   makeMaterials();
-  buildSkyline(SKY_YAW); buildRoom(G); buildNib();
-  await Promise.all([buildPlayer(), ...C.pending]);
+  buildSkyline(SKY_YAW); buildRoom(G); buildNib(); buildPlayer();
+  await Promise.all(C.pending);
   await Promise.all(allTextures().map(t => t.image ? null : new Promise(r => { const t1 = performance.now() + 8000; const chk = () => (t.image && (t.image.complete ?? true)) || performance.now() > t1 ? r() : setTimeout(chk, 50); chk(); })));
+  setLoading(0.72, 'building the room');
   scene.traverse(o => { if (o.isMesh && o.material && (o.material.transparent || o.material.isShaderMaterial)) o.userData.noAO = true; });
   t0 = performance.now() / 1000;
-  const s0 = world.getState(); pos.set(s0.x * K, 0, s0.y * K); heading = Math.PI; yaw = 0;
-  buildPost(); applyQuality(); prepass.collect(); setupReflection(C.M.floor);
-  syncStations(true); bakeIrradiance(); bakeEnvironment();
+  const s0 = world.getState(); pos.set(s0.x * K, 0, s0.y * K); vis.copy(pos); heading = visH = Math.PI; yaw = 0;
+  buildPost(); applyQuality(); setupReflection(C.M.floor);
+  syncStations(true); mergeStatic(); prepass.collect();
+  for (const l of C.lights) if (l.castShadow && l !== C.moon) { l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }
+  bakeIrradiance();
+  setLoading(0.8, 'compiling shaders');
   document.querySelector('.playfield').prepend(canvas);
+  try { await renderer.compileAsync(scene, camera); } catch {}
+  // upload every texture now, so walking into a new corner never stalls on a first-use upload
+  { const seen = new Set(); scene.traverse(o => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) { for (const k in m) { const v = m[k]; if (v && v.isTexture && !seen.has(v)) { seen.add(v); renderer.initTexture(v); } } if (m.uniforms) for (const u in m.uniforms) { const v = m.uniforms[u].value; if (v && v.isTexture && !v.isRenderTargetTexture && !seen.has(v)) { seen.add(v); renderer.initTexture(v); } } } }); }
+  setLoading(0.9, 'lighting');
+  bakeEnvironment();
+  try { await renderer.compileAsync(scene, camera); } catch {}
+  // prewarm: draw every object once through every pass (GPU pipeline states are created on first draw, which would
+  // otherwise stall the first frame that looks at a new corner of the room)
+  setLoading(0.95, 'warming up');
+  { const fc = []; scene.traverse(o => { if (o.isMesh && o.frustumCulled) { fc.push(o); o.frustumCulled = false; } });
+    for (const pp of [[1.6, 5.2], [12, 6], [7, 9]]) { camera.position.set(pp[0], 1.6, pp[1]); camera.lookAt(7.5, 1, 5.6); camera.updateMatrixWorld(); renderReflection(); composer.render(0.016); }
+    fc.forEach(o => (o.frustumCulled = true)); }
   promptEl = document.createElement('div'); promptEl.id = 'prompt3d'; promptEl.hidden = true; document.querySelector('.playfield').appendChild(promptEl);
   const help = document.createElement('div'); help.id = 'help3d'; help.innerHTML = '<kbd>WASD</kbd> walk · <kbd>Shift</kbd> run · drag to look · <kbd>E</kbd> use desk';
   document.querySelector('.playfield').appendChild(help); setTimeout(() => help.classList.add('fade'), 9000);
@@ -582,24 +740,34 @@ async function start() {
   if (Q.has('fps')) { fpsEl = document.createElement('div'); fpsEl.id = 'fps3d'; document.body.appendChild(fpsEl); }
   document.documentElement.classList.add('o3d');
   world.setExternal(true);
-  bindInput(canvas);
+  bindInput(canvas); watchWindows();
   addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); applyQuality(); });
+  // pause when hidden; survive a lost GPU context
+  document.addEventListener('visibilitychange', () => { renderer.setAnimationLoop(document.hidden || ctxLost ? null : loop); tPrev = 0; });
+  canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); ctxLost = true; renderer.setAnimationLoop(null); }, false);
+  canvas.addEventListener('webglcontextrestored', () => { ctxLost = false; for (const l of C.lights) if (l.castShadow) l.shadow.needsUpdate = true; bakeIrradiance(); bakeEnvironment(); renderer.setAnimationLoop(loop); }, false);
+  STATS.gpuMB = estimateGPU();
   window.Office3D = {
-    renderer, scene, camera, shots, shot,
-    quality: q => { quality = q; try { localStorage.setItem('fo.q3d', q); } catch {} applyQuality(); },
+    ready: false, renderer, scene, camera, shots, shot,
+    quality: q => { if (q) { quality = q; try { localStorage.setItem('fo.q3d', q); } catch {} applyQuality(); STATS.gpuMB = estimateGPU(); } return quality; },
     fps: () => fpsNow, view: (y, p, d) => { yaw = y; pitch = p; dist = d; camInit = false; freeCam = null; },
     cam: (p, t, o = {}) => { freeCam = { p: V3(...p), t: V3(...t), ...o }; },
+    stations: () => Object.keys(USE), interact, leave: leaveInteraction,
+    stats: () => ({ fps: Math.round(fpsNow * 10) / 10, frameMs: Math.round(STATS.frameMs * 10) / 10, calls: STATS.calls, triangles: STATS.tris, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, gpuMB: Math.round(STATS.gpuMB), quality, pixelRatio: renderer.getPixelRatio() }),
     prepass: on => (prepassOn = on), passes: { gtao: () => gtao, bloom: () => bloom, smaa: () => smaa, grade: () => grade, cine: () => cine },
-    lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, dbg: () => ({ pos: pos.toArray(), keys: { ...keys }, speedNow, blend: { ...blend }, yaw, heading, active: world.active(), st: world.getState() }),
+    lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, robot: () => robot,
+    dbg: () => ({ pos: pos.toArray(), vis: vis.toArray(), act: act && { id: act.id, phase: act.phase }, keys: { ...keys }, speedNow, yaw, heading, active: world.active(), st: world.getState() }),
   };
   renderer.setAnimationLoop(loop);
 }
+let ctxLost = false, firstFrame = true;
 let rebakeAt = 0;
 function loop() {
+  renderer.info.reset();
   const now = performance.now() / 1000, dt = tPrev ? Math.min(0.05, now - tPrev) : 0.016; tPrev = now; const t = now - t0;
-  updatePlayer(dt); updateCamera(dt); updatePrompt();
+  const _p0 = performance.now(); updatePlayer(dt); const _p1 = performance.now(); updateCamera(dt); updatePrompt(); const _p2 = performance.now();
   if ((frames & 15) === 0 && syncStations()) rebakeAt = now + 0.5;
-  if (rebakeAt && now > rebakeAt) { rebakeAt = 0; bakeIrradiance(); bakeEnvironment(); }
+  if (rebakeAt && now > rebakeAt) { rebakeAt = 0; for (const l of C.lights) if (l.castShadow) l.shadow.needsUpdate = true; bakeIrradiance(); bakeEnvironment(); }
   const np = G.nib?.pos?.();
   if (np && nib3d) { const tx = np.x * K, tz = np.y * K; nib3d.position.x += (tx - nib3d.position.x) * Math.min(1, dt * 4); nib3d.position.z += (tz - nib3d.position.z) * Math.min(1, dt * 4); nib3d.position.y = 1.45 + Math.sin(t * 2.2) * 0.04; const look = Math.atan2(pos.x - nib3d.position.x, pos.z - nib3d.position.z); nib3d.rotation.y += (((look - nib3d.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3); }
   tickRoom(t);
@@ -607,18 +775,22 @@ function loop() {
   const gt = getGoalTex(); if (gt && (Math.floor(t * 60) % 120) === 0) gt.userData.redraw();
   grade.uniforms.time.value = t;
   cine.uniforms.focus.value = DOF.focus; cine.uniforms.ap.value = DOF.ap; cine.uniforms.near.value = camera.near; cine.uniforms.far.value = camera.far; cine.uniforms.projInv.value.copy(camera.projectionMatrixInverse); cine.uniforms.camWorld.value.copy(camera.matrixWorld);
-  renderReflection();
-  composer.render(dt);
+  const _p3 = performance.now(); renderReflection(); const _p4 = performance.now();
+  composer.render(dt); const _p5 = performance.now();
+  if (_p5 - _p0 > 45 && (window.__slow || []).length < 50) (window.__slow || (window.__slow = [])).push({ player: _p1 - _p0, cam: _p2 - _p1, mid: _p3 - _p2, refl: _p4 - _p3, comp: _p5 - _p4, act: act && act.id + ':' + act.phase });
+  STATS.calls = renderer.info.render.calls; STATS.tris = renderer.info.render.triangles; STATS.frameMs += (dt * 1000 - STATS.frameMs) * 0.1;
+  if (firstFrame) { firstFrame = false; hideLoading(); window.Office3D.ready = true; window.Office3D.firstFrameAt = performance.now(); }
   frames++; fpsT += dt;
   if (fpsT >= 1) {
     fpsNow = frames / fpsT; frames = 0; fpsT = 0; if (fpsEl) fpsEl.textContent = Math.round(fpsNow) + ' fps · ' + quality;
-    if (!Q.get('q') && t > 6 && fpsNow < 38 && document.visibilityState === 'visible') { if (++slowFor >= 4 && quality !== 'low') { quality = quality === 'high' ? 'medium' : 'low'; applyQuality(); slowFor = 0; } } else slowFor = 0;
+    if (!Q.get('q') && t > 6 && fpsNow < 30 && document.visibilityState === 'visible') { if (++slowFor >= 4 && quality !== 'low') { quality = quality === 'high' ? 'medium' : 'low'; applyQuality(); slowFor = 0; } } else slowFor = 0;
   }
 }
 
 // Boot once game.js has made the world.
 if (want3d()) {
+  showLoading();
   let tries = 0;
-  const wait = () => { if (window.Stage2?.world?.setExternal) start().catch(e => { console.warn('office3d: staying 2D', e); document.documentElement.classList.remove('o3d'); try { window.Stage2.world.setExternal(false); } catch {} document.getElementById('o3d')?.remove(); }); else if (++tries < 200) setTimeout(wait, 100); };
+  const wait = () => { if (window.Stage2?.world?.setExternal) start().catch(e => { console.warn('office3d: staying 2D', e); fallback2D(); }); else if (++tries < 300) setTimeout(wait, 100); else fallback2D(); };
   wait();
 }

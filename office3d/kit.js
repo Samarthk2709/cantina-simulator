@@ -50,12 +50,20 @@ export function pbr(name, o = {}) {
   m.normalScale.set(o.ns ?? 1, -(o.ns ?? 1));
   return m;
 }
+// Large one-off canvases (screens, boards) are drawn at their design size and stored at 3/4 resolution (GPU memory).
+let scratch;
 export function canvasTex(w, h, draw, o = {}) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
+  const k = !o.repeat && w * h > 600000 ? 0.75 : 1;
+  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  const paint = () => {
+    if (k === 1) { draw(c.getContext('2d'), w, h); return; }
+    scratch = scratch || document.createElement('canvas'); scratch.width = w; scratch.height = h; draw(scratch.getContext('2d'), w, h);
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(scratch, 0, 0, c.width, c.height);
+  };
+  paint();
   const t = new THREE.CanvasTexture(c); if (!o.linear) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   if (o.repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.userData.redraw = () => { draw(c.getContext('2d'), w, h); t.needsUpdate = true; };
+  t.userData.redraw = () => { paint(); t.needsUpdate = true; };
   return t;
 }
 // Soft grime: a tiling greyscale noise used to break up roughness / colour on large surfaces.
@@ -83,23 +91,31 @@ function boxGeo(w, h, d, s) {
 }
 export function box(w, h, d, mat, x, y, z, s = 1, parent, shadow = true) {
   const m = new THREE.Mesh(boxGeo(w, h, d, s), mat);
-  m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true;
+  m.position.set(x, y, z); m.castShadow = shadow && Math.max(w, h, d) > 0.25; m.receiveShadow = true;
   (parent || C.scene).add(m); return m;
 }
 export function rbox(w, h, d, r, mat, x, y, z, parent, shadow = true) {
   const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4)), mat);
-  m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true;
+  m.position.set(x, y, z); m.castShadow = shadow && Math.max(w, h, d) > 0.25; m.receiveShadow = true;
   (parent || C.scene).add(m); return m;
 }
 export function cyl(rt, rb, h, mat, x, y, z, parent, seg = 20, shadow = true) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
-  m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true;
+  m.position.set(x, y, z); m.castShadow = shadow && Math.max(rt, rb, h / 2) > 0.12; m.receiveShadow = true;
   (parent || C.scene).add(m); return m;
 }
 export function plane(w, h, mat, x, y, z, parent) {
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); m.position.set(x, y, z); m.receiveShadow = true; (parent || C.scene).add(m); return m;
 }
-export const std = (color, roughness = 0.5, metalness = 0, o = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness, ...o });
+// Materials are shared whenever their parameters match, so the static merge can batch everything that looks alike.
+const stdCache = new Map();
+export const std = (color, roughness = 0.5, metalness = 0, o = {}) => {
+  const plain = Object.values(o).every(v => v === null || typeof v !== 'object');
+  if (!plain) return new THREE.MeshStandardMaterial({ color, roughness, metalness, ...o });
+  const k = color + '|' + roughness + '|' + metalness + '|' + JSON.stringify(o);
+  let m = stdCache.get(k); if (!m) { m = new THREE.MeshStandardMaterial({ color, roughness, metalness, ...o }); stdCache.set(k, m); }
+  return m;
+};
 export function group(parent, x = 0, y = 0, z = 0, ry = 0) { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; (parent || C.scene).add(g); return g; }
 export function cable(parent, pts, r = 0.005, mat) {
   const c = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(...p)));
@@ -125,10 +141,12 @@ function grimeColor() {
   });
   return grimeSRGB;
 }
+const wornCache = new Map();
 export function worn(color, o = {}) {
+  const key = color + JSON.stringify(o); if (wornCache.has(key)) return wornCache.get(key);
   const m = new THREE.MeshStandardMaterial({ color, map: grimeColor(), normalMap: tex('tex/rusty_painted_metal/nor.jpg'), roughnessMap: tex('tex/metal_plate_02/rough.jpg'),
     roughness: o.roughness ?? 0.85, metalness: o.metalness ?? 0.45, envMapIntensity: 1 });
-  m.normalScale.set(o.ns ?? 0.35, -(o.ns ?? 0.35)); return m;
+  m.normalScale.set(o.ns ?? 0.35, -(o.ns ?? 0.35)); wornCache.set(key, m); return m;
 }
 export function scuffs() { // floor clearcoat roughness: polished lanes, dull scuffed patches and fine scratches
   if (scuffT) return scuffT;
@@ -354,7 +372,7 @@ export function stickyMat() {
 export const gltf = new GLTFLoader();
 const modelCache = {};
 function loadModel(id) {
-  if (!modelCache[id]) modelCache[id] = gltf.loadAsync(`${A}models/${id}/${id}.gltf`).then(r => { r.scene.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } }); return r.scene; });
+  if (!modelCache[id]) modelCache[id] = gltf.loadAsync(`${A}models/${id}/${id}.gltf`).then(r => { r.scene.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; const m = o.material; if (m && m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = 0.25; m.depthWrite = false; } } }); return r.scene; }); // (transmission would re-render the whole scene every frame)
   return modelCache[id];
 }
 // place(id, x, y, z, rotY, scale, parent, opts): opts.pick = regex of top-level node names to keep (sets with variants);
@@ -368,6 +386,7 @@ export function place(id, x, y, z, rotY = 0, s = 1, parent, opts = {}) {
       keep.forEach(c => { c.position.x -= ox; c.position.z -= oz; g.add(c); }); o = g;
     }
     o.position.set(x, y, z); o.rotation.y = rotY; o.scale.setScalar(s);
+    { const bb = new THREE.Box3().setFromObject(o); const sz = bb.getSize(new THREE.Vector3()); if (Math.max(sz.x, sz.y, sz.z) * s < 0.45) opts.shadow = false; }
     if (opts.shadow === false || opts.tint) o.traverse(m => { if (!m.isMesh) return; if (opts.shadow === false) m.castShadow = false; if (opts.tint) { m.material = m.material.clone(); m.material.color.multiply(new THREE.Color(opts.tint)); } });
     (parent || C.scene).add(o); return o;
   }).catch(e => console.warn('office3d model', id, e));
@@ -378,8 +397,10 @@ export function place(id, x, y, z, rotY = 0, s = 1, parent, opts = {}) {
 // screens registered per station for power on/off
 export function powerScreen(id, mesh, mat) {
   if (!id) return;
+  mesh.userData.dynamic = true;
   onPower(id, on => { mesh.material = on ? mat : C.M.screenOff; });
 }
+const ledMats = {};
 export function monitor(parent, x, y, z, rotY, w, h, screenTex, opts = {}) {
   const M = C.M, g = group(parent, x, y, z, rotY);
   rbox(w + 0.02, h + 0.02, 0.025, 0.006, M.plastic, 0, h / 2 + 0.11, -0.005, g);
@@ -390,36 +411,40 @@ export function monitor(parent, x, y, z, rotY, w, h, screenTex, opts = {}) {
   box(0.05, 0.16, 0.03, M.alu, 0, 0.08, -0.05, 1, g);
   rbox(0.22, 0.012, 0.17, 0.005, M.alu, 0, 0.006, -0.02, g, false);
   // a status LED on the bezel
-  const led = new THREE.Mesh(new THREE.CircleGeometry(0.0025, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 2, 0.6) })); led.position.set(w / 2 - 0.02, 0.112, 0.008); g.add(led);
-  if (opts.id) onPower(opts.id, on => led.material.color.set(on ? new THREE.Color(0.2, 2, 0.6) : new THREE.Color(2, 0.3, 0.1)));
+  const lm = ledMats[opts.id || '_'] || (ledMats[opts.id || '_'] = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 2, 0.6) }));
+  const led = new THREE.Mesh(new THREE.CircleGeometry(0.0025, 8), lm); led.position.set(w / 2 - 0.02, 0.112, 0.008); g.add(led);
+  if (opts.id && !lm.userData.hooked) { lm.userData.hooked = true; onPower(opts.id, on => lm.color.set(on ? new THREE.Color(0.2, 2, 0.6) : new THREE.Color(2, 0.3, 0.1))); }
   if (opts.sticky) for (let i = 0; i < opts.sticky; i++) { const st = plane(0.06, 0.06, stickyMat(), (i % 2 ? 1 : -1) * (w / 2 - 0.02) + rr(-0.03, 0.03), h + 0.08 - i * 0.07, 0.009, g); st.rotation.z = rr(-0.2, 0.2); }
   return g;
 }
+let laptopKT, laptopKM;
 export function laptop(parent, x, y, z, rotY, screenTex, id) {
   const M = C.M, lp = group(parent, x, y, z, rotY);
   rbox(0.33, 0.014, 0.23, 0.005, M.aluDark, 0, 0.007, 0, lp, false);
-  const kt = canvasTex(256, 160, (g, w, h) => { g.fillStyle = '#2a2c30'; g.fillRect(0, 0, w, h); g.fillStyle = '#111'; for (let r = 0; r < 5; r++) for (let c = 0; c < 13; c++) g.fillRect(10 + c * 18, 10 + r * 18, 15, 15); g.fillStyle = '#1c1d20'; g.fillRect(80, 110, 96, 44); });
-  const kb = plane(0.3, 0.2, new THREE.MeshStandardMaterial({ map: kt, roughness: 0.6 }), 0, 0.0145, 0.005, lp); kb.rotation.x = -Math.PI / 2;
+  const kt = laptopKT || (laptopKT = canvasTex(256, 160, (g, w, h) => { g.fillStyle = '#2a2c30'; g.fillRect(0, 0, w, h); g.fillStyle = '#111'; for (let r = 0; r < 5; r++) for (let c = 0; c < 13; c++) g.fillRect(10 + c * 18, 10 + r * 18, 15, 15); g.fillStyle = '#1c1d20'; g.fillRect(80, 110, 96, 44); }));
+  const kb = plane(0.3, 0.2, laptopKM || (laptopKM = new THREE.MeshStandardMaterial({ map: kt, roughness: 0.6 })), 0, 0.0145, 0.005, lp); kb.rotation.x = -Math.PI / 2;
   const lid = group(lp, 0, 0.014, -0.115); lid.rotation.x = -0.3;
   rbox(0.33, 0.22, 0.006, 0.004, M.aluDark, 0, 0.11, -0.003, lid, false);
   const mat = screenMat(screenTex, 1.2), sc = plane(0.3, 0.19, mat, 0, 0.11, 0.001, lid); powerScreen(id, sc, mat);
   return lp;
 }
+let keyboardMat;
 export function keyboard(parent, x, y, z, rotY) {
   const M = C.M;
-  const kt = canvasTex(512, 160, (g, w, h) => { g.fillStyle = '#1a1b1e'; g.fillRect(0, 0, w, h); g.fillStyle = '#2b2d31'; for (let r = 0; r < 5; r++) for (let c = 0; c < 15; c++) g.fillRect(8 + c * 33, 8 + r * 30, 29, 26); g.fillRect(140, 128, 200, 26); g.fillStyle = 'rgba(255,255,255,.18)'; g.font = '9px Arial'; for (let r = 0; r < 4; r++) for (let c = 0; c < 15; c++) g.fillText('QWERTYUIOPASDFGHJKLZXCVBNM'[(r * 15 + c) % 26], 12 + c * 33, 20 + r * 30); });
-  const k = rbox(0.42, 0.018, 0.13, 0.005, new THREE.MeshStandardMaterial({ map: kt, roughness: 0.55 }), x, y + 0.009, z, parent, false); k.rotation.y = rotY;
+  const kbM = keyboardMat || (keyboardMat = new THREE.MeshStandardMaterial({ roughness: 0.55, map: canvasTex(512, 160, (g, w, h) => { g.fillStyle = '#1a1b1e'; g.fillRect(0, 0, w, h); g.fillStyle = '#2b2d31'; for (let r = 0; r < 5; r++) for (let c = 0; c < 15; c++) g.fillRect(8 + c * 33, 8 + r * 30, 29, 26); g.fillRect(140, 128, 200, 26); g.fillStyle = 'rgba(255,255,255,.18)'; g.font = '9px Arial'; for (let r = 0; r < 4; r++) for (let c = 0; c < 15; c++) g.fillText('QWERTYUIOPASDFGHJKLZXCVBNM'[(r * 15 + c) % 26], 12 + c * 33, 20 + r * 30); }) }));
+  const k = rbox(0.42, 0.018, 0.13, 0.005, kbM, x, y + 0.009, z, parent, false); k.rotation.y = rotY;
   const mx = x + Math.cos(rotY) * 0.3, mz = z - Math.sin(rotY) * 0.3;
   const pad = box(0.3, 0.003, 0.24, std(0x16181a, 0.9), mx, y + 0.0015, mz, 1, parent, false); pad.rotation.y = rotY;
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), M.plastic); m.scale.set(0.9, 0.45, 1.5); m.position.set(mx, y + 0.014, mz); parent.add(m);
 }
+const mugMats = {}; let coffeeM;
 export function mug(parent, x, y, z, color = 0xf1eee8, full = true) {
-  const mt = new THREE.MeshPhysicalMaterial({ color, roughness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.1, side: THREE.DoubleSide });
+  const mt = mugMats[color] || (mugMats[color] = new THREE.MeshPhysicalMaterial({ color, roughness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.1, side: THREE.DoubleSide }));
   // ceramic mug: foot ring, slightly flared wall, rounded lip, inner wall
   const P = [[0, 0], [0.033, 0], [0.035, 0.004], [0.036, 0.01], [0.04, 0.085], [0.0405, 0.093], [0.039, 0.096], [0.036, 0.094], [0.034, 0.02], [0, 0.016]].map(p => new THREE.Vector2(p[0], p[1]));
   const c = new THREE.Mesh(new THREE.LatheGeometry(P, 28), mt); c.position.set(x, y, z); c.castShadow = true; c.receiveShadow = true; parent.add(c);
   const hd = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.007, 8, 18, Math.PI * 1.25), mt); hd.rotation.z = -Math.PI * 0.62; hd.position.set(x + 0.04, y + 0.05, z); parent.add(hd);
-  if (full) { const cof = new THREE.Mesh(new THREE.CircleGeometry(0.035, 24), new THREE.MeshPhysicalMaterial({ color: 0x1d0f07, roughness: 0.05, clearcoat: 1 })); cof.rotation.x = -Math.PI / 2; cof.position.set(x, y + 0.078, z); parent.add(cof); }
+  if (full) { const cof = new THREE.Mesh(new THREE.CircleGeometry(0.035, 24), coffeeM || (coffeeM = new THREE.MeshPhysicalMaterial({ color: 0x1d0f07, roughness: 0.05, clearcoat: 1 }))); cof.rotation.x = -Math.PI / 2; cof.position.set(x, y + 0.078, z); parent.add(cof); }
   return c;
 }
 export function coffeeCup(parent, x, y, z) { // takeaway cup with sleeve and lid
@@ -434,58 +459,78 @@ export function can(parent, x, y, z, color = 0x1d8fd6, lying = false) { // energ
 }
 export function papers(parent, x, y, z, n = 4, spread = 0.4) {
   for (let i = 0; i < n; i++) {
-    const mat = rnd() < 0.5 ? C.M.paper : new THREE.MeshStandardMaterial({ map: docTex(Math.floor(rnd() * 1e6), { stamp: rnd() < 0.2 ? 'PAID' : null, chart: rnd() < 0.3 }), roughness: 0.85 });
+    const mat = rnd() < 0.5 ? C.M.paper : pick(docPool());
     const p = box(0.21, 0.0015, 0.297, mat, x + (rnd() - 0.5) * 0.04, y + 0.001 + i * 0.002, z + (rnd() - 0.5) * 0.04, 1, parent, false); p.rotation.y = (rnd() - 0.5) * spread;
   }
 }
+let docMats;
+function docPool() { return docMats || (docMats = [0, 1, 2, 3, 4, 5].map(i => new THREE.MeshStandardMaterial({ map: docTex(1000 + i * 977, { stamp: i === 1 ? 'PAID' : null, chart: i % 3 === 2 }), roughness: 0.85 }))); }
 export function crumpled(parent, x, y, z) { // a crumpled paper ball
   const g = new THREE.IcosahedronGeometry(0.035, 1); const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * rr(0.7, 1.2), p.getY(i) * rr(0.7, 1.2), p.getZ(i) * rr(0.7, 1.2)); g.computeVertexNormals();
   const m = new THREE.Mesh(g, C.M.paper); m.position.set(x, y + 0.03, z); m.castShadow = false; m.receiveShadow = true; parent.add(m); return m;
 }
-// Books: cloth/paper covers with a printed spine (title, bands, publisher mark), a cream page block showing on the top
-// and fore-edge, and slightly rounded spines; spines face +z.
-let spineMats = null, pageMat = null;
+// Books: one shared atlas material for every book in the office (so they all batch into a single draw): printed spines
+// (title, bands, author, publisher mark, cloth grain), cream page blocks, and cover cloth colours.
 const TITLES = ['THE WEB HACKER', 'CRYPTO 101', 'DEEP WORK', 'SYSTEMS', 'NETWORKS', 'THE BUG HUNT', 'COMPILERS', 'ZERO TRUST', 'LEDGERS', 'GROWTH', 'PATTERNS', 'RUST', 'ASSEMBLY', 'THE FOUNDER', 'FUZZING', 'LINUX'];
-function spines() {
-  if (spineMats) return spineMats;
-  const cols = ['#6b2a22', '#1f3550', '#2f4a33', '#b88a3a', '#2a2a2e', '#7a6a55', '#8c1f1f', '#3d3550', '#d9d2c0', '#355f6b', '#e8e2d2', '#14304a'];
-  spineMats = cols.map((c, i) => {
-    const t = canvasTex(64, 256, (g, w, h) => {
-      g.fillStyle = c; g.fillRect(0, 0, w, h);
-      const light = parseInt(c.slice(1, 3), 16) > 180; const ink = light ? '#222' : (i % 3 ? '#e9dcb4' : '#d9b77a');
-      g.fillStyle = ink; g.fillRect(0, 16, w, 3); g.fillRect(0, h - 26, w, 3); if (i % 2) g.fillRect(0, 22, w, 1);
-      g.save(); g.translate(w / 2 + 6, h - 40); g.rotate(-Math.PI / 2); g.font = 'bold 15px Georgia, serif'; g.fillText(TITLES[i % TITLES.length], 0, 0); g.font = '10px Arial'; g.globalAlpha = 0.7; g.fillText(['M. OKAFOR', 'L. CHEN', 'R. DIAZ', 'S. PATEL'][i % 4], 0, -14); g.restore();
-      g.globalAlpha = 1; g.beginPath(); g.arc(w / 2, h - 12, 5, 0, 7); g.fill();
-      for (let k = 0; k < 400; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '0,0,0' : '255,255,255'},.05)`; g.fillRect(rnd() * w, rnd() * h, 1, 1); } // cloth grain / wear
-      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, 3, h); g.fillRect(w - 3, 0, 3, h);
+const SPINE_COLS = ['#6b2a22', '#1f3550', '#2f4a33', '#b88a3a', '#2a2a2e', '#7a6a55', '#8c1f1f', '#3d3550', '#d9d2c0', '#355f6b', '#e8e2d2', '#14304a'];
+let bookAtlas = null;
+function bookMat() {
+  if (bookAtlas) return bookAtlas;
+  const t = canvasTex(1024, 512, (g, w, h) => {
+    // 12 spines: 64 x 256 each across the top half
+    SPINE_COLS.forEach((c, i) => {
+      g.save(); g.translate(i * 64, 0);
+      g.fillStyle = c; g.fillRect(0, 0, 64, 256);
+      const light = parseInt(c.slice(1, 3), 16) > 180, ink = light ? '#222' : (i % 3 ? '#e9dcb4' : '#d9b77a');
+      g.fillStyle = ink; g.fillRect(0, 16, 64, 3); g.fillRect(0, 230, 64, 3); if (i % 2) g.fillRect(0, 22, 64, 1);
+      g.save(); g.translate(38, 216); g.rotate(-Math.PI / 2); g.font = 'bold 15px Georgia, serif'; g.fillText(TITLES[i], 0, 0); g.font = '10px Arial'; g.globalAlpha = 0.7; g.fillText(['M. OKAFOR', 'L. CHEN', 'R. DIAZ', 'S. PATEL'][i % 4], 0, -14); g.restore();
+      g.globalAlpha = 1; g.beginPath(); g.arc(32, 244, 5, 0, 7); g.fill();
+      for (let k = 0; k < 300; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '0,0,0' : '255,255,255'},.05)`; g.fillRect(rnd() * 64, rnd() * 256, 1, 1); }
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, 3, 256); g.fillRect(61, 0, 3, 256);
+      // the matching cover cloth patch below
+      g.fillStyle = c; g.fillRect(0, 256, 64, 128); for (let k = 0; k < 200; k++) { g.fillStyle = 'rgba(0,0,0,.06)'; g.fillRect(rnd() * 64, 256 + rnd() * 128, 1, 1); }
+      g.restore();
     });
-    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.75, envMapIntensity: 0.6 });
+    // page block strip (bottom row)
+    g.fillStyle = '#e8e0cc'; g.fillRect(0, 384, w, 128); g.strokeStyle = 'rgba(120,100,70,.35)'; for (let y = 386; y < 512; y += 2) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
   });
-  const pt = canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#e8e0cc'; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(120,100,70,.35)'; for (let y = 0; y < h; y += 2) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + rr(-0.5, 0.5)); g.stroke(); } });
-  pageMat = new THREE.MeshStandardMaterial({ map: pt, roughness: 0.9 });
-  return spineMats;
+  return (bookAtlas = new THREE.MeshStandardMaterial({ map: t, roughness: 0.75, envMapIntensity: 0.6 }));
+}
+function faceUV(geo, face, u0, v0, u1, v1) { // BoxGeometry face: 0 px, 1 nx, 2 py, 3 ny, 4 pz, 5 nz
+  const uv = geo.attributes.uv; for (let k = 0; k < 4; k++) { const i = face * 4 + k, a = uv.getX(i), b = uv.getY(i); uv.setXY(i, u0 + a * (u1 - u0), v0 + b * (v1 - v0)); }
 }
 export function books(parent, x, y, z, n, rotY = 0, lean = false) {
-  const S = spines(), g = group(parent, x, y, z, rotY);
+  const mat = bookMat(), g = group(parent, x, y, z, rotY);
   let px = 0;
   for (let i = 0; i < n; i++) {
-    const w = 0.022 + rnd() * 0.035, h = 0.17 + rnd() * 0.1, d = 0.13 + rnd() * 0.06, sm = pick(S), cover = new THREE.MeshStandardMaterial({ color: sm.map ? 0xffffff : 0x333333, map: sm.map, roughness: 0.75 });
-    cover.map = sm.map; // the cover cloth uses the spine texture's colour field
-    const mats = [cover, cover, pageMat, cover, sm, pageMat]; // +x, -x, top (pages), bottom, +z spine, -z fore-edge
-    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats); b.position.set(px + w / 2, h / 2, 0); b.castShadow = false; b.receiveShadow = true; g.add(b);
-    // covers overhang the page block a little
-    for (const sx of [-1, 1]) box(0.0025, h + 0.004, d + 0.004, cover, px + w / 2 + sx * (w / 2), h / 2, 0, 1, g, false);
+    const w = 0.022 + rnd() * 0.035, h = 0.17 + rnd() * 0.1, d = 0.13 + rnd() * 0.06, si = Math.floor(rnd() * 12), U = si / 16;
+    const geo = new THREE.BoxGeometry(w, h, d);
+    // canvas y runs down while uv v runs up: spine rows 0-256 -> v 0.5..1, cover 256-384 -> v 0.25..0.5, pages -> 0..0.25
+    faceUV(geo, 4, U + 0.004, 0.5, U + 0.058, 1.0);              // spine (+z)
+    for (const f of [0, 1, 3]) faceUV(geo, f, U, 0.27, U + 0.06, 0.48); // covers + bottom
+    faceUV(geo, 2, 0.1, 0.02, 0.3, 0.22); faceUV(geo, 5, 0.4, 0.02, 0.6, 0.22); // page block top / fore-edge
+    const b = new THREE.Mesh(geo, mat); b.position.set(px + w / 2, h / 2, 0); b.castShadow = false; b.receiveShadow = true; g.add(b);
     if (lean && i === n - 1) { b.rotation.z = -0.35; b.position.x += 0.04; b.position.y -= 0.01; }
     px += w + 0.003;
   }
   return g;
 }
-export function binders(parent, x, y, z, n, rotY = 0) { // office ring binders with spine labels
-  const g = group(parent, x, y, z, rotY), cols = [0x1d3c78, 0x0d0d0d, 0x7a1b1b, 0x2e5a3a, 0xdedad0];
+let binderAtlas = null;
+const BINDER_COLS = [0x1d3c78, 0x0d0d0d, 0x7a1b1b, 0x2e5a3a, 0xdedad0];
+function binderMat() {
+  if (binderAtlas) return binderAtlas;
+  const t = canvasTex(256, 128, (q, w, h) => {
+    BINDER_COLS.forEach((c, i) => { const x = i * 48; q.fillStyle = '#' + new THREE.Color(c).getHexString(); q.fillRect(x, 0, 48, h); q.fillStyle = '#efe9da'; q.fillRect(x + 10, 18, 28, 40); q.fillStyle = '#333'; for (let k = 0; k < 4; k++) q.fillRect(x + 13, 24 + k * 8, 20, 2); q.fillStyle = '#ddd'; q.beginPath(); q.arc(x + 24, 100, 6, 0, 7); q.fill(); });
+  });
+  return (binderAtlas = new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 }));
+}
+export function binders(parent, x, y, z, n, rotY = 0) { // office ring binders with spine labels (one shared atlas material)
+  const g = group(parent, x, y, z, rotY), mat = binderMat();
   for (let i = 0; i < n; i++) {
-    const c = pick(cols), lab = canvasTex(32, 128, (q, w, h) => { q.fillStyle = '#' + new THREE.Color(c).getHexString(); q.fillRect(0, 0, w, h); q.fillStyle = '#efe9da'; q.fillRect(5, 18, 22, 40); q.fillStyle = '#333'; for (let k = 0; k < 4; k++) q.fillRect(8, 24 + k * 8, 14, 2); q.fillStyle = '#ddd'; q.beginPath(); q.arc(16, 100, 6, 0, 7); q.fill(); });
-    const mats = [std(c, 0.6), std(c, 0.6), std(c, 0.6), std(c, 0.6), new THREE.MeshStandardMaterial({ map: lab, roughness: 0.6 }), std(c, 0.6)];
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.27), mats); b.position.set(i * 0.064, 0.15, 0); b.castShadow = false; b.receiveShadow = true; if (i === n - 1 && rnd() < 0.5) { b.rotation.z = -0.25; b.position.x += 0.03; } g.add(b);
+    const ci = Math.floor(rnd() * BINDER_COLS.length), U0 = ci * 48 / 256, U1 = (ci * 48 + 48) / 256;
+    const geo = new THREE.BoxGeometry(0.06, 0.3, 0.27);
+    faceUV(geo, 4, U0, 0, U1, 1); for (const f of [0, 1, 2, 3, 5]) faceUV(geo, f, U0 + 0.003, 0.02, U0 + 0.01, 0.05);
+    const b = new THREE.Mesh(geo, mat); b.position.set(i * 0.064, 0.15, 0); b.castShadow = false; b.receiveShadow = true; if (i === n - 1 && rnd() < 0.5) { b.rotation.z = -0.25; b.position.x += 0.03; } g.add(b);
   }
   return g;
 }
@@ -532,10 +577,11 @@ export function desk(parent, cx, cz, w, d, rotY, top, h = 0.74, o = {}) {
   return g;
 }
 // Soft contact shadow on the floor under furniture (grounds things that the AO alone leaves floating).
-let contactT;
+let contactT; const contactMats = {};
 export function contactShadow(parent, x, z, w, d, k = 0.55, ry = 0) {
   if (!contactT) contactT = canvasTex(128, 128, (g, W, Hh) => { const gr = g.createRadialGradient(64, 64, 10, 64, 64, 64); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.55, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, Hh); });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ map: contactT, transparent: true, opacity: k, depthWrite: false, color: 0x000000, alphaMap: contactT }));
+  const key = k.toFixed(2); const mat = contactMats[key] || (contactMats[key] = new THREE.MeshBasicMaterial({ map: contactT, transparent: true, opacity: k, depthWrite: false, color: 0x000000, alphaMap: contactT }));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
   m.rotation.x = -Math.PI / 2; m.rotation.z = ry; m.position.set(x, 0.012, z); m.userData.noAO = true; m.renderOrder = 1; (parent || C.scene).add(m); return m;
 }
 export function powerStrip(parent, x, z, rotY = 0) {
@@ -553,12 +599,12 @@ export function pcTower(parent, x, z, rotY, rgb = 0x6a5cff, id) {
   const mesh = canvasTex(64, 128, (q, w, h) => { q.fillStyle = '#0c0c0e'; q.fillRect(0, 0, w, h); q.fillStyle = '#26272b'; for (let yy = 1; yy < h; yy += 3) for (let xx = (yy % 2) + 1; xx < w; xx += 3) q.fillRect(xx, yy, 1.4, 1.4); }, {});
   plane(0.18, 0.42, new THREE.MeshStandardMaterial({ map: mesh, roughness: 0.6, metalness: 0.4 }), 0, 0.245, 0.2255, g);
   const fanM = new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb).multiplyScalar(1.2) }), fans = [];
-  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.045, 0.052, 28), fanM); f.position.set(0, 0.1 + i * 0.13, 0.227); g.add(f); fans.push(f); const hub = cyl(0.014, 0.014, 0.004, M.plastic, 0, 0.1 + i * 0.13, 0.226, g, 12, false); hub.rotation.x = Math.PI / 2; }
+  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.045, 0.052, 28), fanM); f.position.set(0, 0.1 + i * 0.13, 0.227); f.userData.dynamic = true; g.add(f); fans.push(f); const hub = cyl(0.014, 0.014, 0.004, M.plastic, 0, 0.1 + i * 0.13, 0.226, g, 12, false); hub.rotation.x = Math.PI / 2; }
   // interior behind the glass (+x side)
   const board = canvasTex(128, 128, (q, w, h) => { q.fillStyle = '#10161a'; q.fillRect(0, 0, w, h); q.strokeStyle = '#2b4a3a'; for (let i = 0; i < 40; i++) { q.beginPath(); q.moveTo(rnd() * w, rnd() * h); q.lineTo(rnd() * w, rnd() * h); q.stroke(); } q.fillStyle = '#2a2d33'; q.fillRect(40, 20, 34, 34); q.fillStyle = '#555'; q.fillRect(86, 14, 4, 50); q.fillRect(94, 14, 4, 50); });
   const mb = plane(0.38, 0.36, new THREE.MeshStandardMaterial({ map: board, roughness: 0.6, metalness: 0.3 }), -0.09, 0.26, 0, g); mb.rotation.y = Math.PI / 2;
   rbox(0.05, 0.05, 0.28, 0.004, std(0x222429, 0.4, 0.6), -0.04, 0.17, -0.01, g); // GPU
-  const gpuStrip = box(0.002, 0.008, 0.24, fanM, -0.014, 0.19, -0.01, 1, g, false);
+  const gpuStrip = box(0.002, 0.008, 0.24, fanM, -0.014, 0.19, -0.01, 1, g, false); gpuStrip.userData.dynamic = true;
   for (let i = 0; i < 2; i++) box(0.03, 0.04, 0.006, fanM, -0.06, 0.34, 0.06 + i * 0.012, 1, g, false); // RAM RGB
   rbox(0.06, 0.06, 0.06, 0.01, M.aluDark, -0.05, 0.33, -0.04, g); // CPU cooler
   const gl = new THREE.MeshPhysicalMaterial({ color: 0x2a2e36, roughness: 0.04, transparent: true, opacity: 0.35, envMapIntensity: 1.5, depthWrite: false });
