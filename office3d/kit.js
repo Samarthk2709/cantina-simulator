@@ -372,7 +372,8 @@ export function stickyMat() {
 export const gltf = new GLTFLoader();
 const modelCache = {};
 function loadModel(id) {
-  if (!modelCache[id]) modelCache[id] = gltf.loadAsync(`${A}models/${id}/${id}.gltf`).then(r => { r.scene.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; const m = o.material; if (m && m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = 0.25; m.depthWrite = false; } } }); return r.scene; }); // (transmission would re-render the whole scene every frame)
+  if (!modelCache[id]) modelCache[id] = gltf.loadAsync(`${A}models/${id}/${id}.gltf`).then(r => { r.scene.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; const m = o.material; if (m && m.emissiveIntensity > 0 && m.emissiveMap) m.emissiveIntensity = Math.min(m.emissiveIntensity, 1) * 0.6;
+        if (m && m.transmission > 0) { m.transmission = 0; m.transparent = true; m.opacity = 0.25; m.depthWrite = false; } } }); return r.scene; }); // (transmission would re-render the whole scene every frame)
   return modelCache[id];
 }
 // place(id, x, y, z, rotY, scale, parent, opts): opts.pick = regex of top-level node names to keep (sets with variants);

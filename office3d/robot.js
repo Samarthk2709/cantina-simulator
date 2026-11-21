@@ -30,10 +30,33 @@ function palette() {
   set(PAL.led, 0x0a0a0a, 0.4, 0.0, 0xffa040);
   set(PAL.sole, 0x101112, 0.9, 0.0);
   const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.NearestFilter; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
+  const cc = new Uint8Array(N * 4); for (let i = 0; i < N; i++) { const painted = i === PAL.ivory || i === PAL.orange || i === PAL.ivoryDark; cc.set([painted ? 255 : 20, 0, 0, 255], i * 4); }
   const m = new THREE.MeshPhysicalMaterial({
     map: tex(col, true), roughnessMap: tex(orm), metalnessMap: tex(orm), emissiveMap: tex(em, true), emissive: 0xffffff, emissiveIntensity: 2.2,
-    roughness: 1, metalness: 1, clearcoat: 0.35, clearcoatRoughness: 0.25, envMapIntensity: 1.0, sheen: 0.0,
+    roughness: 1, metalness: 1, clearcoat: 0.9, clearcoatMap: tex(cc), clearcoatRoughness: 0.12, envMapIntensity: 1.0, sheen: 0.0,
   });
+  // micro detail: fine noise in roughness, a faint orange-peel bump on the paint, and worn edges (bevels show bare
+  // metal where the surface curves hardest), all computed from bind-pose position so it sticks to the parts.
+  const base = THREE.MeshStandardMaterial.prototype.onBeforeCompile;
+  m.onBeforeCompile = function (sh) {
+    base.call(this, sh);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvRP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vRP;
+float rh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float rn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(rh(i), rh(i + vec3(1,0,0)), f.x), mix(rh(i + vec3(0,1,0)), rh(i + vec3(1,1,0)), f.x), f.y), mix(mix(rh(i + vec3(0,0,1)), rh(i + vec3(1,0,1)), f.x), mix(rh(i + vec3(0,1,1)), rh(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  float nA = rn(vRP * 60.0), nB = rn(vRP * 9.0);
+  roughnessFactor = clamp(roughnessFactor * (0.85 + 0.3 * nA) + 0.06 * nB, 0.04, 1.0);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  { float curv = clamp(length(fwidth(normal)) * 9.0, 0.0, 1.0); float painted = step(0.55, dot(diffuseColor.rgb, vec3(0.33)));
+    float wear = smoothstep(0.55, 0.95, curv * 0.8 + rn(vRP * 38.0) * 0.6) * painted;
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.42, 0.44), wear * 0.55);
+    metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7); roughnessFactor = mix(roughnessFactor, 0.45, wear);
+    vec3 bump = vec3(rn(vRP * 140.0) - 0.5, rn(vRP * 140.0 + 7.0) - 0.5, 0.0) * 0.06 * painted; normal = normalize(normal + bump); }`);
+  };
+  m.customProgramCacheKey = () => 'fo-robot';
   m.name = 'robot-palette';
   return m;
 }
@@ -43,8 +66,8 @@ const BONES = [
   // name, parent, x, y, z (offset from parent)
   ['root', null, 0, 0, 0], ['hips', 'root', 0, 0.86, 0], ['spine', 'hips', 0, 0.09, 0], ['chest', 'spine', 0, 0.12, 0],
   ['neck', 'chest', 0, 0.3, 0], ['head', 'neck', 0, 0.065, 0], ['eyes', 'head', 0, 0.13, 0.158],
-  ['lSh', 'chest', 0.218, 0.235, 0], ['lEl', 'lSh', 0, -0.27, 0], ['lWr', 'lEl', 0, -0.245, 0], ['lFi', 'lWr', 0, -0.085, 0.0],
-  ['rSh', 'chest', -0.218, 0.235, 0], ['rEl', 'rSh', 0, -0.27, 0], ['rWr', 'rEl', 0, -0.245, 0], ['rFi', 'rWr', 0, -0.085, 0.0],
+  ['lSh', 'chest', 0.218, 0.235, 0], ['lEl', 'lSh', 0, -0.27, 0], ['lWr', 'lEl', 0, -0.245, 0], ['lFi', 'lWr', 0, -0.085, 0.0], ['lF2', 'lFi', 0, -0.042, 0.0],
+  ['rSh', 'chest', -0.218, 0.235, 0], ['rEl', 'rSh', 0, -0.27, 0], ['rWr', 'rEl', 0, -0.245, 0], ['rFi', 'rWr', 0, -0.085, 0.0], ['rF2', 'rFi', 0, -0.042, 0.0],
   ['lHip', 'hips', 0.1, -0.03, 0], ['lKn', 'lHip', 0, -0.37, 0], ['lAn', 'lKn', 0, -0.38, 0],
   ['rHip', 'hips', -0.1, -0.03, 0], ['rKn', 'rHip', 0, -0.37, 0], ['rAn', 'rKn', 0, -0.38, 0],
 ];
@@ -92,6 +115,10 @@ export function buildRobot() {
   part('head', cyl(0.004, 0.004, 0.12, 6), P.graphite, 0.17, 0.22, -0.03, 0, 0, -0.25); // antenna
   part('head', sph(0.012, 10, 8), P.led, 0.185, 0.28, -0.03);
   for (const [x, y] of [[-0.11, 0.21], [0.11, 0.21]]) screw('head', x, y, 0.13);
+  part('head', rb(0.006, 0.2, 0.296, 0.003), P.seam, 0, 0.12, 0.0, 0, 0, 0);        // vertical crown seam
+  for (const s of [-1, 1]) { part('head', rb(0.012, 0.09, 0.06, 0.005), P.ivoryDark, s * 0.152, 0.2, -0.07); part('head', rb(0.004, 0.06, 0.004, 0.002), P.seam, s * 0.152, 0.07, 0.1); }
+  part('head', rb(0.12, 0.03, 0.02, 0.01), P.graphite, 0, 0.03, 0.128);             // chin vent
+  for (let i = 0; i < 3; i++) part('head', rb(0.09, 0.004, 0.022, 0.002), P.seam, 0, 0.022 + i * 0.008, 0.13);
   // eyes (own bone, so they can blink / glance)
   for (const s of [-1, 1]) part('eyes', rb(0.05, 0.034, 0.012, 0.016), P.eye, s * 0.052, 0, 0.0);
   part('eyes', rb(0.04, 0.006, 0.01, 0.003), P.eye, 0, -0.045, 0.0); // a small mouth line
@@ -118,6 +145,7 @@ export function buildRobot() {
   part('hips', rb(0.32, 0.13, 0.21, 0.05), P.graphite, 0, 0.0, 0);
   part('hips', rb(0.33, 0.025, 0.215, 0.01), P.orange, 0, 0.05, 0);
   part('hips', rb(0.12, 0.08, 0.04, 0.02), P.ivoryDark, 0, -0.01, 0.105);
+  for (const s of [-1, 1]) { part('hips', rb(0.06, 0.1, 0.16, 0.02), P.ivory, s * 0.165, -0.03, 0); part('hips', cyl(0.012, 0.012, 0.12, 10), P.chrome, s * 0.17, -0.05, -0.07, 0.3, 0, 0); } // hip plates + pistons
   for (const s of [-1, 1]) screw('hips', s * 0.045, -0.01, 0.126);
 
   // --- arms ---
@@ -133,11 +161,25 @@ export function buildRobot() {
     part(el, cap(0.05, 0.13), P.ivory, 0, -0.125, 0, 0, 0, 0, 1, 1, 0.95);
     part(el, cyl(0.054, 0.05, 0.045, 20), P.orange, 0, -0.2, 0);                 // cuff
     part(el, rb(0.035, 0.07, 0.012, 0.006), P.graphite, s * 0.0, -0.11, 0.05);    // forearm panel
+    part(el, cyl(0.007, 0.007, 0.14, 8), P.chrome, s * 0.045, -0.1, -0.03, 0, 0, s * 0.08);  // hydraulic rod
+    part(el, tor(0.051, 0.005), P.seam, 0, -0.06, 0, Math.PI / 2, 0, 0);
     part(wr, sph(0.03, 12, 10), P.graphite, 0, 0, 0);
     part(wr, rb(0.085, 0.085, 0.038, 0.016), P.graphite, 0, -0.045, 0.0);       // palm
     part(wr, rb(0.06, 0.03, 0.04, 0.012), P.ivory, 0, -0.03, 0.0, 0, 0, 0);    // back-of-hand plate
-    part(wr, cap(0.013, 0.04, 8), P.rubber, s * 0.048, -0.045, 0.018, 0.3, 0, s * 0.6); // thumb
-    for (let k = 0; k < 4; k++) { const fx = (k - 1.5) * 0.021; part(fi, cap(0.0095, 0.045, 8), P.rubber, fx, -0.025, 0.0); part(fi, sph(0.011, 8, 6), P.graphite, fx, 0.0, 0.0); }
+    // thumb: two segments with a knuckle
+    part(wr, sph(0.013, 10, 8), P.graphite, s * 0.045, -0.035, 0.016);
+    part(wr, cap(0.012, 0.026, 8), P.ivory, s * 0.055, -0.058, 0.026, 0.35, 0, s * 0.55);
+    part(wr, cap(0.0105, 0.018, 8), P.rubber, s * 0.066, -0.083, 0.036, 0.5, 0, s * 0.45);
+    // four fingers: knuckle, plated proximal segment, rubber distal segment with a tip pad
+    const f2 = sd + 'F2';
+    for (let k = 0; k < 4; k++) {
+      const fx = (k - 1.5) * 0.0205, len = k === 0 || k === 3 ? 0.9 : 1;
+      part(fi, sph(0.0105, 10, 8), P.graphite, fx, 0.0, 0.0);
+      part(fi, rb(0.017, 0.036 * len, 0.019, 0.007), P.ivory, fx, -0.022 * len, 0.0);
+      part(fi, rb(0.0185, 0.004, 0.02, 0.002), P.seam, fx, -0.006, 0.0);
+      part(f2, sph(0.0095, 8, 6), P.graphite, fx, 0.0, 0.0);
+      part(f2, cap(0.0085, 0.022 * len, 8), P.rubber, fx, -0.018 * len, 0.0);
+    }
   }
   // --- legs ---
   for (const [sd, s] of [['l', 1], ['r', -1]]) {
@@ -151,6 +193,8 @@ export function buildRobot() {
     part(kn, cap(0.058, 0.22), P.ivory, 0, -0.19, 0, 0, 0, 0, 1, 1, 0.95);
     part(kn, rb(0.07, 0.2, 0.035, 0.015), P.graphite, 0, -0.18, 0.052);         // shin guard
     part(kn, tor(0.06, 0.006), P.seam, 0, -0.3, 0, Math.PI / 2, 0, 0);
+    part(kn, cyl(0.008, 0.008, 0.2, 8), P.chrome, s * 0.05, -0.2, -0.04);           // calf piston
+    part(kn, rb(0.04, 0.05, 0.03, 0.01), P.orange, 0, -0.32, 0.05);
     part(an, sph(0.045, 14, 10), P.graphite, 0, 0, 0);
     part(an, rb(0.115, 0.07, 0.25, 0.03), P.graphite, 0, -0.035, 0.045);        // boot
     part(an, rb(0.12, 0.018, 0.26, 0.009), P.sole, 0, -0.072, 0.045);           // sole
@@ -249,12 +293,14 @@ const STATION = {
     addTo(p, 'head', 0.06, glance, 0); addTo(p, 'neck', 0, glance * 0.3, 0);
     return p;
   },
-  contract(t) { // sit back, headset hand at the ear, scroll with the other hand, nod while talking
+  contract(t) { // sit back, headset hand at the ear, scroll + talk with the other hand, nod and turn while talking
     const p = blank(); seated(p);
-    addTo(p, 'chest', -0.08, -0.12, 0);
+    const talk = Math.sin(t * 0.7) > 0 ? 1 : 0.3, gest = Math.max(0, Math.sin(t * 0.9)) ;
+    addTo(p, 'chest', -0.12 + Math.sin(t * 1.1) * 0.06, -0.15 + Math.sin(t * 0.6) * 0.25, Math.sin(t * 0.8) * 0.05);
     addTo(p, 'rSh', -0.55, 0, -1.15); addTo(p, 'rEl', -2.25, 0.4); addTo(p, 'rWr', 0.2, 0, 0.3); addTo(p, 'rFi', -0.9);
-    addTo(p, 'lSh', -0.65, 0, 0.2); addTo(p, 'lEl', -0.95, -0.3); addTo(p, 'lWr', 0.2 + Math.sin(t * 5) * 0.12); addTo(p, 'lFi', -0.4 + Math.sin(t * 5) * 0.2);
-    addTo(p, 'head', 0.05 + Math.sin(t * 3.1) * 0.06 * (Math.sin(t * 0.7) > 0 ? 1 : 0.2), 0.2, -0.12);
+    addTo(p, 'lSh', -0.65 - gest * 0.7, 0, 0.2 + gest * 0.25); addTo(p, 'lEl', -0.95 - gest * 0.6 + Math.sin(t * 6) * 0.15 * gest, -0.3); addTo(p, 'lWr', 0.2 + Math.sin(t * 5) * 0.35, Math.sin(t * 3) * 0.4 * gest); addTo(p, 'lFi', -0.4 + Math.sin(t * 5) * 0.4);
+    addTo(p, 'head', 0.06 + Math.sin(t * 3.1) * 0.14 * talk, 0.25 + Math.sin(t * 0.6) * 0.45, -0.14 + Math.sin(t * 1.3) * 0.08);
+    addTo(p, 'lHip', 0, 0, Math.sin(t * 0.5) * 0.08); addTo(p, 'rKn', Math.sin(t * 0.7) * 0.15);
     return p;
   },
   stats(t) { // crouch at the safe, turn the dial, flip the ledger
@@ -270,9 +316,10 @@ const STATION = {
   },
   training(t) { // stand at the whiteboard, write with the right hand, point at the pattern book now and then
     const p = blank(), ph = t % 7, pointing = sstep(4.6, 5.0, ph) * (1 - sstep(6.4, 6.9, ph));
-    addTo(p, 'hips', 0, -0.15, 0); addTo(p, 'chest', 0.04, -0.12);
+    
     const wx = Math.sin(t * 5) * 0.09, wy = Math.cos(t * 5) * 0.06, sweep = ((t * 0.25) % 1) * 0.5 - 0.25;
-    addTo(p, 'rSh', -1.75 + wy * (1 - pointing), 0, -0.35 + sweep + wx * (1 - pointing)); addTo(p, 'rEl', -0.75 + pointing * 0.65); addTo(p, 'rFi', -1.0);
+    addTo(p, 'hips', 0, -0.1, 0); addTo(p, 'chest', 0.06 + Math.sin(t * 0.9) * 0.04, -0.15 + sweep * 0.4);
+    addTo(p, 'rSh', -1.6 + wy * 1.6 * (1 - pointing), 0, -0.25 + sweep + wx * 1.6 * (1 - pointing)); addTo(p, 'rEl', -0.95 + pointing * 0.85); addTo(p, 'rWr', 0.3, 0, 0); addTo(p, 'rFi', -1.0);
     addTo(p, 'lSh', 0.05 - pointing * 1.4, 0, 0.12 + pointing * 0.4); addTo(p, 'lEl', -0.35 + pointing * 0.25); addTo(p, 'lFi', -0.3 - pointing * 0.6);
     addTo(p, 'head', -0.1, -0.15 + sweep * 0.6 + pointing * 0.5, 0);
     addTo(p, 'lKn', 0.05); addTo(p, 'rKn', 0.12);
@@ -289,7 +336,7 @@ const STATION = {
   hq(t) { // face the goal board: point and tap at it, then cross the arms and review
     const p = blank(), ph = t % 8, point = 1 - sstep(3.4, 4.0, ph) + sstep(7.4, 8.0, ph), cross = 1 - point;
     const tap = point * Math.max(0, Math.sin(t * 7)) * (ph > 1.5 && ph < 3.2 ? 1 : 0);
-    addTo(p, 'rSh', -1.45 * point - 0.55 * cross + tap * 0.08, 0, -0.2 * point + 0.55 * cross); addTo(p, 'rEl', -0.12 * point - 1.95 * cross, 0.8 * cross); addTo(p, 'rFi', -0.2 * point - 0.8 * cross);
+    addTo(p, 'rSh', -1.75 * point - 0.55 * cross + tap * 0.18, 0, -0.25 * point + 0.55 * cross); addTo(p, 'rEl', -0.12 * point - 1.95 * cross, 0.8 * cross); addTo(p, 'rFi', -0.2 * point - 0.8 * cross);
     addTo(p, 'lSh', 0.05 * point - 0.6 * cross, 0, 0.12 * point - 0.5 * cross); addTo(p, 'lEl', -0.3 * point - 1.9 * cross, -0.8 * cross); addTo(p, 'lFi', -0.5);
     addTo(p, 'chest', -0.04 * cross, 0.05 * point); addTo(p, 'head', -0.18 + Math.sin(t * 1.3) * 0.05 * cross, Math.sin(t * 0.5) * 0.2 * cross, 0.08 * cross);
     addTo(p, 'hips', 0, 0, 0.04 * cross); addTo(p, 'lKn', 0.1 * cross); addTo(p, 'rHip', 0, 0, -0.06 * cross);
@@ -303,12 +350,13 @@ const STATION = {
     addTo(p, 'head', 0.1 + tap * 0.12, 0.25 * door - tap * 0.15, 0); addTo(p, 'lKn', 0.1); addTo(p, 'rKn', 0.15);
     return p;
   },
-  terminals(t) { // stand-up typing at an agent pod, glancing at the log
-    const p = blank();
-    addTo(p, 'chest', 0.38); addTo(p, 'spine', 0.12); addTo(p, 'lKn', 0.08); addTo(p, 'rKn', 0.08); addTo(p, 'lHip', -0.1); addTo(p, 'rHip', -0.1);
-    const ty = (side, ph) => { addTo(p, side + 'Sh', -0.95 + Math.sin(t * 9 + ph) * 0.03, 0, (side === 'l' ? 1 : -1) * 0.15); addTo(p, side + 'El', -0.55 + Math.sin(t * 12 + ph) * 0.04, side === 'l' ? -0.4 : 0.4); addTo(p, side + 'Wr', 0.35); addTo(p, side + 'Fi', -0.5 + Math.sin(t * 16 + ph) * 0.35); };
-    ty('l', 0); ty('r', 2.1);
-    addTo(p, 'head', -0.05, Math.sin(t * 0.6) * 0.25, 0);
+  terminals(t) { // stand-up typing at an agent pod, glancing at the log, leaning in to read, then pointing at the screen
+    const p = blank(), ph = t % 7, point = Math.min(1, Math.max(0, (ph - 4.8) / 0.4)) * (1 - Math.min(1, Math.max(0, (ph - 6.4) / 0.4)));
+    addTo(p, 'chest', 0.38 + Math.sin(t * 0.9) * 0.12, Math.sin(t * 0.5) * 0.12); addTo(p, 'spine', 0.12); addTo(p, 'lKn', 0.08); addTo(p, 'rKn', 0.08 + Math.max(0, Math.sin(t * 0.45)) * 0.15); addTo(p, 'lHip', -0.1); addTo(p, 'rHip', -0.1);
+    const ty = (side, ph2, w) => { addTo(p, side + 'Sh', (-0.95 + Math.sin(t * 9 + ph2) * 0.07) * w, 0, (side === 'l' ? 1 : -1) * 0.15); addTo(p, side + 'El', (-0.55 + Math.sin(t * 12 + ph2) * 0.1) * w, side === 'l' ? -0.4 : 0.4); addTo(p, side + 'Wr', 0.35 * w + Math.sin(t * 10 + ph2) * 0.15); addTo(p, side + 'Fi', -0.5 + Math.sin(t * 16 + ph2) * 0.6); };
+    ty('l', 0, 1); ty('r', 2.1, 1 - point);
+    addTo(p, 'rSh', -1.35 * point, 0, -0.1 * point); addTo(p, 'rEl', -0.15 * point); addTo(p, 'rFi', -0.3 * point);
+    addTo(p, 'head', -0.05 + Math.sin(t * 0.8) * 0.1, Math.sin(t * 0.6) * 0.5 * (1 - point), Math.sin(t * 0.4) * 0.08);
     return p;
   },
   lounge(t) { // sit back on the sofa, arms along the backrest, one leg crossed
@@ -329,6 +377,7 @@ function makeAnimator(bones, rest) {
     for (const j of J) for (let i = 0; i < 3; i++) cur[j][i] += (target[j][i] - cur[j][i]) * k;
     for (let i = 0; i < 3; i++) cur.root[i] += (target.root[i] - cur.root[i]) * k;
     for (const j of J) bones[j].rotation.set(cur[j][0], cur[j][1], cur[j][2]);
+    bones.lF2.rotation.x = cur.lFi[0] * 0.9; bones.rF2.rotation.x = cur.rFi[0] * 0.9;
     bones.hips.position.set(rest.hips.x + cur.root[0], rest.hips.y + cur.root[1], rest.hips.z + cur.root[2]);
   }
   return {

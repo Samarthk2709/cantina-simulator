@@ -241,6 +241,12 @@ export function buildSkyline(yaw) {
       }`,
   });
   const cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+  const crownMats = [new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.55, 0.25) }), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 0.6, 1.0) }), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.3, 0.6) })];
+  const roofM = new THREE.MeshBasicMaterial({ color: 0x0a0c10 });
+  // sodium haze glowing up from the streets along the horizon
+  const glowT = canvasTex(16, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,140,80,0)'); gr.addColorStop(0.55, 'rgba(255,130,80,0.05)'); gr.addColorStop(0.85, 'rgba(255,150,90,0.28)'); gr.addColorStop(1, 'rgba(255,170,110,0.42)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(240, 240, 90, 48, 1, true), new THREE.MeshBasicMaterial({ map: glowT, transparent: true, depthWrite: false, side: THREE.BackSide }));
+  glow.position.set(cx, 20, cz); glow.userData.city = true; glow.renderOrder = -1; C.scene.add(glow);
   let n = 0;
   for (let tries = 0; tries < 1600 && n < 150; tries++) {
     const far = n >= 75, x = far ? rr(-230, 60) : rr(-110, 40), z = far ? rr(-230, 60) : rr(-110, 40);
@@ -248,14 +254,27 @@ export function buildSkyline(yaw) {
     const d = Math.hypot(x - cx, z - cz); if (far ? d < 120 || d > 230 : d < 28 || d > 125) continue;
     const w = rr(10, 30), dd = rr(10, 30), hgt = d < 45 ? rr(14, 45) : far ? rr(50, 190) : rr(30, 120);
     const geo = new THREE.BoxGeometry(w, hgt, dd), sd = rnd() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
-    const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2); b.userData.city = true; C.scene.add(b);
+    const ry = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2);
+    const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = ry; b.userData.city = true; C.scene.add(b);
+    // setback upper tiers and lit crowns make the silhouettes read as real towers
+    let top = -9 + hgt;
+    if (hgt > 35 && rnd() < 0.6) { const h2 = hgt * rr(0.15, 0.35), g2 = new THREE.BoxGeometry(w * rr(0.55, 0.8), h2, dd * rr(0.55, 0.8)); g2.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(g2.attributes.position.count).fill(sd + 1), 1)); const b2 = new THREE.Mesh(g2, cityM); b2.position.set(x, top + h2 / 2, z); b2.rotation.y = ry; b2.userData.city = true; C.scene.add(b2); top += h2; }
+    if (rnd() < 0.45) { const cm = crownMats[Math.floor(rnd() * crownMats.length)], cr = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6 + 0.4, 1.2, dd * 0.6 + 0.4), cm); cr.position.set(x, top - 0.8, z); cr.rotation.y = ry; cr.userData.city = true; C.scene.add(cr); }
+    if (rnd() < 0.35) { const an = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 8, 6), roofM); an.position.set(x, top + 4, z); an.userData.city = true; C.scene.add(an); }
     if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconM || (beaconM = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) }))); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
   }
 }
 
 // ---------- global light rig ----------
+// warm uplights on the steel beams: wash the ceiling and the upper walls (and fill the dark back corner)
+function uplight(x, z) {
+  const M = C.M, g = group(null, x, H - 0.36, z);
+  cyl(0.07, 0.05, 0.08, M.steel, 0, 0, 0, g, 16, false); cyl(0.06, 0.06, 0.005, emissive(0xffe0b8, 2), 0, 0.043, 0, g, 16, false);
+  const l = new THREE.PointLight(0xffd9b0, 2.2, 4.4, 2); l.position.set(x, H - 0.2, z); return addLight(l);
+}
 export function buildLightRig() {
+  for (const [x, z] of [[3.5, 3.0], [3.5, 8.0], [11.5, 3.0], [11.5, 8.0]]) uplight(x, z);
   C.scene.add(new THREE.HemisphereLight(0x6a78a0, 0x3a2a20, 0.42));
   // moon / city glow through the NW windows: the one big shadow caster (window mullions and blind slats)
   const moon = new THREE.DirectionalLight(0x9db2e6, 1.25);
@@ -359,11 +378,25 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   const safe = group(g, r.cx + 0.05, 0, r.z0 + 0.42, -Math.PI / 2);
   const sm = worn(0x2c3a33, { roughness: 0.6, metalness: 0.6, ns: 0.5 });
   rbox(0.66, 1.05, 0.62, 0.03, sm, 0, 0.525, 0, safe);
-  rbox(0.56, 0.92, 0.04, 0.015, std(0x34423b, 0.28, 0.8), 0, 0.53, 0.32, safe);
-  const dial = cyl(0.07, 0.07, 0.03, M.brass, 0.1, 0.68, 0.35, safe, 32); dial.rotation.x = Math.PI / 2;
-  for (let i = 0; i < 3; i++) { const s = cyl(0.008, 0.008, 0.16, M.alu, -0.1, 0.55, 0.36, safe, 8); s.rotation.z = (i / 3) * Math.PI; }
-  cyl(0.025, 0.025, 0.05, M.alu, -0.1, 0.55, 0.35, safe, 16).rotation.x = Math.PI / 2;
-  for (const yy of [0.25, 0.85]) cyl(0.02, 0.02, 0.1, M.steelLight, 0.29, yy, 0.33, safe, 12);
+  // the door hangs on a hinge (left edge) so the robot can swing it open; the dial and wheel turn
+  rbox(0.58, 0.94, 0.02, 0.01, std(0x0b0d0c, 0.6, 0.2), 0, 0.53, 0.302, safe); // dark recess behind the door
+  const door = group(safe, -0.28, 0, 0.3); door.userData.dynamic = true;
+  rbox(0.56, 0.92, 0.045, 0.015, std(0x34423b, 0.28, 0.8), 0.28, 0.53, 0.025, door);
+  rbox(0.46, 0.8, 0.012, 0.01, std(0x2a3530, 0.35, 0.8), 0.28, 0.53, 0.052, door);  // inset panel
+  const dial = group(door, 0.38, 0.68, 0.06);
+  const dm = cyl(0.07, 0.07, 0.03, M.brass, 0, 0, 0, dial, 32); dm.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 24; i++) { const tk = box(0.004, 0.014, 0.004, std(0x1a1a1a, 0.5), Math.sin(i / 24 * 6.283) * 0.058, Math.cos(i / 24 * 6.283) * 0.058, 0.017, 1, dial, false); tk.rotation.z = -i / 24 * 6.283; }
+  box(0.01, 0.03, 0.006, std(0xb3261e, 0.4), 0, 0.075, 0.02, 1, dial, false);
+  const wheel = group(door, 0.18, 0.55, 0.07);
+  for (let i = 0; i < 3; i++) { const sp = cyl(0.008, 0.008, 0.16, M.alu, 0, 0, 0, wheel, 8); sp.rotation.z = (i / 3) * Math.PI; }
+  cyl(0.025, 0.025, 0.05, M.alu, 0, 0, -0.01, wheel, 16).rotation.x = Math.PI / 2;
+  for (const yy of [0.25, 0.85]) cyl(0.02, 0.02, 0.1, M.steelLight, 0.57, yy, 0.03, door, 12);
+  // inside: cash bricks and ledgers on a shelf, revealed when the door opens
+  box(0.5, 0.015, 0.45, std(0x5a5a52, 0.6, 0.4), 0, 0.5, 0.05, 1, safe, false);
+  binders(safe, -0.2, 0.51, 0.05, 4, 0);
+  C.safe = { door, dial, wheel };
+  // a key light on the safe so it reads in the dark corner (brightens while the robot works it)
+  const key = new THREE.SpotLight(0xffe2bb, 3.5, 4, 0.55, 0.6, 2); key.position.set(r.cx - 1.1, 2.4, r.z0 + 0.45); key.target.position.set(r.cx - 0.1, 0.55, r.z0 + 0.42); addLight(key); C.safe.key = key;
   books(safe, -0.27, 1.05, -0.05, 6, 0, true);
   // cash stacks + banker's lamp on the safe
   const cashT = canvasTex(128, 64, (q, w, h) => { q.fillStyle = '#5f7f5a'; q.fillRect(0, 0, w, h); q.strokeStyle = '#2f4a2c'; q.strokeRect(6, 6, w - 12, h - 12); q.fillStyle = '#d8c79a'; q.fillRect(54, 0, 20, h); q.fillStyle = '#2f4a2c'; q.font = 'bold 20px Georgia'; q.fillText('100', 12, 40); });
@@ -419,13 +452,13 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
     pen('#b3261e', 6); c.beginPath(); c.arc(700, 440, 75, 0, 7); c.stroke();
     ['#ffe873', '#ff9ec7', '#8de3ff'].forEach((col, i) => { c.fillStyle = col; c.save(); c.translate(80 + i * 130, 420); c.rotate(rr(-0.1, 0.1)); c.fillRect(0, 0, 110, 110); c.fillStyle = '#333'; c.font = '20px "Marker Felt", cursive'; c.fillText(['retest', 'ask Nib', 'CVE?'][i], 12, 50); c.restore(); });
   });
-  const wb = group(g, r.cx + 0.1, 0, r.z0 - 0.12); wb.scale.set(0.95, 0.8, 1);
+  const wb = group(g, r.cx + 1.12, 0, r.z0 - 0.12); wb.scale.set(0.95, 0.8, 1);
   { const wm = std(0xd8d8d8, 0.3, 0, { map: wbT }), bm = std(0x9a9c9e, 0.6); const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.03), [bm, bm, bm, bm, wm, bm]); b.position.set(0, 1.45, 0); b.castShadow = b.receiveShadow = true; wb.add(b); }
   box(1.64, 0.025, 0.04, M.alu, 0, 1.96, 0, 1, wb); box(1.64, 0.025, 0.04, M.alu, 0, 0.94, 0, 1, wb);
   box(1.4, 0.03, 0.07, M.alu, 0, 0.93, 0.03, 1, wb);
   for (let i = 0; i < 3; i++) { const mk = cyl(0.008, 0.008, 0.12, std([0x1f3b8f, 0xb3261e, 0x1b7a3a][i], 0.4), -0.3 + i * 0.05, 0.955, 0.04, wb, 8, false); mk.rotation.z = Math.PI / 2; }
   for (const s of [-1, 1]) { box(0.035, 1.9, 0.035, M.alu, s * 0.82, 0.98, 0, 1, wb); box(0.035, 0.035, 0.5, M.alu, s * 0.82, 0.06, 0, 1, wb); }
-  C.colliders.push({ x0: r.cx + 0.1 - 0.85, x1: r.cx + 0.1 + 0.85, z0: r.z0 - 0.4, z1: r.z0 - 0.02 });
+  C.colliders.push({ x0: r.cx + 1.12 - 0.8, x1: r.cx + 1.12 + 0.8, z0: r.z0 - 0.4, z1: r.z0 - 0.02 });
   pendant(r.cx, r.cz + 0.15, 1.15, { shadow: true, id, intensity: 10, tz: 0.35 });
   lampPoint(r.cx + 0.42, y + 0.45, r.cz - 0.02, 0xa58cff, 0.5, 2.0, id);
   standbyTag(g, r.cx, y + 0.45, r.cz - 0.2, 0, id);
@@ -624,8 +657,8 @@ function buildDecor() {
   const arc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(-0.4, 2.0, -0.2), new THREE.Vector3(-1.1, 1.85, -0.35)]);
   const am = new THREE.Mesh(new THREE.TubeGeometry(arc, 40, 0.012, 8), M.brass); am.castShadow = true; fl.add(am);
   const sh = new THREE.Mesh(new THREE.SphereGeometry(0.17, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x111111, 0.3, 0.8, { side: THREE.DoubleSide })); sh.position.set(-1.1, 1.82, -0.35); fl.add(sh);
-  const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 5)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
-  const fll = new THREE.SpotLight(0xffb070, 14, 6, 1.1, 0.8, 2); fll.position.set(3.85, 1.75, Z1 - 0.7); fll.target.position.set(3.6, 0, Z1 - 1.0);
+  const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 2)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
+  const fll = new THREE.SpotLight(0xffb070, 9, 6, 1.1, 0.8, 2); fll.position.set(3.85, 1.75, Z1 - 0.7); fll.target.position.set(3.6, 0, Z1 - 1.0);
   fll.castShadow = true; fll.shadow.mapSize.set(1024, 1024); fll.shadow.bias = -0.0004; fll.shadow.radius = 5; addLight(fll);
   C.colliders.push({ x0: 4.75, x1: 5.15, z0: Z1 - 0.55, z1: Z1 - 0.15 });
   poster('ship', 2.7, 1.65, Z1 - 0.02, Math.PI, 0.62); poster('nib', 4.0, 1.65, Z1 - 0.02, Math.PI, 0.62);

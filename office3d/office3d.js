@@ -255,7 +255,7 @@ function updatePlayer(dt) {
   else { vis.copy(pos); visH = heading; }
   player.position.copy(vis); player.rotation.y = visH;
   robot.anim.update(dt, performance.now() / 1000, anim);
-  sparks(dt, !!(act && act.id === 'forge' && act.phase === 'loop'));
+  sparks(dt, !!(act && act.id === 'forge' && act.phase === 'loop')); stationFX(dt);
 }
 
 // small solder sparks from the robot's tool hand while it tinkers at the forge
@@ -263,13 +263,13 @@ const SPK = { n: 40, pts: null, life: new Float32Array(40), vel: new Float32Arra
 function sparks(dt, on) {
   if (!SPK.pts) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SPK.n * 3), 3));
-    SPK.pts = new THREE.Points(g, new THREE.PointsMaterial({ color: new THREE.Color(2.2, 1.1, 0.35), size: 0.012, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    SPK.pts = new THREE.Points(g, new THREE.PointsMaterial({ color: new THREE.Color(3.5, 1.8, 0.6), size: 0.03, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     SPK.pts.frustumCulled = false; SPK.pts.userData.dynamic = true; scene.add(SPK.pts);
   }
   const P = SPK.pts.geometry.attributes.position, hand = robot.bones.rFi.getWorldPosition(new THREE.Vector3());
   SPK.t += dt;
   for (let i = 0; i < SPK.n; i++) {
-    if (SPK.life[i] <= 0) { if (on && Math.random() < dt * 30 && Math.sin(SPK.t * 3) > 0.2) { SPK.life[i] = 0.25 + Math.random() * 0.35; P.setXYZ(i, hand.x, hand.y - 0.03, hand.z); SPK.vel.set([(Math.random() - 0.5) * 1.4, Math.random() * 1.2, (Math.random() - 0.5) * 1.4], i * 3); } else { P.setXYZ(i, 0, -50, 0); continue; } }
+    if (SPK.life[i] <= 0) { if (on && Math.random() < dt * 45 && Math.sin(SPK.t * 2.2) > -0.3) { SPK.life[i] = 0.25 + Math.random() * 0.35; P.setXYZ(i, hand.x, hand.y - 0.03, hand.z); SPK.vel.set([(Math.random() - 0.5) * 1.4, Math.random() * 1.2, (Math.random() - 0.5) * 1.4], i * 3); } else { P.setXYZ(i, 0, -50, 0); continue; } }
     SPK.life[i] -= dt; SPK.vel[i * 3 + 1] -= 6 * dt;
     P.setXYZ(i, P.getX(i) + SPK.vel[i * 3] * dt, Math.max(0.92, P.getY(i) + SPK.vel[i * 3 + 1] * dt), P.getZ(i) + SPK.vel[i * 3 + 2] * dt);
   }
@@ -282,11 +282,11 @@ function sparks(dt, on) {
 // is open; closing the window plays the exit (stand up / step back) and returns control.
 const vis = new THREE.Vector3(); let visH = Math.PI;
 const USE = {
-  hunt: [7.175, 4.83, Math.PI], contract: [2.725, 3.31, Math.PI], stats: [12.5, 2.67, Math.PI / 2], training: [11.55, 7.75, -1.94],
-  forge: [3.75, 8.55, Math.PI], hq: [7.5, 2.55, Math.PI], rig: [12.38, 8.93, 0], terminals: [13.125, 7.4, 0], lounge: [3.2, 9.95, Math.PI],
+  hunt: [7.175, 4.83, Math.PI], contract: [2.725, 3.31, Math.PI], stats: [12.5, 2.67, Math.PI / 2], training: [11.47, 7.8, Math.PI],
+  forge: [3.75, 8.55, Math.PI], hq: [7.25, 1.62, Math.PI], rig: [12.38, 8.93, 0], terminals: [13.125, 7.4, 0], lounge: [3.2, 9.95, Math.PI],
 };
 let act = null;
-const angDiff = (a, b) => ((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+const angDiff = (a, b) => { const d = b - a; return Math.atan2(Math.sin(d), Math.cos(d)); };
 function startInteraction(id) {
   if (!USE[id]) return Promise.reject(new Error('no such station: ' + id));
   if (act && act.id === id && act.phase === 'loop') return Promise.resolve(id);
@@ -295,6 +295,38 @@ function startInteraction(id) {
   act = { id, phase: 'walk', t: 0, st: 0, spot: new THREE.Vector3(x, 0, z), h, resolve };
   if (vis.distanceTo(act.spot) > 4) { vis.set(x - Math.sin(h) * 0.9, 0, z - Math.cos(h) * 0.9); } // far away: start a short walk from just behind the spot
   return p;
+}
+// while a station is being used it is lit and its screens are on (even if the game hasn't unlocked it yet)
+let usePowered = null;
+function usePower(id, on) {
+  if (on && !powered[id] && C.power[id]) { for (const fn of C.power[id]) fn(true); usePowered = id; }
+  if (!on && usePowered) { if (!powered[usePowered]) for (const fn of C.power[usePowered] || []) fn(false); usePowered = null; }
+}
+let ledger = null;
+function buildLedger() { // a ledger the robot holds and leafs through at the vault
+  const g = new THREE.Group(), cover = new THREE.MeshStandardMaterial({ color: 0x1f4a2e, roughness: 0.6 }), paper = new THREE.MeshStandardMaterial({ color: 0xece4cf, roughness: 0.9, side: THREE.DoubleSide });
+  const b = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); g.add(o); return o; };
+  b(0.16, 0.006, 0.22, cover, -0.08, 0, 0); b(0.16, 0.006, 0.22, cover, 0.08, 0, 0); b(0.15, 0.012, 0.21, paper, -0.08, 0.009, 0); b(0.15, 0.012, 0.21, paper, 0.08, 0.009, 0);
+  const pivot = new THREE.Group(); pivot.position.set(0, 0.016, 0); g.add(pivot);
+  const pg = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.21), paper); pg.rotation.x = -Math.PI / 2; pg.position.x = 0.075; pivot.add(pg);
+  g.userData = { pivot, dynamic: true }; g.position.set(0, -0.09, 0.05); g.rotation.set(-1.2, 0, 0); g.visible = false;
+  robot.bones.lWr.add(g); return g;
+}
+function stationFX(dt) {
+  const st = act && (act.phase === 'loop' || act.phase === 'enter' || act.phase === 'exit') ? act.id : null, t = act ? act.st : 0;
+  if (st) usePower(st, true); else usePower(null, false);
+  // vault: spin the dial, swing the door, leaf through the ledger
+  const S = C.safe;
+  if (S) {
+    const ph = st === 'stats' ? t % 9 : 0, open = st === 'stats' ? Math.min(1, Math.max(0, (ph - 3) / 0.9)) * (1 - Math.min(1, Math.max(0, (ph - 8) / 0.9))) : 0;
+    S.door.rotation.y += (-1.5 * open - S.door.rotation.y) * Math.min(1, dt * 6);
+    if (st === 'stats' && ph < 3) S.dial.rotation.z = Math.sin(t * 2.6) * 2.2;
+    if (st === 'stats' && ph >= 2.6 && ph < 3.4) S.wheel.rotation.z += dt * 6;
+    S.key.intensity += ((st === 'stats' ? 9 : 3.5) - S.key.intensity) * Math.min(1, dt * 4);
+    if (!ledger) ledger = buildLedger();
+    ledger.visible = st === 'stats' && act.phase !== 'exit';
+    if (ledger.visible) ledger.userData.pivot.rotation.z = (Math.sin(t * 1.6) > 0.6 ? Math.PI * Math.min(1, (Math.sin(t * 1.6) - 0.6) * 3) : 0);
+  }
 }
 function stepInteraction(dt) {
   const A = act; A.t += dt;
@@ -346,6 +378,8 @@ function interact(id) {
 
 const DOF = { focus: 2.6, ap: 0.12 };
 let userOrbit = false; const camTgt = new THREE.Vector3();
+// never let the camera sit inside the robot (exit animations, tight corners): push it out horizontally
+function keepOff(p) { const dx = p.x - vis.x, dz = p.z - vis.z, d = Math.hypot(dx, dz), m = 0.95; if (d < m && p.y < 1.9) { const k = d > 1e-3 ? m / d : 0; if (k) { p.x = vis.x + dx * k; p.z = vis.z + dz * k; } else p.y = 1.95; } }
 function stationCam(id) {
   const sp = USE[id], c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95], f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x);
   return { p: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]), t: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]) };
@@ -366,8 +400,9 @@ function updateCamera(dt) {
   if (nib3d) nib3d.visible = true;
   // station interactions get a framed shot of the robot at work (until the player drags the camera)
   if (act && !userOrbit && act.phase !== 'walk' && act.phase !== 'return') {
+    yaw = Math.atan2(camPos.x - vis.x, camPos.z - vis.z); // so the orbit camera resumes from here, not from behind the robot's old spot
     const { p, t } = stationCam(act.id), k = Math.min(1, dt * 3);
-    camPos.lerp(p, k); camTgt.lerp(t, k); camera.position.copy(camPos); camera.lookAt(camTgt);
+    camPos.lerp(p, k); camTgt.lerp(t, k); keepOff(camPos); camera.position.copy(camPos); camera.lookAt(camTgt);
     if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
     DOF.focus = camPos.distanceTo(vis) + 0.2; DOF.ap = 0.1; player.visible = true;
     if (charLight) { const hd = new THREE.Vector3(vis.x, 1.3, vis.z), toCam = camPos.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
@@ -387,7 +422,7 @@ function updateCamera(dt) {
   if (hit) want = target.clone().addScaledVector(off.clone().normalize(), Math.max(0.35, hit.distance - 0.22));
   want.x = THREE.MathUtils.clamp(want.x, X0 + 0.15, X1 - 0.15); want.z = THREE.MathUtils.clamp(want.z, Z0 + 0.15, Z1 - 0.15); want.y = THREE.MathUtils.clamp(want.y, 0.25, H - 0.15);
   if (!camInit) { camPos.copy(want); camInit = true; }
-  camPos.lerp(want, Math.min(1, dt * 12));
+  camPos.lerp(want, Math.min(1, dt * (act ? 3 : 12))); keepOff(camPos);
   camera.position.copy(camPos); camera.lookAt(target);
   player.visible = camPos.distanceTo(head) > 0.45;
   if (rimLight) { const away = head.clone().sub(camPos).setY(0).normalize(); rimLight.position.copy(head).addScaledVector(away, 0.75).add(new THREE.Vector3(0, 0.35, 0)); }
@@ -501,7 +536,7 @@ function buildPost() {
   gtao.blendIntensity = 1.0;
   composer.addPass(gtao);
   cine = new ShaderPass(CineShader); cine.uniforms.tDepth.value = prepass.rt.depthTexture; composer.addPass(cine);
-  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.2, 0.45, 1.6);
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.12, 0.4, 1.8);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
@@ -655,8 +690,8 @@ function syncStations(force) {
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 // camera for station shots, in the robot's frame: [forward, height, side, target forward, target height]
 const USE_CAM = {
-  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.5, 1.6, -1.2, 0.6, 1.3],
-  forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.6, 1.6, 1.4, 0.8, 1.35], rig: [-0.95, 1.55, -1.2, 0.5, 1.05], terminals: [-1.3, 1.65, -1.1, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
+  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.2, 1.75, -0.45, 0.4, 1.35],
+  forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.5, 1.55, 1.2, 0.5, 1.4], rig: [-0.95, 1.55, -1.2, 0.5, 1.05], terminals: [-1.3, 1.65, -1.1, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
 };
 const DESK_VIEWS = {
   'desk-hunt': { p: V3(8.15, 1.18, 5.05), t: V3(7.0, 0.92, 3.95), fov: 48, ap: 0.16 },
