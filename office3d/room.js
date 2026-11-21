@@ -508,7 +508,7 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
     rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk);
     const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
-    const gl = plane(0.6, 1.86, M.glass, 0, 0.98, -0.37, rk); gl.rotation.y = Math.PI; gl.userData.noAO = true;
+    const gl = plane(0.6, 1.86, new THREE.MeshPhysicalMaterial({ color: 0x9fb0c0, roughness: 0.08, transparent: true, opacity: 0.05, envMapIntensity: 0.8, depthWrite: false }), 0, 0.98, -0.37, rk); gl.rotation.y = Math.PI; gl.userData.noAO = true;
     box(0.03, 1.2, 0.03, M.alu, 0.26, 1.0, -0.38, 1, rk);
     // warning label
     const wl = plane(0.12, 0.08, new THREE.MeshStandardMaterial({ map: canvasTex(64, 48, (q, w, h) => { q.fillStyle = '#f5c518'; q.fillRect(0, 0, w, h); q.fillStyle = '#111'; q.beginPath(); q.moveTo(32, 6); q.lineTo(56, 42); q.lineTo(8, 42); q.closePath(); q.fill(); q.fillStyle = '#f5c518'; q.font = 'bold 22px Arial'; q.fillText('!', 28, 38); }), roughness: 0.6 }), -0.2, 1.75, -0.375, rk); wl.rotation.y = Math.PI;

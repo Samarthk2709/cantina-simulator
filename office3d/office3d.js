@@ -448,14 +448,14 @@ const DESK_VIEWS = {
   'desk-training': { p: V3(11.1, 1.3, 9.1), t: V3(10.0, 0.95, 7.6), fov: 50, ap: 0.16 },
   'desk-forge': { p: V3(4.75, 1.45, 9.05), t: V3(3.65, 1.05, 7.65), fov: 50, ap: 0.16 },
   'desk-hq': { p: V3(8.9, 1.5, 3.35), t: V3(7.3, 1.45, 0.9), fov: 52, ap: 0.12 },
-  'desk-rig': { p: V3(11.6, 1.25, 8.95), t: V3(14.0, 1.2, 9.2), fov: 54, ap: 0.12, focus: 1.6 },
+  'desk-rig': { p: V3(12.2, 2.05, 8.45), t: V3(13.35, 0.95, 9.25), fov: 54, ap: 0.12 },
   'desk-terminals': { p: V3(11.2, 1.6, 6.7), t: V3(13.0, 0.95, 8.2), fov: 50, ap: 0.14 },
   'lounge': { p: V3(5.7, 1.45, 7.6), t: V3(3.3, 0.6, 9.9), fov: 52, ap: 0.1 },
 };
 function setPlayer(x, z, h, facing) { pos.set(x, 0, z); heading = h; world.setPose(x / K, z / K, facing || 'up', false); speedNow = 0; for (const k in blend) blend[k] = k === 'idle' ? 1 : 0; }
 function approach(id) { const s = window.CantinaWorld.stations.find(s => s.id === id); return s ? [s.approach.x * K, s.approach.y * K] : [7.1, 7.1]; }
 function shots() {
-  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'wide-ne' }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
+  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'wide-ne' }, { name: 'portrait' }, { name: 'walk-side', wait: 1500 }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
     ...Object.keys(DESK_VIEWS).map(name => ({ name }))];
 }
 function shot(name) {
