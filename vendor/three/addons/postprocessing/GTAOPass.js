@@ -655,7 +655,7 @@ class GTAOPass extends Pass {
 
 		scene.traverse( function ( object ) {
 
-			if ( ( object.isPoints || object.isLine || object.isLine2 ) && object.visible ) {
+			if ( ( object.isPoints || object.isLine || object.isLine2 || object.userData.noAO ) && object.visible ) { // First Office: haze volumes and glass stay out of the AO/depth buffer
 
 				object.visible = false;
 				cache.push( object );
