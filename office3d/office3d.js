@@ -327,7 +327,7 @@ function buildPost() {
   smaa = new SMAAPass(); composer.addPass(smaa);
 }
 function applyQuality() {
-  const dpr = Math.min(devicePixelRatio || 1, quality === 'low' ? 0.75 : quality === 'medium' ? 1 : 1.25);
+  const dpr = quality === 'ultra' ? 1.5 : Math.min(devicePixelRatio || 1, quality === 'low' ? 0.75 : quality === 'medium' ? 1 : 1.25);
   renderer.setPixelRatio(dpr); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(dpr); composer.setSize(innerWidth, innerHeight);
   gtao.enabled = quality !== 'low'; cine.enabled = quality !== 'low';
   renderer.shadowMap.enabled = true;
@@ -381,7 +381,7 @@ const DESK_VIEWS = {
   'desk-training': { p: V3(11.1, 1.3, 9.1), t: V3(10.0, 0.95, 7.6), fov: 50, ap: 0.4 },
   'desk-forge': { p: V3(4.75, 1.45, 9.05), t: V3(3.65, 1.05, 7.65), fov: 50, ap: 0.4 },
   'desk-hq': { p: V3(8.9, 1.5, 3.35), t: V3(7.3, 1.45, 0.9), fov: 52, ap: 0.3 },
-  'desk-rig': { p: V3(11.5, 1.85, 7.25), t: V3(13.4, 1.05, 9.45), fov: 50, ap: 0.3 },
+  'desk-rig': { p: V3(11.6, 1.25, 8.95), t: V3(14.0, 1.2, 9.2), fov: 56, ap: 0.3, focus: 1.6 },
   'desk-terminals': { p: V3(11.2, 1.6, 6.7), t: V3(13.0, 0.95, 8.2), fov: 50, ap: 0.35 },
   'lounge': { p: V3(5.7, 1.45, 7.6), t: V3(3.3, 0.6, 9.9), fov: 52, ap: 0.3 },
 };

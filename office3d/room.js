@@ -341,8 +341,8 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
   for (let i = 0; i < 3; i++) { const mk = cyl(0.008, 0.008, 0.12, std([0x1f3b8f, 0xb3261e, 0x1b7a3a][i], 0.4), -0.3 + i * 0.05, 0.955, 0.04, wb, 8, false); mk.rotation.z = Math.PI / 2; }
   for (const s of [-1, 1]) { box(0.035, 1.9, 0.035, M.alu, s * 0.82, 0.98, 0, 1, wb); box(0.035, 0.035, 0.5, M.alu, s * 0.82, 0.06, 0, 1, wb); }
   C.colliders.push({ x0: r.cx + 0.1 - 0.85, x1: r.cx + 0.1 + 0.85, z0: r.z0 - 0.4, z1: r.z0 - 0.02 });
-  pendant(r.cx, r.cz + 0.15, 1.15, { shadow: true, id, intensity: 16, tz: 0.35 });
-  lampPoint(r.cx + 0.3, y + 0.32, r.cz + 0.05, 0xa58cff, 0.9, 2.2, id);
+  pendant(r.cx, r.cz + 0.15, 1.15, { shadow: true, id, intensity: 10, tz: 0.35 });
+  lampPoint(r.cx + 0.42, y + 0.45, r.cz - 0.02, 0xa58cff, 0.5, 2.0, id);
   standbyTag(g, r.cx, y + 0.45, r.cz - 0.2, 0, id);
 }
 function buildForge() { // Agent Forge: a workbench where tools get built.
@@ -379,9 +379,9 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   // tool cart beside the bench
   place('tool_cart', r.x0 - 0.75, 0, r.cz + 0.05, Math.PI / 2, 0.75, g);
   C.colliders.push({ x0: r.x0 - 1.1, x1: r.x0 - 0.35, z0: r.cz - 0.5, z1: r.cz + 0.55 });
-  lampPoint(r.cx, y + 0.85, r.cz, 0xfff0d8, 1.6, 2.6, id);
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.015, 0.03), emissive(0xfff2dc, 6)); strip.position.set(r.cx, y + 0.95, r.z0 + 0.03); g.add(strip);
-  onPower(id, on => (strip.material.emissiveIntensity = on ? 6 : 0));
+  lampPoint(r.cx, y + 0.85, r.cz + 0.15, 0xfff0d8, 0.7, 2.4, id);
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.015, 0.03), emissive(0xfff2dc, 3)); strip.position.set(r.cx, y + 0.95, r.z0 + 0.03); g.add(strip);
+  onPower(id, on => (strip.material.emissiveIntensity = on ? 3 : 0));
   pendant(r.cx, r.cz + 0.1, 1.2, { id, intensity: 18, color: 0xffd2a0 });
   standbyTag(g, r.cx, y + 0.35, r.z0 + 0.06, 0, id);
 }
@@ -595,8 +595,33 @@ function buildDecor() {
 
 export function buildRoom(G) {
   buildShell(); buildLightRig();
-  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor();
+  buildHunt(); buildContract(); buildStats(); buildTraining(); buildForge(); buildHQ(G); buildRig(); buildTerminals(); buildDecor(); buildDust();
+}
+// Dust motes drifting in the lamp light: each mote's brightness is baked from the nearby practicals, so they only show
+// where light would catch them.
+let dust;
+function buildDust() {
+  const n = 1400, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), seedA = new Float32Array(n);
+  const ls = C.lights.filter(l => (l.isPointLight || l.isSpotLight) && l.intensity > 0);
+  for (let i = 0; i < n; i++) {
+    const x = rr(X0 + 0.2, X1 - 0.2), y = rr(0.3, 2.4), z = rr(Z0 + 0.2, Z1 - 0.2); pos.set([x, y, z], i * 3); seedA[i] = rnd() * 100;
+    const c = new THREE.Color(0, 0, 0);
+    for (const l of ls) { const d2 = (l.position.x - x) ** 2 + (l.position.y - y) ** 2 + (l.position.z - z) ** 2; let k = Math.min(l.intensity, 6) / (1 + d2 * 6); if (l.isSpotLight && y > l.position.y) k *= 0.15; c.add(l.color.clone().multiplyScalar(k)); }
+    // moonlight shafts near the west windows
+    if (x < 3.5 && ((z > 1.4 && z < 4.6) || (z > 5.4 && z < 9.6)) && y < 2.6 && y > (x - X0) * 0.55) c.add(new THREE.Color(0x9db6ff).multiplyScalar(0.25));
+    col.set([c.r, c.g, c.b].map(v => Math.min(v, 1.0) * 0.55), i * 3);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('seed', new THREE.BufferAttribute(seedA, 1));
+  const m = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `attribute float seed; attribute vec3 color; uniform float time; varying vec3 vC; varying float vA;
+      void main(){ vec3 p = position + vec3(sin(time*0.07+seed)*0.25, sin(time*0.05+seed*1.7)*0.18, cos(time*0.06+seed*0.9)*0.25);
+        vec4 mv = modelViewMatrix * vec4(p,1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(9.0 / -mv.z, 1.0, 6.0); vC = color; vA = 0.5 + 0.5 * sin(time * 0.8 + seed * 3.0); }`,
+    fragmentShader: `varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.0, length(d)); gl_FragColor = vec4(vC * a * (0.4 + 0.6 * vA), 1.0); }`,
+  });
+  dust = new THREE.Points(g, m); dust.frustumCulled = false; dust.userData.noAO = true; C.scene.add(dust);
 }
 export function tickRoom(t) {
+  if (dust) dust.material.uniforms.time.value = t;
   for (const m of rackLeds) if (!m.userData.off) m.emissiveIntensity = 1.3 + Math.sin(t * 7 + m.id) * 0.25;
 }
