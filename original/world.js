@@ -878,7 +878,7 @@
     function onKeyDown(e) {
       if (!active() || e.ctrlKey || e.metaKey || e.altKey || ignoreTarget(e.target)) return;
       var d = KEYS[e.code] || KEYS[e.key];
-      if (d) { keys[d] = true; route = []; routeFace = null; arrive = null; e.preventDefault(); return; }
+      if (d) { if (ext) return; keys[d] = true; route = []; routeFace = null; arrive = null; e.preventDefault(); return; }
       if (e.code === 'KeyE' || e.code === 'Space' || e.key === 'e' || e.key === 'E' || e.key === ' ') {
         if ((e.code === 'Space' || e.key === ' ') && e.target && e.target.tagName === 'BUTTON') return;
         e.preventDefault();
@@ -900,7 +900,7 @@
       if (on !== hoverOn) { hoverOn = on; poke(); }
     }
     function onPointer(e) {
-      if (!active()) return;
+      if (!active() || ext) return;
       var rc = canvas.getBoundingClientRect();
       if (!rc.width || !rc.height) return;
       var wx = ((e.clientX - rc.left) * canvas.width / rc.width - view.ox) / view.s, wy = ((e.clientY - rc.top) * canvas.height / rc.height - view.oy) / view.s;
@@ -920,7 +920,7 @@
     // behind it. Only if it can't move at all does your step stop. bodiesFn: [{x, y, push(x, y, ux, uy)}] (game.js).
     // A personal-space ellipse (office px): side by side they keep a body's width apart, one above the other a bit more,
     // so nobody sinks into anybody. It's checked every step, so an agent walking into you is moved aside as well.
-    var bodiesFn = null, RX = 13, RY = 15, playerHidden = false;
+    var bodiesFn = null, RX = 13, RY = 15, playerHidden = false, ext = false; // ext: a 3D view (office3d/) moves the founder and draws the room
     function shoveBodies(x0, y0) {
       if (!bodiesFn || cur.id !== 'office') return;
       var bs = bodiesFn() || [], mx = P.x - x0, my = P.y - y0, mn = Math.hypot(mx, my);
@@ -1179,7 +1179,7 @@
       var want = active() && (held() || route.length > 0) || walkers || hoverK !== hk0 || (cam.k > 0 && cam.k < 1) || pulseT > 0 || fx || !!(window.StationFX && anim && window.StationFX.busy());
       if (dirty || want || moving !== wasMoving || P.x !== x0 || P.y !== y0 || cam.k !== k0 || pulseT !== p0 || f !== lastF || founderSig() !== f0 || now - lastDraw >= SAFETY) {
         dirty = false; wasMoving = moving; lastF = f; lastDraw = now;
-        emitCtx(); draw();
+        emitCtx(); if (!ext) draw();
       }
       awake = !!want; clearTimeout(tmr); tmr = 0;
       // Asleep: wake for the next sprite frame (f changes 8x/s), or for the 250 ms safety redraw under reduced motion.
@@ -1276,6 +1276,13 @@
       setCamera: function (o) { if (o && 'follow' in o) cam.follow = !!o.follow; if (o && +o.zoom > 1) cam.zoom = +o.zoom; },
       setPlayerHidden: function (v) { if (playerHidden !== !!v) { playerHidden = !!v; poke(); } },
       playerPose: function () { return { room: cur.id, x: P.x, y: P.y, step: moving ? ((walk / 5) | 0) % 4 : 0, back: P.facing === 'up', flip: P.facing === 'left' }; },
+      // 3D view hooks: setExternal(true) hands movement and drawing to office3d/; setPose places the founder
+      // (already collision-checked with walkable), so stations, prompts and E keep working from the 2D logic.
+      setExternal: function (on) { ext = !!on; clearInput(); poke(); },
+      setPose: function (x, y, facing, mv) { if (x !== P.x || y !== P.y) { if (mv) walkedByPlayer += Math.hypot(x - P.x, y - P.y); P.x = x; P.y = y; route = []; routeFace = null; arrive = null; } if (DIRS[facing]) P.facing = facing; moving = !!mv; poke(); },
+      walkable: function (x, y) { return cur.id === 'office' && walkable(x, y); },
+      active: function () { return active(); },
+      routing: function () { return route.length > 0; },
       setBodies: function (fn) { bodiesFn = typeof fn === 'function' ? fn : null; },
       camera: function () { return { follow: cam.follow, zoom: cam.zoom, moving: cam.k > 0 && cam.k < 1 }; },
       setInsets: function (v) {

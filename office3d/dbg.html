@@ -1,0 +1,15 @@
+<!doctype html><html><body style="margin:0;background:#333">
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.js","three/addons/":"../vendor/three/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const r = new THREE.WebGLRenderer({antialias:true}); r.setSize(1200,600); document.body.appendChild(r.domElement);
+const s = new THREE.Scene(); s.background=new THREE.Color(0x667788); s.add(new THREE.HemisphereLight(0xffffff,0x444444,3));
+const cam = new THREE.PerspectiveCamera(40,2,0.1,50); cam.position.set(0,1.2,4.5); cam.lookAt(0,0.9,0);
+const L = new GLTFLoader(); const A='assets/char/';
+const [mi, so, xb] = await Promise.all(['Michelle','Soldier','Xbot'].map(n=>L.loadAsync(A+n+'.glb')));
+const out = {};
+for (const [n,g] of Object.entries({mi,so,xb})) { const sk=[]; g.scene.traverse(o=>{if(o.isSkinnedMesh)sk.push(o.name)}); const b=new THREE.Box3().setFromObject(g.scene); out[n]={anims:g.animations.map(a=>a.name+':'+a.duration.toFixed(2)+':'+a.tracks.length), sk, h:b.max.y-b.min.y, hips:(()=>{let h;g.scene.traverse(o=>{if(/Hips/.test(o.name)&&o.isBone)h=o.name});return h})()}; }
+window.out=out; window.lib={THREE,mi,so,xb,s,r,cam};
+document.title='ready';
+</script></body></html>

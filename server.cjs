@@ -19,7 +19,7 @@ const KEY = process.env.DEEPINFRA_API_KEY || '';
 const MODEL = 'google/gemma-4-26B-A4B-it', ENDPOINT = 'https://api.deepinfra.com/v1/openai/chat/completions';
 const LIMIT = {perMinute: 40, perDay: 800};
 const usage = {day: new Date().toISOString().slice(0, 10), count: 0, minute: [], inTokens: 0, cachedTokens: 0, outTokens: 0};
-const TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8'};
+const TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.jpg': 'image/jpeg', '.gltf': 'model/gltf+json', '.glb': 'model/gltf-binary', '.bin': 'application/octet-stream', '.hdr': 'application/octet-stream'};
 
 // Nib's Stage 1 chat: DeepInfra Gemma when there's a key, otherwise a local llama-server if one is running.
 const nib = require('./nib-chat.cjs').create({provider: KEY ? 'deepinfra' : 'local', apiKey: KEY, localUrl: process.env.FIRST_OFFICE_MODEL_URL || 'http://127.0.0.1:8088', quota: () => quota()});
