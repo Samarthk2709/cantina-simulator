@@ -18,22 +18,22 @@ function palette() {
     orm.set([255, rough * 255, metal * 255, 255], id * 4);
     const e = new THREE.Color(emHex); em.set([e.r * 255, e.g * 255, e.b * 255, 255], id * 4);
   };
-  set(PAL.ivory, 0xe6e0d4, 0.34, 0.0);
-  set(PAL.ivoryDark, 0xc9c2b4, 0.4, 0.0);
-  set(PAL.orange, 0xd4561f, 0.32, 0.0);
+  set(PAL.ivory, 0xe6e0d4, 0.4, 0.0);
+  set(PAL.ivoryDark, 0xc9c2b4, 0.45, 0.0);
+  set(PAL.orange, 0xd4561f, 0.4, 0.0);
   set(PAL.graphite, 0x34373c, 0.38, 0.75);
   set(PAL.rubber, 0x161719, 0.82, 0.0);
   set(PAL.visor, 0x07090c, 0.06, 0.2);
   set(PAL.chrome, 0xb8bcc2, 0.22, 1.0);
   set(PAL.eye, 0x0a1214, 0.3, 0.0, 0x9ff6ff);
   set(PAL.seam, 0x26292e, 0.6, 0.4);
-  set(PAL.led, 0x0a0a0a, 0.4, 0.0, 0xffa040);
+  set(PAL.led, 0x0a0a0a, 0.4, 0.0, 0x9a5a22);
   set(PAL.sole, 0x101112, 0.9, 0.0);
   const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.NearestFilter; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
   const cc = new Uint8Array(N * 4); for (let i = 0; i < N; i++) { const painted = i === PAL.ivory || i === PAL.orange || i === PAL.ivoryDark; cc.set([painted ? 255 : 20, 0, 0, 255], i * 4); }
   const m = new THREE.MeshPhysicalMaterial({
     map: tex(col, true), roughnessMap: tex(orm), metalnessMap: tex(orm), emissiveMap: tex(em, true), emissive: 0xffffff, emissiveIntensity: 2.2,
-    roughness: 1, metalness: 1, clearcoat: 0.9, clearcoatMap: tex(cc), clearcoatRoughness: 0.12, envMapIntensity: 1.0, sheen: 0.0,
+    roughness: 1, metalness: 1, clearcoat: 0.6, clearcoatMap: tex(cc), clearcoatRoughness: 0.38, envMapIntensity: 1.0, sheen: 0.0,
   });
   // micro detail: fine noise in roughness, a faint orange-peel bump on the paint, and worn edges (bevels show bare
   // metal where the surface curves hardest), all computed from bind-pose position so it sticks to the parts.
@@ -56,6 +56,8 @@ float rn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7); roughnessFactor = mix(roughnessFactor, 0.45, wear);
     vec3 bump = vec3(rn(vRP * 140.0) - 0.5, rn(vRP * 140.0 + 7.0) - 0.5, 0.0) * 0.06 * painted; normal = normalize(normal + bump); }`);
   };
+  { const prev = m.onBeforeCompile; m.onBeforeCompile = function (sh) { prev.call(this, sh);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', '{ vec3 refl = outgoingLight - totalEmissiveRadiance; refl = refl / (1.0 + max(0.0, max(refl.r, max(refl.g, refl.b)) - 0.9) * 1.2); outgoingLight = refl + totalEmissiveRadiance; }\n#include <opaque_fragment>'); }; } // soft-clamp highlights below the bloom threshold
   m.defines = { ...(m.defines || {}), NO_WEATHER: '' };
   m.customProgramCacheKey = () => 'fo-robot';
   m.name = 'robot-palette';
@@ -103,12 +105,15 @@ export function buildRobot() {
   // shape language helpers: keystone tapers and lathed limbs (bulge then taper), instead of plain capsules
   const taper = (g, bot, top, zToo = true) => { g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { const t = (p.getY(i) - y0) / (y1 - y0), k = bot + (top - bot) * t; p.setX(i, p.getX(i) * k); if (zToo) p.setZ(i, p.getZ(i) * (1 - (1 - k) * 0.5)); } return g; };
+  // pillow: bulge the front/back faces (z) toward the middle, so slabs read as moulded shells instead of boxes
+  const pillow = (g, k, ky = 0) => { g.computeBoundingBox(); const b = g.boundingBox, p = g.attributes.position, hw = (b.max.x - b.min.x) / 2, hh = (b.max.y - b.min.y) / 2, cy = (b.max.y + b.min.y) / 2;
+    for (let i = 0; i < p.count; i++) { const u = p.getX(i) / hw, v = (p.getY(i) - cy) / hh; p.setZ(i, p.getZ(i) * (1 + k * Math.max(0, 1 - u * u) * (1 - ky * v * v))); } return g; };
   const lathe = (pts, seg = 22) => new THREE.LatheGeometry(pts.slice().sort((a, b) => a[1] - b[1]).map(([r, y]) => new THREE.Vector2(r, y)), seg);
   const hub = (bone, r, w, x, y, z) => { part(bone, cyl(r, r, w, 22), P.graphite, x, y, z, 0, 0, Math.PI / 2); part(bone, cyl(r * 0.55, r * 0.55, w + 0.012, 16), P.chrome, x, y, z, 0, 0, Math.PI / 2); };
   const screw = (bone, x, y, z, rx = 0, ry = 0) => part(bone, cyl(0.006, 0.006, 0.004, 8), P.chrome, x, y, z, rx + Math.PI / 2, ry, 0);
 
   // --- head ---
-  part('head', taper(rb(0.3, 0.26, 0.28, 0.06, 4), 1.0, 0.88), P.ivory, 0, 0.12, 0);
+  part('head', pillow(taper(rb(0.3, 0.26, 0.27, 0.085, 5), 1.0, 0.84), 0.08, 0.3), P.ivory, 0, 0.12, 0); // helmet: rounded crown, wide jaw
   part('head', rb(0.15, 0.01, 0.17, 0.004), P.ivoryDark, 0, 0.2505, -0.01);           // crown hatch (flat top panel)
   part('head', rb(0.312, 0.018, 0.29, 0.009), P.seam, 0, 0.055, 0);           // seam band around the head
   part('head', rb(0.06, 0.03, 0.2, 0.012), P.orange, 0, 0.255, -0.02);         // crest ridge
@@ -135,7 +140,7 @@ export function buildRobot() {
   part('neck', cyl(0.035, 0.035, 0.08, 14), P.graphite, 0, 0.03, 0);
 
   // --- chest / torso ---
-  part('chest', taper(rb(0.4, 0.3, 0.25, 0.05, 4), 0.78, 1.0), P.ivory, 0, 0.15, 0);
+  part('chest', pillow(taper(rb(0.4, 0.3, 0.24, 0.085, 5), 0.72, 1.0), 0.14, 0.4), P.ivory, 0, 0.15, 0); // moulded V torso
   part('chest', taper(rb(0.28, 0.18, 0.03, 0.01), 0.7, 1.0, false), P.ivoryDark, 0, 0.17, 0.118); // keystone chest plate
   for (const s of [-1, 1]) part('chest', rb(0.11, 0.022, 0.03, 0.008), P.orange, s * 0.085, 0.27, 0.108, 0, 0, s * 0.12); // collar plates
   part('chest', rb(0.27, 0.006, 0.032, 0.003), P.seam, 0, 0.262, 0.118);             // plate seams
@@ -331,6 +336,7 @@ const STATION = {
   rise(k) { // k: 0 seated on the sofa -> 1 standing (root moves forward by `side - spot`, feet stay put)
     const p = blank(), seatTop = SOFA_SEAT + 0.05, drop = 0.86 - (seatTop + 0.102), e = k * k * (3 - 2 * k);
     p.root[1] -= drop * (1 - e); const fz = Math.max(0, 0.45 - 0.55 * k); p.feet = [[0.12, 0.08, fz], [-0.12, 0.08, fz]];
+    if (k < 0.45) { addTo(p, 'lSh', -1.6, -0.4, 2.2); addTo(p, 'lEl', -2.0, 0, 0); } // lift the arm off the backrest first (same waypoint)
     addTo(p, 'chest', 0.25 * Math.sin(Math.PI * k)); addTo(p, 'lSh', -0.5 * (1 - e), 0, 0.1); addTo(p, 'rSh', -0.5 * (1 - e), 0, -0.1); addTo(p, 'lEl', -0.7 * (1 - e)); addTo(p, 'rEl', -0.7 * (1 - e));
     return p;
   },
@@ -424,11 +430,19 @@ const STATION = {
     addTo(p, 'head', -0.05 + Math.sin(t * 0.8) * 0.1, Math.sin(t * 0.6) * 0.5 * (1 - point), Math.sin(t * 0.4) * 0.08);
     return p;
   },
-  lounge(t) { // sit back on the sofa, arms along the backrest, one leg crossed
+  lounge(t) { // sit back on the sofa, forearms resting on top of the backrest, elbows bent, head tipped back
     const p = blank(); seated(p, SOFA_SEAT + 0.05, 0.45);
-    addTo(p, 'chest', -0.12 + Math.sin(t * 1.4) * 0.015); addTo(p, 'spine', -0.04);
-    addTo(p, 'lSh', 0.25, 0, 1.05); addTo(p, 'rSh', 0.25, 0, -1.05); addTo(p, 'lEl', -0.55, -0.3); addTo(p, 'rEl', -0.55, 0.3); addTo(p, 'lFi', -0.5); addTo(p, 'rFi', -0.5);
-    addTo(p, 'head', -0.18, Math.sin(t * 0.25) * 0.4, 0.05);
+    addTo(p, 'chest', -0.28 + Math.sin(t * 1.4) * 0.015); addTo(p, 'spine', -0.1);
+    addTo(p, 'lFi', -0.55); addTo(p, 'rFi', -0.55);
+    addTo(p, 'head', -0.05, Math.sin(t * 0.25) * 0.4, 0.05);
+    // solved offline against the sofa back (top 0.78 m): elbows rest on the top ~35 deg below the shoulders, forearms along it
+    // lift the arm up and over, straighten the elbow while it is high, then lower it onto the backrest (never through it)
+    const up = t < 1.1 ? 1 : 0;
+    // waypoint solved offline so that lap -> waypoint -> backrest never dips into the cushion
+    if (up) { addTo(p, 'lSh', -1.6, -0.4, 2.2); addTo(p, 'lEl', -2.0, 0, 0); }
+    else { addTo(p, 'lSh', -0.85, 1.1, 2.45); addTo(p, 'lEl', -0.7, -0.6, 0); }
+    // the other hand rests on the right thigh (relaxed, asymmetric: no outstretched-arms silhouette)
+    addTo(p, 'rSh', -0.45, 0, -0.12); addTo(p, 'rEl', -0.8, 0.2); p.hands = { r: [-0.13, SOFA_SEAT + 0.05 + 0.16, 0.2 + Math.sin(t * 0.5) * 0.01] };
     return p;
   },
 };

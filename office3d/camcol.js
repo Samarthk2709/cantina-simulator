@@ -159,7 +159,7 @@ export function solveCam(col, pivot, want, out, { r = 0.34, minDist = 0.55, ches
     _p.copy(pivot).addScaledVector(_d, t);
     if (inRoom && !inRoom(_p)) continue;
     if (!col.clear(_p, r)) continue;
-    if (chest) { _c.subVectors(chest, _p); const dl = _c.length(); _c.multiplyScalar(1 / dl); if (col.hit(_p, _c, dl) < dl - 0.2) continue; }
+    if (chest) { _c.subVectors(chest, _p); const dl = _c.length(); if (dl < minDist) continue; _c.multiplyScalar(1 / dl); if (col.hit(_p, _c, dl) < dl - 0.2) continue; }
     return out.copy(_p);
   }
   return null; // nowhere on this line works

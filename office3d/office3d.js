@@ -18,6 +18,7 @@ import { buildRobot, setSofaSeat, chairProg } from './robot.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildCamCol, solveCam } from './camcol.js';
 import { placeDecals } from './decals.js';
+import { placeClutter } from './clutter.js';
 
 const Q = new URLSearchParams(location.search);
 const SKY_YAW = +(Q.get('sky') || 0.75);
@@ -69,12 +70,12 @@ float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5;
   vec3 wp = vBPWorld; float n1 = wNoise(wp * 1.3); wN2 = wNoise(wp * 5.1 + 7.1); wN3 = wNoise(wp * 19.0 + 3.7);
   vec3 gn = normalize(cross(dFdx(wp), dFdy(wp))); float up = abs(gn.y), vert = 1.0 - up;
   float dw = min(min(wp.x - ${f(X0)}, ${f(X1)} - wp.x), min(wp.z - ${f(Z0)}, ${f(Z1)} - wp.z));
-  float low = (1.0 - smoothstep(0.0, 0.22 + 0.3 * n1, wp.y)) * vert;                                 // kick marks, dust
+  float low = (1.0 - smoothstep(0.0, 0.3 + 0.35 * n1, wp.y)) * vert;                                 // kick marks, dust
   float skirt = (1.0 - smoothstep(0.0, 0.25 + 0.35 * wN2, dw)) * step(0.8, up) * step(wp.y, 0.04);   // floor along walls
   float soot = smoothstep(${f(H - 0.6)}, ${f(H)}, wp.y) * vert * step(dw, 0.05);                       // above the windows / pipes
   float drip = step(dw, 0.04) * vert * smoothstep(0.72, 0.95, wNoise(vec3(wp.x * 9.0 + wp.z * 9.0, wp.y * 0.6, 1.0))) * 0.5;
   wGrime = clamp((low * 0.75 + skirt * 0.6 + soot * 0.5 + drip) * (0.55 + 0.6 * wN2), 0.0, 1.0);
-  diffuseColor.rgb *= (0.86 + 0.26 * n1) * (0.95 + 0.1 * wN3) * (1.0 - 0.42 * wGrime);
+  diffuseColor.rgb *= (0.8 + 0.38 * n1) * (0.92 + 0.16 * wN3) * (1.0 - 0.6 * wGrime);
 }
 #endif
 `;
@@ -87,7 +88,7 @@ roughnessFactor = clamp(roughnessFactor * (0.8 + 0.4 * wN2) + (wN3 - 0.5) * 0.08
 #if defined(STANDARD) && !defined(NO_WEATHER) && !defined(FLAT_SHADED)
 { float cv = length(fwidth(vNormal)) / max(length(fwidth(vBPWorld)), 1e-4);
   float ew = smoothstep(28.0, 70.0, cv) * smoothstep(0.4, 0.7, wN3 * 0.7 + wN2 * 0.5);
-  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + 0.025, ew * 0.7); roughnessFactor = mix(roughnessFactor, min(1.0, roughnessFactor + 0.2), ew); }
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.5 + 0.04, ew * 0.9); roughnessFactor = mix(roughnessFactor, min(1.0, roughnessFactor + 0.2), ew); }
 #endif
 `;
   // Light culling in the shader: skip the BRDF for punctual lights that don't reach this pixel (out of range / outside
@@ -107,7 +108,7 @@ roughnessFactor = clamp(roughnessFactor * (0.8 + 0.4 * wN2) + (wN3 - 0.5) * 0.08
 // adds the light that bounces off what it hits (spot pools on the floor, lamp shades, screens, moonlit floor patches,
 // the city glow at the windows). Every lit material adds it as ambient irradiance, sampled a little off the surface
 // along its normal, so walls, beams and the ceiling pick up soft colour from nearby lamps instead of falling to black.
-const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 0.8) } } };
+const IRR = { nx: 28, ny: 8, nz: 20, tex: null, u: { irrVol: { value: null }, irrMin: { value: new THREE.Vector3(X0, 0, Z0) }, irrSize: { value: new THREE.Vector3(X1 - X0, H, Z1 - Z0) }, irrK: { value: +(Q.get('gi') || 1.05) } } };
 function irrSources() {
   const src = [], add = (x, y, z, col, p, r0) => src.push({ x, y, z, r: col.r * p, g: col.g * p, b: col.b * p, r0 });
   for (const l of C.lights) {
@@ -229,7 +230,7 @@ function buildPlayer() {
   player = new THREE.Group(); player.name = 'robot'; player.add(robot.mesh); scene.add(player);
   // soft key + cool rim on the character (keeps the robot readable against the dark room)
   charLight = new THREE.PointLight(0xffe6cc, 0.8, 2.6, 2); scene.add(charLight);
-  rimLight = new THREE.PointLight(0x9fbfff, 1.4, 2.4, 2); scene.add(rimLight);
+  rimLight = new THREE.PointLight(0x9fbfff, 0.75, 2.4, 2); scene.add(rimLight);
   // soft contact shadow blob under the feet
   const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; })());
   const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; blob.userData.dynamic = true; blob.name = 'robot_contact_shadow'; scene.add(blob); player.userData.blob = blob;
@@ -440,7 +441,7 @@ function buildLedger() { // a ledger the robot holds and leafs through at the va
   const pivot = new THREE.Group(); pivot.position.set(0, 0.016, 0); g.add(pivot);
   const pg = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.21), paper); pg.rotation.x = -Math.PI / 2; pg.position.x = 0.075; pivot.add(pg);
   g.userData = { pivot, dynamic: true }; g.position.set(0, -0.09, 0.05); g.rotation.set(-1.2, 0, 0); g.visible = false;
-  robot.bones.lWr.add(g); return g;
+  return g; // attached to the left wrist only while it is in use (stationFX)
 }
 function stationFX(dt) {
   const st = act && act.phase !== 'path' && act.phase !== 'home' ? act.id : null, t = act ? act.st : 0;
@@ -454,7 +455,9 @@ function stationFX(dt) {
     if (st === 'stats' && ph >= 2.6 && ph < 3.4) S.wheel.rotation.z += dt * 6;
     S.key.intensity += ((st === 'stats' ? 9 : 3.5) - S.key.intensity) * Math.min(1, dt * 4);
     if (!ledger) ledger = buildLedger();
-    ledger.visible = st === 'stats' && act.phase === 'loop';
+    const showL = st === 'stats' && act.phase === 'loop';
+    if (showL && !ledger.parent) robot.bones.lWr.add(ledger); else if (!showL && ledger.parent) ledger.parent.remove(ledger);
+    ledger.visible = showL;
     if (ledger.visible) ledger.userData.pivot.rotation.z = (Math.sin(t * 1.6) > 0.6 ? Math.PI * Math.min(1, (Math.sin(t * 1.6) - 0.6) * 3) : 0);
   }
 }
@@ -501,8 +504,8 @@ function stationCam(id) {
 }
 // Camera collision (camcol.js): the wanted camera position is pulled in along the line from the robot's head until it
 // sits >= CAM_R clear of every surface and nothing blocks the head or chest. Pulling in is immediate, letting out eases.
-const CAM_R = 0.36; let camCol = null; const camAct = new THREE.Vector3(); let camActOk = false, camVar = 0;
-const _hd = new THREE.Vector3(), _ch = new THREE.Vector3(), _cw = new THREE.Vector3(), _cs = new THREE.Vector3(), _ce = new THREE.Vector3();
+const CAM_R = 0.36, CAM_MIN = 0.95; let camCol = null; const camAct = new THREE.Vector3(); let camActOk = false, camVar = 0;
+const _cs2 = new THREE.Vector3(), _hd = new THREE.Vector3(), _ch = new THREE.Vector3(), _cw = new THREE.Vector3(), _cs = new THREE.Vector3(), _ce = new THREE.Vector3();
 const inRoomCam = p => p.x > X0 + CAM_R && p.x < X1 - CAM_R && p.z > Z0 + CAM_R && p.z < Z1 - CAM_R && p.y > 0.25 && p.y < H - CAM_R;
 function robotPivot() {
   const hb = player.getObjectByName('head'), cb = player.getObjectByName('chest');
@@ -513,12 +516,13 @@ function robotPivot() {
 const CAM_VARS = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.45, -1.45, 1.9, -1.9, 2.5, -2.5];
 function solveAround(pivot, want, out) {
   if (!camCol) return out.copy(want);
-  const o = { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: 0.62 };
-  const rel = _cw.subVectors(want, pivot); const d = Math.hypot(rel.x, rel.z), a0 = Math.atan2(rel.x, rel.z);
+  const o = { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: CAM_MIN };
+  const rel = _cw.subVectors(want, pivot); if (rel.length() < 1.3) { rel.setLength(1.3); want = _cs2.copy(pivot).add(rel); }
+  const d = Math.hypot(rel.x, rel.z), a0 = Math.atan2(rel.x, rel.z);
   const tryVar = (i, lift) => { const a = a0 + CAM_VARS[i]; _ce.set(pivot.x + Math.sin(a) * d, want.y + lift, pivot.z + Math.cos(a) * d); return solveCam(camCol, pivot, _ce, out, o); };
   // the variant that worked last frame first (no flicker between equal options), then the plain line, then around
-  if (camVar && tryVar(camVar, 0) && out.distanceTo(pivot) > 0.9) return out;
-  if (tryVar(0, 0) && out.distanceTo(pivot) > 0.9) { camVar = 0; return out; }
+  if (camVar && tryVar(camVar, 0) && out.distanceTo(pivot) > 1.1) return out;
+  if (tryVar(0, 0) && out.distanceTo(pivot) > 1.1) { camVar = 0; return out; }
   let best = null, bd = 0;
   for (let i = 1; i < CAM_VARS.length; i++) for (const lift of [0, 0.35]) if (tryVar(i, lift)) { const dd = out.distanceTo(pivot) - Math.abs(CAM_VARS[i]) * 0.35 - lift * 0.5; if (!best || dd > bd) { best = out.clone(); bd = dd; camVar = i; } }
   if (best) return out.copy(best);
@@ -532,7 +536,7 @@ function placeCamera(dt, want) {
   else {
     // let out gently; pull in at once (never through a wall, never with a prop in front of the lens)
     const dOut = _cs.distanceTo(pivot) > camAct.distanceTo(pivot) + 0.01;
-    if (dOut) { _ce.copy(camAct).lerp(_cs, Math.min(1, dt * 4)); if (camCol && solveCam(camCol, pivot, _ce, _cw, { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: 0.62 }) && _cw.distanceTo(_ce) < 0.02) camAct.copy(_ce); else camAct.copy(_cs); }
+    if (dOut) { _ce.copy(camAct).lerp(_cs, Math.min(1, dt * 4)); if (camCol && solveCam(camCol, pivot, _ce, _cw, { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: CAM_MIN }) && _cw.distanceTo(_ce) < 0.02) camAct.copy(_ce); else camAct.copy(_cs); }
     else camAct.copy(_cs);
   }
   camera.position.copy(camAct);
@@ -950,7 +954,7 @@ function syncStations(force) {
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 // camera for station shots, in the robot's frame: [forward, height, side, target forward, target height]
 const USE_CAM = {
-  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.25, 1.75, -0.15, 0.4, 1.35],
+  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-0.75, 1.65, -1.55, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.25, 1.75, -0.15, 0.4, 1.35],
   forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.5, 1.55, 1.2, 0.5, 1.4], rig: [-0.95, 1.55, -1.2, 0.5, 1.05], terminals: [-1.3, 1.65, -1.1, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
 };
 const DESK_VIEWS = {
@@ -986,7 +990,9 @@ function shot(name) {
   else if (DESK_VIEWS[name] || name.startsWith('use-')) {
     const id = name.replace(/^(desk|use)-/, '') ; const sp = USE[id] && USE[id].spot;
     if (sp) { // the robot is at the station, already in its animation
-      setPlayer(sp[0], sp[1], sp[2], 'up'); act = { id, u: USE[id], phase: 'loop', t: 0, st: 0, spot: new THREE.Vector3(sp[0], 0, sp[1]), h: sp[2], resolve: null }; if (C.chairs && C.chairs[id]) setChair(C.chairs[id], 1, sp[2] - Math.PI);
+      setPlayer(sp[0], sp[1], sp[2], 'up'); act = { id, u: USE[id], phase: 'loop', t: 0, st: 3, spot: new THREE.Vector3(sp[0], 0, sp[1]), h: sp[2], resolve: null }; if (C.chairs && C.chairs[id]) setChair(C.chairs[id], 1, sp[2] - Math.PI);
+      // a shot starts with the robot already settled in its working pose (no blend in from the standing pose)
+      player.position.set(sp[0], 0, sp[1]); player.rotation.y = sp[2]; player.updateMatrixWorld(true); robot.anim.update(6, performance.now() / 1000, { station: id, stationT: 3, rate: 60 }); robot.anim.update(6, performance.now() / 1000, { station: id, stationT: 3, rate: 60 });
       const f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x), c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95];
       const p = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]);
       const t = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]);
@@ -1032,7 +1038,7 @@ async function start() {
   patchShaders(); installIrradiance();
   const canvas = document.createElement('canvas'); canvas.id = 'o3d'; canvas.tabIndex = 0; canvas.setAttribute('aria-label', 'Your office in 3D. WASD to walk, Shift to run, drag to look, E to use a desk.');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
-  renderer.toneMapping = Q.get('tm') === 'aces' ? THREE.ACESFilmicToneMapping : THREE.AgXToneMapping; renderer.toneMappingExposure = +(Q.get('exp') || 0.82);
+  renderer.toneMapping = Q.get('tm') === 'aces' ? THREE.ACESFilmicToneMapping : THREE.AgXToneMapping; renderer.toneMappingExposure = +(Q.get('exp') || 0.98);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x05070b); C.scene = scene;
@@ -1042,14 +1048,14 @@ async function start() {
   await Promise.all(C.pending);
   await Promise.all(allTextures().map(t => t.image ? null : new Promise(r => { const t1 = performance.now() + 8000; const chk = () => (t.image && (t.image.complete ?? true)) || performance.now() > t1 ? r() : setTimeout(chk, 50); chk(); })));
   setLoading(0.72, 'building the room');
-  scene.updateMatrixWorld(true); C.decals = placeDecals(scene, USE, C.chairs);
+  scene.updateMatrixWorld(true); placeClutter(scene, USE); scene.updateMatrixWorld(true); C.decals = placeDecals(scene, USE, C.chairs);
   scene.traverse(o => { if (o.isMesh && o.material && (o.material.transparent || o.material.isShaderMaterial)) o.userData.noAO = true; });
   t0 = performance.now() / 1000;
   const s0 = world.getState(); pos.set(s0.x * K, 0, s0.y * K); vis.copy(pos); heading = visH = Math.PI; yaw = 0;
   buildPost(); applyQuality(); setupReflection(C.M.floor);
   syncStations(true); for (const id in C.chairs || {}) { C.chairs[id].g.name = 'chair_' + id; if (C.chairs[id].g.userData.base) C.chairs[id].g.userData.base.name = 'chair_' + id + '_base'; }
   compactGroups(); collectColliders();
-  setSofaSeat(0.455 - 0.04); Office3D_SOFA = 0.455; // the lounge sofa's seat proxy top
+  setSofaSeat(0.388 - 0.04); Office3D_SOFA = 0.388; // the lounge sofa's seat proxy top
   mergeStatic(); prepass.collect();
   { const tc = performance.now(); camCol = buildCamCol(scene, { x0: X0, x1: X1, z0: Z0, z1: Z1, y1: H + 0.3, skip: o => { for (let p = o; p; p = p.parent) if (p === player || p.userData.city || p.userData.cityDetail || p.userData.proxy) return true; return false; } }); camCol.ms = performance.now() - tc; }
   for (const l of C.lights) if (l.castShadow && l !== C.moon) { l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }

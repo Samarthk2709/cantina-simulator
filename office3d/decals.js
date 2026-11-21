@@ -27,6 +27,8 @@ function atlas() {
 export function decalMaterial() {
   if (mat) return mat;
   mat = new THREE.MeshStandardMaterial({ map: atlas(), transparent: true, depthWrite: false, roughness: 0.75, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+  mat.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n diffuseColor.a = min(1.0, diffuseColor.a * 1.9); diffuseColor.rgb *= 0.85;'); };
+  mat.customProgramCacheKey = () => 'fo-decal';
   mat.name = 'decal'; return mat;
 }
 const KIND = { ring: 0, rings: 1, spill: 2, grease: 3, scratch: 4, scuff: 5, dust: 6, water: 7, ink: 8, caster: 9, wear: 10, tape: 11 };
@@ -66,8 +68,8 @@ export function placeDecals(scene, use, chairs) {
   // swivel chairs: caster arcs on the floor at both of their spots
   for (const id in chairs || {}) { const c = chairs[id]; for (const q of [c.park, c.sit]) s('caster', V(q[0], 0.08, q[1]), down, 0.62, undefined, { flat: true }); }
   // traffic lanes: wear and dust across the main floor, scuffs near the door
-  for (let i = 0; i < 26; i++) s(rnd() < 0.55 ? 'wear' : rnd() < 0.5 ? 'scuff' : 'dust', V(rr(3.0, 12.5), 0.08, rr(4.2, 7.6)), down, rr(0.5, 1.1), undefined, { flat: true });
-  for (let i = 0; i < 10; i++) s('dust', V(rr(1.2, 13.8), 0.08, rr(1.2, 10.0)), down, rr(0.6, 1.0), undefined, { flat: true });
+  for (let i = 0; i < 40; i++) s(rnd() < 0.55 ? 'wear' : rnd() < 0.5 ? 'scuff' : 'dust', V(rr(3.0, 12.5), 0.08, rr(4.2, 7.6)), down, rr(0.5, 1.1), undefined, { flat: true });
+  for (let i = 0; i < 18; i++) s('dust', V(rr(1.2, 13.8), 0.08, rr(1.2, 10.0)), down, rr(0.6, 1.0), undefined, { flat: true });
   // the safe: grease around the dial and the handle wheel
   return n;
 }

@@ -221,9 +221,11 @@ export function buildSkyline(yaw) {
         float lit = step(r, rowLit < 0.45 ? 0.75 : rowLit > 0.93 ? 0.98 : 0.08); // some floors fully lit (offices working late)
         vec2 fr = kind == 2.0 ? vec2(0.04, 0.06) : vec2(0.14, 0.2);
         bool frame = f.x < fr.x || f.x > 1.0 - fr.x || f.y < fr.y || f.y > 1.0 - fr.y;
+        if (kind == 0.0 && mod(id.y, 4.0) < 1.0 && f.y < 0.42) frame = true;                       // spandrel band every 4th floor
+        if (kind == 1.0 && mod(id.x, 3.0) < 1.0 && f.x < 0.3) frame = true;                         // vertical fins
         vec3 V = normalize(vW - cameraPosition);
         vec3 col;
-        if (frame) col = vec3(0.025, 0.027, 0.032) * (kind == 2.0 ? 0.6 : 1.0);
+        if (frame) { col = vec3(0.025, 0.027, 0.032) * (kind == 2.0 ? 0.6 : kind == 1.0 ? 1.8 : 1.0); col += vec3(0.03, 0.035, 0.05) * pow(1.0 - abs(dot(normalize(vW - cameraPosition), n)), 3.0); }
         else {
           vec3 d = vec3(dot(V, rt), dot(V, up), dot(V, -n)); vec2 o = (f - fr) / (1.0 - 2.0 * fr);
           float depth = 0.8; vec3 t3 = vec3(d.x > 0.0 ? (1.0 - o.x) / d.x : -o.x / d.x, d.y > 0.0 ? (1.0 - o.y) / d.y : -o.y / d.y, depth / max(d.z, 1e-3));
@@ -267,6 +269,17 @@ export function buildSkyline(yaw) {
     if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconM || (beaconM = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) }))); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
   }
+  // a second, denser ring of mid-distance towers (own rng, so the room layout is unchanged): varied shapes, crowns
+  for (let i = 0, tries = 0; i < 70 && tries < 900; tries++) {
+    const a = -Math.PI * 0.05 - lr() * Math.PI * 0.6 + Math.PI, d = 55 + lr() * 90, x = cx + Math.cos(a) * d * 0 + (-1) * Math.abs(Math.cos(a)) * d * (lr() < 0.5 ? 1 : 0.3), z = cz - Math.abs(Math.sin(a)) * d;
+    if (!(x < -6 || z < -6)) continue; i++;
+    const w = 8 + lr() * 16, dd = 8 + lr() * 16, hgt = 25 + lr() * 95, shp = lr(), rad = Math.min(w, dd) / 2;
+    const geo = shp < 0.2 ? new THREE.CylinderGeometry(rad, rad, hgt, 24) : shp < 0.32 ? new THREE.CylinderGeometry(rad * 0.8, rad * 1.15, hgt, 6) : new THREE.BoxGeometry(w, hgt, dd);
+    geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(200 + lr() * 300), 1));
+    const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = lr() * 1.5; b.userData.city = true; C.scene.add(b);
+    if (lr() < 0.5) { const t2 = new THREE.BoxGeometry(w * 0.6, hgt * 0.18, dd * 0.6); t2.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(t2.attributes.position.count).fill(700 + lr() * 100), 1)); const u = new THREE.Mesh(t2, cityM); u.position.set(x, -9 + hgt + hgt * 0.09, z); u.rotation.y = b.rotation.y; u.userData.city = true; C.scene.add(u); }
+    if (lr() < 0.4) { const cr = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.8, dd * 0.5), crownMats[Math.floor(lr() * 3)]); cr.position.set(x, -9 + hgt + 0.4, z); cr.rotation.y = b.rotation.y; cr.userData.cityDetail = true; C.scene.add(cr); }
+  }
   // open up the near view: no tall towers right across the street (they flattened the view into one facade); the
   // low block below takes their place and the towers start a street further out
   for (const o of C.scene.children.slice()) if ((o.userData.city || o.userData.cityDetail || o.material === beaconM) && o.geometry && !o.geometry.parameters?.radiusTop?.toString().startsWith('24')) { const d = Math.hypot(o.position.x - cx, o.position.z - cz); if (d > 20 && d < 50) C.scene.remove(o); }
@@ -297,7 +310,7 @@ let upM;
 function uplight(x, z) { // fixture + baked fill (feeds the irradiance volume; no runtime light, to keep the per-pixel cost flat)
   const M = C.M, g = group(null, x, H - 0.36, z);
   cyl(0.07, 0.05, 0.08, M.steel, 0, 0, 0, g, 16, false); cyl(0.06, 0.06, 0.005, upM || (upM = emissive(0xffe0b8, 2)), 0, 0.043, 0, g, 16, false);
-  (C.fakeLights || (C.fakeLights = [])).push({ x, y: H - 0.15, z, color: new THREE.Color(0xffd9b0), intensity: 2.6 });
+  (C.fakeLights || (C.fakeLights = [])).push({ x, y: H - 0.15, z, color: new THREE.Color(0xffd9b0), intensity: 3.6 });
 }
 export function buildLightRig() {
   for (const [x, z] of [[3.5, 3.0], [3.5, 8.0], [11.5, 3.0], [11.5, 8.0]]) uplight(x, z);
@@ -681,12 +694,12 @@ function buildDecor() {
   place('calathea_orbifolia_01', 1.15, 0, 10.1, 0.2, 1.1, null, { pick: /_b$/ });
   place('calathea_orbifolia_01', 13.85, 0, 10.1, 2.0, 1.1, null, { pick: /_d$/ });
   // ---- lounge on the south wall, west side ----
-  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.82 }); // a low lounge sofa
+  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.7 }); // a low lounge sofa
   (C.proxyBoxes || (C.proxyBoxes = [])).push(
-    { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.455, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.91, 10.48], contact: 'seat' },
-    { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.6, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.6, 10.48] });
+    { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.388, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.777, 10.48], contact: 'seat' },
+    { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.512, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.512, 10.48] });
   C.colliders.push({ x0: 2.05, x1: 4.75, z0: Z1 - 0.95, z1: Z1 });
-  place('throw_pillows_01', 4.4, 0.37, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
+  place('throw_pillows_01', 4.4, 0.316, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
   place('side_table_01', 1.65, 0, Z1 - 0.4, 0, 1); C.colliders.push({ x0: 1.4, x1: 1.9, z0: Z1 - 0.65, z1: Z1 - 0.15 });
   
   rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);
