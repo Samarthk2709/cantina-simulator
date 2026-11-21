@@ -1,8 +1,9 @@
 // First Office 3D: the room. Shell, windows, light rig, the stations (one desk per game operation) and set dressing.
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {
   C, onPower, tr, X0, X1, Z0, Z1, H, rnd, rr, pick, tex, pbr, canvasTex, box, rbox, cyl, plane, std, group, cable, floorCable,
-  screenMat, powerScreen, codeScreen, dashScreen, termScreen, kanbanScreen, ledgerScreen, agentScreen, nodeScreen, courseScreen, gpuScreen,
+  screenMat, powerScreen, worn, codeScreen, dashScreen, termScreen, kanbanScreen, ledgerScreen, agentScreen, nodeScreen, courseScreen, gpuScreen,
   docTex, posterTex, stickyMat, place, monitor, laptop, keyboard, mug, coffeeCup, can, papers, crumpled, books, binders, officeChair, desk,
   powerStrip, pcTower, bin, headphones, pizzaBox, backpack, lightCone, hazeMaterial,
 } from './kit.js';
@@ -24,13 +25,20 @@ function pendant(x, z, drop, o = {}) {
   const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12; pts.push(new THREE.Vector2(0.025 + Math.sin(t * Math.PI / 2) * 0.21, -t * 0.22)); }
   const shade = new THREE.Mesh(new THREE.LatheGeometry(pts, 32), std(o.shade ?? 0x1f2a24, 0.35, 0.85, { side: THREE.DoubleSide })); shade.position.y = -drop; shade.castShadow = true; g.add(shade);
   const inner = new THREE.Mesh(new THREE.LatheGeometry(pts.map(p => new THREE.Vector2(p.x - 0.003, p.y)), 32), std(0xf4efe6, 0.6, 0, { side: THREE.BackSide })); inner.position.y = -drop; g.add(inner);
-  const bulbM = emissive(color, 14), bulb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), bulbM); bulb.position.y = -drop - 0.12; g.add(bulb);
+  const bulbM = emissive(color, 5), bulb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), bulbM); bulb.position.y = -drop - 0.12; g.add(bulb);
   const l = new THREE.SpotLight(color, o.intensity ?? 28, 8, o.angle ?? 0.95, 0.7, 2); l.position.set(x, H - drop - 0.13, z); l.target.position.set(x + (o.tx || 0), 0, z + (o.tz || 0));
   if (o.shadow) { l.castShadow = true; l.shadow.mapSize.set(1024, 1024); l.shadow.bias = -0.0003; l.shadow.normalBias = 0.02; l.shadow.radius = 5; l.shadow.camera.near = 0.15; l.shadow.camera.far = 6; }
   addLight(l, o.id);
   const cone = lightCone(null, x, H - drop - 0.14, z, 0.19, 1.15, H - drop - 0.14, color, o.haze ?? 0.1);
-  if (o.id) onPower(o.id, on => { bulbM.emissiveIntensity = on ? 14 : 0.02; cone.visible = on; });
+  if (o.id) onPower(o.id, on => { bulbM.emissiveIntensity = on ? 5 : 0.02; cone.visible = on; });
   return l;
+}
+
+// A rug: 8 mm pile slab with a rounded edge, so it sits on the floor and catches a contact line instead of floating.
+function rugSlab(parent, w, d, mat, x, z) {
+  const geo = new RoundedBoxGeometry(w, 0.01, d, 2, 0.004), uv = geo.attributes.uv, pos = geo.attributes.position;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / w + 0.5, 0.5 - pos.getZ(i) / d); // planar top-down UVs
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, 0.005, z); m.receiveShadow = true; parent.add(m); return m;
 }
 
 // ---------- walls, windows, blinds ----------
@@ -73,6 +81,7 @@ function windowFrame(axis, at, a0, a1, y0, y1, inward, blind) {
   else { g.position.set(at, (y0 + y1) / 2, (a0 + a1) / 2); g.rotation.y = inward > 0 ? Math.PI / 2 : -Math.PI / 2; }
   C.scene.add(g);
   // cool city glow through the glass (no shadows)
+  (C.windows || (C.windows = [])).push({ axis, at, a0, a1, y0, y1, inward, blind: blind || 0 });
   if (axis === 'x') { const l = new THREE.RectAreaLight(0x6f8fd8, 1.8, w, h); l.position.copy(g.position); l.rotation.copy(g.rotation); l.rotateY(Math.PI); l.translateZ(-0.05); C.scene.add(l); winLights.push(l); }
   // light shaft volume along the moonlight direction, cross-section ~ the window
   g.updateMatrixWorld(true);
@@ -107,7 +116,7 @@ export function buildShell() {
     blob(3.6, Z1 - 0.8, 2.0, 'rgba(255,170,100,.45)'); blob(10.6, Z1 - 0.4, 1.4, 'rgba(255,190,130,.35)');
   });
   lm.repeat.set(3 / (X1 - X0), 3 / (Z1 - Z0)); lm.flipY = false;
-  ceil.material = M.ceiling.clone(); ceil.material.lightMap = lm; ceil.material.lightMapIntensity = 7;
+  ceil.material = M.ceiling.clone(); ceil.material.lightMap = lm; ceil.material.lightMapIntensity = 1.5;
   C.scene.add(ceil); C.occluders.push(ceil);
   // North: exposed brick with two big loft windows either side of HQ. West: tall windows between brick piers.
   wallWithWindows('z', Z0, X0, X1, [{ a0: 1.25, a1: 4.6, blind: 0.45 }, { a0: 10.4, a1: 13.75, blind: 0.25 }], 0.75, 2.85, M.brick, 1.3, 1);
@@ -147,25 +156,64 @@ export function buildShell() {
   cyl(0.012, 0.012, 0.16, M.alu, -0.38, 1.05, -0.08, door).rotation.x = Math.PI / 2;
   box(0.02, 0.4, 0.02, M.alu, -0.38, 1.05, -0.12, 1, door);
   const exit = canvasTex(256, 96, (g, w, h) => { g.fillStyle = '#0b3d1e'; g.fillRect(0, 0, w, h); g.fillStyle = '#5dff9a'; g.font = 'bold 54px Arial'; g.textAlign = 'center'; g.fillText('EXIT', w / 2, 68); });
-  const ex = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.13, 0.05), [M.plastic, M.plastic, M.plastic, M.plastic, M.plastic, new THREE.MeshStandardMaterial({ map: exit, emissiveMap: exit, emissive: 0xffffff, emissiveIntensity: 3 })]);
+  const ex = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.13, 0.05), [M.plastic, M.plastic, M.plastic, M.plastic, M.plastic, new THREE.MeshStandardMaterial({ map: exit, emissiveMap: exit, emissive: 0xffffff, emissiveIntensity: 1.4 })]);
   ex.rotation.y = Math.PI; ex.position.set(7.1, 2.45, Z1 - 0.04); C.scene.add(ex);
   // light switch, thermostat and outlets
   box(0.08, 0.12, 0.012, std(0xe8e6e0, 0.4), 6.35, 1.2, Z1 - 0.01);
   for (const [x, z, ry] of [[6.2, Z1 - 0.01, 0], [X1 - 0.01, 3.9, Math.PI / 2], [X1 - 0.01, 8.5, Math.PI / 2], [9.0, Z1 - 0.01, 0]]) { const o = box(0.08, 0.12, 0.012, std(0xe8e6e0, 0.4), x, 0.3, z); o.rotation.y = ry; }
 }
 
-// Night skyline outside the windows (Poly Haven "shanghai_bund", CC0) on a big cylinder, plus a dark street below.
+// The city outside: a far night panorama (Poly Haven "shanghai_bund", CC0) pushed back to 150 m, and in front of it a
+// procedural block of towers with lit window grids at 15-110 m, so the view through the glass has real parallax depth.
+function facadeTex(kind, seed) {
+  let sd = seed; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  return canvasTex(256, 512, (g, w, h) => {
+    g.fillStyle = kind === 2 ? '#0c141e' : '#0b0d11'; g.fillRect(0, 0, w, h);
+    const cols = kind === 1 ? 8 : 6, rows = kind === 1 ? 20 : 14, cw = w / cols, rh = h / rows;
+    const warm = ['#ffd9a0', '#ffe6c2', '#ffc983', '#fff1dc'], cool = ['#a9cdfa', '#cfe3ff', '#8fb6e8'];
+    for (let y = 0; y < rows; y++) {
+      const floorOn = r() < 0.55; // whole floors tend to be lit or dark
+      for (let x = 0; x < cols; x++) {
+        const on = floorOn ? r() < 0.75 : r() < 0.12;
+        g.fillStyle = on ? (r() < 0.75 ? warm : cool)[Math.floor(r() * 3)] : (kind === 2 ? '#18283a' : '#151a22');
+        g.globalAlpha = on ? 0.25 + r() * 0.6 : 1;
+        if (kind === 2) g.fillRect(x * cw + 1, y * rh + 1, cw - 2, rh - 2);
+        else g.fillRect(x * cw + cw * 0.18, y * rh + rh * 0.22, cw * 0.64, rh * 0.56);
+        if (on && r() < 0.3) { g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(x * cw + cw * 0.18, y * rh + rh * 0.22, cw * 0.64 * r(), rh * 0.56); } // blinds
+      }
+    }
+    g.globalAlpha = 1;
+    if (kind !== 2) { g.fillStyle = 'rgba(255,255,255,.04)'; for (let y = 0; y < rows; y++) g.fillRect(0, y * rh, w, 2); }
+  }, { repeat: true });
+}
 export function buildSkyline(yaw) {
   const t = tex('sky/skyline.jpg', true); t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4;
-  const R = 45, top = R * Math.tan(THREE.MathUtils.degToRad(50.4)), bot = R * Math.tan(THREE.MathUtils.degToRad(28.6));
-  t.repeat.x = -1; const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, top + bot, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, color: 0x9aa6c8 }));
-  m.position.set((X0 + X1) / 2, (top - bot) / 2 - 7, (Z0 + Z1) / 2); m.rotation.y = yaw; C.scene.add(m);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), std(0x05070a, 1)); ground.rotation.x = -Math.PI / 2; ground.position.y = -6; C.scene.add(ground);
-  // a neighbouring building's lit windows close outside the north-west, for parallax depth
-  const fac = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#0a0d12'; g.fillRect(0, 0, w, h); for (let y = 0; y < 16; y++) for (let x = 0; x < 10; x++) { const on = rnd() < 0.35; g.fillStyle = on ? pick(['#ffd9a0', '#ffe8c0', '#a8d0ff', '#ffc070']) : '#141a22'; g.globalAlpha = on ? rr(0.5, 1) : 1; g.fillRect(12 + x * 50, 10 + y * 32, 34, 20); } g.globalAlpha = 1; });
-  const fm = new THREE.MeshBasicMaterial({ map: fac, color: 0x9a9a9a });
-  const b1 = new THREE.Mesh(new THREE.PlaneGeometry(14, 16), fm); b1.position.set(-9, -1, 4); b1.rotation.y = Math.PI / 2; C.scene.add(b1);
-  const b2 = new THREE.Mesh(new THREE.PlaneGeometry(12, 14), fm); b2.position.set(3, -2, -12); C.scene.add(b2);
+  const R = 150, top = R * Math.tan(THREE.MathUtils.degToRad(50.4)), bot = R * Math.tan(THREE.MathUtils.degToRad(28.6));
+  t.repeat.x = -1; const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, top + bot, 96, 1, true), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, color: 0x6a7490 }));
+  m.position.set((X0 + X1) / 2, (top - bot) / 2 - 14, (Z0 + Z1) / 2); m.rotation.y = yaw; C.scene.add(m);
+  // street level: dark asphalt with sodium street-light pools and car light streaks
+  const st = canvasTex(1024, 1024, (g, w, h) => {
+    g.fillStyle = '#06080b'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 12; i++) { const y = 60 + i * 80; g.fillStyle = '#0d1014'; g.fillRect(0, y, w, 26); g.fillRect(y, 0, 26, h); }
+    for (let i = 0; i < 260; i++) { const x = rnd() * w, y = rnd() * h, r = rr(6, 22), gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,170,80,.55)'); gr.addColorStop(1, 'rgba(255,170,80,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    for (let i = 0; i < 120; i++) { const y = 60 + Math.floor(rnd() * 12) * 80 + rr(4, 22), x = rnd() * w; g.fillStyle = rnd() < 0.5 ? 'rgba(255,60,40,.8)' : 'rgba(255,245,220,.8)'; g.fillRect(x, y, rr(8, 30), 2); }
+  });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshBasicMaterial({ map: st, color: 0xaaaaaa })); ground.rotation.x = -Math.PI / 2; ground.position.set(7, -9, 5); C.scene.add(ground);
+  // towers
+  const facs = [0, 1, 2, 0, 1, 2].map((k, i) => facadeTex(k, 11 + i * 97)), roofM = new THREE.MeshBasicMaterial({ color: 0x07090c });
+  const haze = new THREE.Color(0x1b2436), cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+  let n = 0;
+  for (let tries = 0; tries < 600 && n < 75; tries++) {
+    const x = rr(-110, 40), z = rr(-110, 40);
+    if (!(x < -6 || z < -6)) continue;
+    const d = Math.hypot(x - cx, z - cz); if (d < 28 || d > 125) continue;
+    const w = rr(10, 26), dd = rr(10, 26), hgt = d < 45 ? rr(14, 45) : rr(30, 120);
+    const fi = Math.floor(rnd() * facs.length), ft = facs[fi].clone(); ft.needsUpdate = true; ft.repeat.set(Math.max(1, Math.round(w / ((fi % 3) === 1 ? 14 : 11))), Math.max(1, Math.round(hgt / ((fi % 3) === 1 ? 60 : 44))));
+    const k = Math.min(1, (d - 28) / 100), fm = new THREE.MeshBasicMaterial({ map: ft, color: new THREE.Color(0.8, 0.8, 0.82).lerp(haze, k * 0.7) });
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, dd), [fm, fm, roofM, roofM, fm, fm]); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2); C.scene.add(b);
+    if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.2, 0.15) })); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
+    n++;
+  }
 }
 
 // ---------- global light rig ----------
@@ -225,7 +273,7 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   // nameplate
   const np = canvasTex(256, 64, (q, w, h) => { q.fillStyle = '#1a1612'; q.fillRect(0, 0, w, h); q.fillStyle = '#d9b77a'; q.font = 'bold 26px Georgia'; q.textAlign = 'center'; q.fillText('FOUNDER', w / 2, 42); });
   const pl = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.02), [M.brass, M.brass, M.brass, M.brass, new THREE.MeshStandardMaterial({ map: np, roughness: 0.4, metalness: 0.3 }), M.brass]); pl.position.set(r.cx + 0.3, y + 0.025, dz + 0.36); pl.rotation.x = -0.4; g.add(pl);
-  const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.4), M.rug); rug.rotation.x = -Math.PI / 2; rug.position.set(r.cx, 0.004, dz + 0.35); rug.receiveShadow = true; g.add(rug);
+  rugSlab(g, 3.4, 2.4, M.rug, r.cx, dz + 0.35);
   pendant(r.cx, dz + 0.05, 1.25, { shadow: true, id, intensity: 26 });
   rectLight(0x7fb0ff, 3.2, 1.6, 0.35, new THREE.Vector3(r.cx, y + 0.3, dz - 0.15), new THREE.Vector3(r.cx, y + 0.3, dz + 2), id);
   standbyTag(g, r.cx, y + 0.5, dz - 0.18, 0, id);
@@ -260,7 +308,7 @@ function buildContract() { // Ops Center: contracts come in here.
   C.colliders.push({ x0: r.cx + 0.2 - 0.9, x1: r.cx + 0.2 + 0.9, z0: r.z0 - 1.05, z1: r.z0 - 0.45 });
   // printer on a low cabinet next to the window
   const pc = group(g, X0 + 0.45, 0, r.cz + 0.9, Math.PI / 2);
-  rbox(0.8, 0.6, 0.5, 0.01, std(0x3a3f44, 0.5, 0.4), 0, 0.3, 0, pc);
+  rbox(0.8, 0.6, 0.5, 0.012, worn(0x3a3f44), 0, 0.3, 0, pc);
   rbox(0.5, 0.3, 0.42, 0.02, M.plasticWhite, 0, 0.75, 0, pc); box(0.36, 0.02, 0.2, M.plastic, 0, 0.91, 0.08, 1, pc); papers(pc, 0, 0.66, 0.28, 2, 0.05);
   const pled = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.008, 0.005), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 3, 0.6) })); pled.position.set(0.2, 0.86, 0.21); pc.add(pled);
   binders(pc, -0.38, 0.6, -0.05, 4, 0);
@@ -272,7 +320,7 @@ function buildContract() { // Ops Center: contracts come in here.
 function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp, the cash counter.
   const id = 'stats', r = tr(17, 3, 1, 2), g = stationGroup(id), M = C.M;
   const safe = group(g, r.cx + 0.05, 0, r.z0 + 0.42, -Math.PI / 2);
-  const sm = std(0x2a3530, 0.32, 0.75);
+  const sm = worn(0x2c3a33, { roughness: 0.6, metalness: 0.6, ns: 0.5 });
   rbox(0.66, 1.05, 0.62, 0.03, sm, 0, 0.525, 0, safe);
   rbox(0.56, 0.92, 0.04, 0.015, std(0x34423b, 0.28, 0.8), 0, 0.53, 0.32, safe);
   const dial = cyl(0.07, 0.07, 0.03, M.brass, 0.1, 0.68, 0.35, safe, 32); dial.rotation.x = Math.PI / 2;
@@ -288,12 +336,12 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   const shadeOn = new THREE.MeshStandardMaterial({ color: 0x0f5a2c, roughness: 0.12, emissive: 0x1a8a45, emissiveIntensity: 0.9, side: THREE.DoubleSide });
   const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.26, 20, 1, true, 0, Math.PI), shadeOn);
   shade.rotation.z = Math.PI / 2; shade.position.set(0.18, 1.36, 0.14); safe.add(shade);
-  const lb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.02), emissive(0xffd29a, 8)); lb.position.set(0.18, 1.33, 0.14); safe.add(lb);
-  onPower(id, on => { shade.material.emissiveIntensity = on ? 0.9 : 0; lb.material.emissiveIntensity = on ? 8 : 0; });
+  const lb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.02), emissive(0xffd29a, 3)); lb.position.set(0.18, 1.33, 0.14); safe.add(lb);
+  onPower(id, on => { shade.material.emissiveIntensity = on ? 0.9 : 0; lb.material.emissiveIntensity = on ? 3 : 0; });
   lampPoint(r.cx - 0.25, 1.28, r.z0 + 0.3, 0xffc27a, 1.8, 2.6, id);
   // filing cabinet
   const fc = group(g, r.cx + 0.05, 0, r.z1 - 0.32, -Math.PI / 2);
-  rbox(0.46, 1.32, 0.6, 0.01, std(0x5d6466, 0.42, 0.7), 0, 0.66, 0, fc);
+  rbox(0.46, 1.32, 0.6, 0.012, worn(0x5d6466, { ns: 0.45 }), 0, 0.66, 0, fc);
   for (let i = 0; i < 4; i++) { box(0.42, 0.3, 0.01, std(0x6b7376, 0.38, 0.7), 0, 0.18 + i * 0.32, 0.305, 1, fc); box(0.12, 0.015, 0.025, M.alu, 0, 0.27 + i * 0.32, 0.32, 1, fc); box(0.08, 0.04, 0.003, M.paper, 0, 0.22 + i * 0.32, 0.312, 1, fc); }
   place('ceramic_vase_01', r.cx + 0.05, 1.32, r.z1 - 0.2, 0, 0.6, g);
   binders(g, r.cx - 0.1, 1.32, r.z1 - 0.48, 3, Math.PI / 2);
@@ -359,8 +407,17 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   for (let i = 0; i < 4; i++) cyl(0.012, 0.012, 0.22, std([0xe0b030, 0x2060c0, 0xc03030, 0x202020][i], 0.5), r.cx + 0.2 + i * 0.07, y + 0.62, r.z0 + 0.01, g, 8, false);
   // 3D printer with a glowing build
   const pr = group(g, r.cx - 0.42, y, r.cz - 0.06);
-  box(0.42, 0.04, 0.42, M.plastic, 0, 0.02, 0, 1, pr); box(0.42, 0.04, 0.42, M.plastic, 0, 0.5, 0, 1, pr);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.025, 0.48, 0.025, M.plastic, sx * 0.2, 0.26, sz * 0.2, 1, pr);
+  const prM = worn(0x1c1d20, { metalness: 0.2, roughness: 0.55, ns: 0.2 });
+  rbox(0.44, 0.06, 0.44, 0.012, prM, 0, 0.03, 0, pr); rbox(0.44, 0.05, 0.44, 0.012, prM, 0, 0.505, 0, pr);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) rbox(0.03, 0.46, 0.03, 0.006, M.aluDark, sx * 0.2, 0.27, sz * 0.2, pr);
+  box(0.36, 0.006, 0.36, std(0x2a2c30, 0.3, 0.6), 0, 0.12, 0, 1, pr, false); // print bed
+  for (const sx of [-1, 1]) cyl(0.005, 0.005, 0.4, M.steelLight, sx * 0.17, 0.34, -0.17, pr, 8, false).rotation.x = Math.PI / 2;
+  const head = rbox(0.07, 0.06, 0.06, 0.008, std(0xc8501e, 0.5), 0.04, 0.3, 0, pr); cyl(0.004, 0.001, 0.02, M.brass, 0.04, 0.26, 0, pr, 8, false);
+  cyl(0.006, 0.006, 0.4, M.steelLight, 0, 0.3, 0, pr, 8, false).rotation.z = Math.PI / 2;
+  const disp = plane(0.08, 0.05, screenMat(termScreen(5, '#ff9a5a'), 0.8), 0.12, 0.03, 0.222, pr); // status display
+  const spool = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.02, 10, 28), std(0xb8501a, 0.6)); spool.position.set(0.25, 0.4, 0); spool.rotation.y = Math.PI / 2; pr.add(spool);
+  cyl(0.035, 0.035, 0.045, M.plastic, 0.25, 0.4, 0, pr, 20).rotation.z = Math.PI / 2;
+  cable(pr, [[0.25, 0.47, 0], [0.18, 0.56, 0], [0.04, 0.4, 0], [0.04, 0.33, 0]], 0.0015, std(0xb8501a, 0.6));
   const enc = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.44, 0.4), new THREE.MeshStandardMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.16, roughness: 0.05, depthWrite: false })); enc.position.y = 0.26; enc.userData.noAO = true; pr.add(enc);
   const partM = new THREE.MeshStandardMaterial({ color: 0x331a0a, emissive: 0xff7a2a, emissiveIntensity: 1.4 });
   cyl(0.05, 0.07, 0.09, partM, 0, 0.09, 0, pr, 6);
@@ -392,7 +449,7 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
   for (let i = 0; i < 42; i++) box(0.045, 2.4, 0.03, M.walnut, r.cx - 2.1 + i * 0.1025, 1.4, Z0 + 0.04, 0.6, g);
   box(4.3, 2.4, 0.02, std(0x101010, 0.9), r.cx, 1.4, Z0 + 0.012, 1, g);
   // warm LED washers grazing the slats
-  const wash = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.02, 0.03), emissive(0xffb070, 4)); wash.position.set(r.cx, 2.62, Z0 + 0.09); g.add(wash);
+  const wash = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.02, 0.03), emissive(0xffb070, 2)); wash.position.set(r.cx, 2.62, Z0 + 0.09); g.add(wash);
   goalTex = canvasTex(1280, 720, (c, w, h) => {
     const s = G?.state?.() || {};
     const grd = c.createLinearGradient(0, 0, w, h); grd.addColorStop(0, '#0b1220'); grd.addColorStop(1, '#151f36'); c.fillStyle = grd; c.fillRect(0, 0, w, h);
@@ -413,7 +470,7 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
     c.clearRect(0, 0, w, h); c.font = 'italic bold 120px "Brush Script MT", "Segoe Script", cursive'; c.textAlign = 'center';
     c.shadowColor = '#ff3fb4'; c.shadowBlur = 24; c.strokeStyle = '#ffd1ef'; c.lineWidth = 7; c.strokeText('first office', w / 2, 140); c.shadowBlur = 0; c.strokeStyle = '#fff3fb'; c.lineWidth = 3; c.strokeText('first office', w / 2, 140);
   });
-  const nm = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.36), new THREE.MeshBasicMaterial({ map: neon, transparent: true, color: new THREE.Color(5, 2.4, 4), depthWrite: false }));
+  const nm = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.36), new THREE.MeshBasicMaterial({ map: neon, transparent: true, color: new THREE.Color(2.2, 1.05, 1.8), depthWrite: false }));
   nm.position.set(r.cx, 2.55, Z0 + 0.075); g.add(nm);
   rectLight(0xff4fb8, 7, 1.8, 0.3, new THREE.Vector3(r.cx, 2.55, Z0 + 0.12), new THREE.Vector3(r.cx, 2.0, Z0 + 3));
   // credenza with books, plant, trophies
@@ -445,18 +502,18 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
     for (let u = 0; u < 16; u++) { const y = 8 + u * 31; c.fillStyle = '#16181c'; c.fillRect(10, y, w - 20, 27); c.fillStyle = '#25282e'; for (let i = 0; i < 14; i++) c.fillRect(60 + i * 12, y + 6, 8, 15);
       for (let i = 0; i < 3; i++) { c.fillStyle = rnd() < 0.6 ? '#2bff88' : rnd() < 0.5 ? '#2bb8ff' : '#ffb02b'; c.fillRect(20 + i * 10, y + 10, 5, 5); } }
   });
-  const rackM = std(0x111214, 0.38, 0.8);
+  const rackM = worn(0x17181b, { roughness: 0.6, metalness: 0.7, ns: 0.4 });
   for (let i = 0; i < 3; i++) {
     const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 9.46, 0); rk.scale.z = 0.83;
     rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk);
-    const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 1.6, roughness: 0.5 });
+    const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
     const gl = plane(0.6, 1.86, M.glass, 0, 0.98, -0.37, rk); gl.rotation.y = Math.PI; gl.userData.noAO = true;
     box(0.03, 1.2, 0.03, M.alu, 0.26, 1.0, -0.38, 1, rk);
     // warning label
     const wl = plane(0.12, 0.08, new THREE.MeshStandardMaterial({ map: canvasTex(64, 48, (q, w, h) => { q.fillStyle = '#f5c518'; q.fillRect(0, 0, w, h); q.fillStyle = '#111'; q.beginPath(); q.moveTo(32, 6); q.lineTo(56, 42); q.lineTo(8, 42); q.closePath(); q.fill(); q.fillStyle = '#f5c518'; q.font = 'bold 22px Arial'; q.fillText('!', 28, 38); }), roughness: 0.6 }), -0.2, 1.75, -0.375, rk); wl.rotation.y = Math.PI;
     rackLeds.push(fm);
-    onPower(id, on => { fm.emissiveIntensity = on ? 1.6 : 0.02; fm.userData.off = !on; });
+    onPower(id, on => { fm.emissiveIntensity = on ? 0.8 : 0.02; fm.userData.off = !on; });
   }
   for (let i = 0; i < 4; i++) cable(g, [[r.x0 + 0.3 + i * 0.5, 1.95, r.cz + 0.2], [r.x0 + 0.3 + i * 0.5, 2.6, r.cz + 0.25], [r.x0 + 0.2 + i * 0.45, H - 0.05, r.cz + 0.3]], 0.012);
   lampPoint(r.cx, 1.6, 8.95, 0x3fb8ff, 0.8, 2.0, id);
@@ -496,7 +553,7 @@ function sconce(x, y, z, ry, color = 0xffb878) {
   place('industrial_wall_lamp', x, y, z, ry, 1);
   const dx = Math.sin(ry) * 0.16, dz = Math.cos(ry) * 0.16;
   const l = new THREE.SpotLight(color, 7, 4, 0.75, 0.85, 2); l.position.set(x + dx, y - 0.08, z + dz); l.target.position.set(x + dx * 2.2, 0, z + dz * 2.2); addLight(l);
-  const b = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), emissive(color, 10)); b.position.set(x + dx, y - 0.1, z + dz); C.scene.add(b);
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), emissive(color, 4)); b.position.set(x + dx, y - 0.1, z + dz); C.scene.add(b);
   lightCone(null, x + dx, y - 0.1, z + dz, 0.06, 0.45, 1.2, color, 0.035).rotation.x = Math.sin(ry) * 0 ;
 }
 function buildDecor() {
@@ -514,7 +571,7 @@ function buildDecor() {
   place('throw_pillows_01', 2.85, 0.45, Z1 - 0.5, Math.PI, 1);
   place('side_table_01', 1.65, 0, Z1 - 0.4, 0, 1); C.colliders.push({ x0: 1.4, x1: 1.9, z0: Z1 - 0.65, z1: Z1 - 0.15 });
   place('vintage_electric_kettle', 1.65, 0.45, Z1 - 0.4, 0.5, 0.6, null, { shadow: false });
-  const lrug = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.8), pbr('dirty_carpet', { color: 0x6b4e40 })); lrug.rotation.x = -Math.PI / 2; lrug.position.set(3.4, 0.004, Z1 - 1.1); lrug.receiveShadow = true; C.scene.add(lrug);
+  rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);
   place('modern_coffee_table_01', 3.4, 0, Z1 - 1.35, Math.PI / 2, 1); C.colliders.push({ x0: 2.8, x1: 4.0, z0: Z1 - 1.65, z1: Z1 - 1.05 });
   pizzaBox(C.scene, 3.1, 0.39, Z1 - 1.35, 0.2, true);
   can(C.scene, 3.65, 0.39, Z1 - 1.25, 0xd61d4a); can(C.scene, 3.75, 0.39, Z1 - 1.42, 0x1d8fd6, true);
@@ -525,7 +582,7 @@ function buildDecor() {
   const arc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(-0.4, 2.0, -0.2), new THREE.Vector3(-1.1, 1.85, -0.35)]);
   const am = new THREE.Mesh(new THREE.TubeGeometry(arc, 40, 0.012, 8), M.brass); am.castShadow = true; fl.add(am);
   const sh = new THREE.Mesh(new THREE.SphereGeometry(0.17, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x111111, 0.3, 0.8, { side: THREE.DoubleSide })); sh.position.set(-1.1, 1.82, -0.35); fl.add(sh);
-  const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 12)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
+  const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 5)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
   const fll = new THREE.SpotLight(0xffb070, 14, 6, 1.1, 0.8, 2); fll.position.set(3.85, 1.75, Z1 - 0.7); fll.target.position.set(3.6, 0, Z1 - 1.0);
   fll.castShadow = true; fll.shadow.mapSize.set(1024, 1024); fll.shadow.bias = -0.0004; fll.shadow.radius = 5; addLight(fll);
   lightCone(null, 3.85, 1.74, Z1 - 0.7, 0.15, 0.9, 1.7, 0xffb070, 0.05);
@@ -577,7 +634,7 @@ function buildDecor() {
     const wear = g.createRadialGradient(w * 0.45, h * 0.55, 20, w * 0.45, h * 0.55, 380); wear.addColorStop(0, 'rgba(200,190,170,.18)'); wear.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = wear; g.fillRect(0, 0, w, h);
   });
   const rugM = pbr('dirty_carpet', { color: 0x8f8f8f }); rugM.map = rugT; rugM.normalMap.repeat?.set(3, 1.5);
-  const crug = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.6), rugM); crug.rotation.x = -Math.PI / 2; crug.position.set(7.4, 0.003, 6.6); crug.receiveShadow = true; C.scene.add(crug);
+  rugSlab(C.scene, 5.2, 2.6, rugM, 7.4, 6.6);
   // a few floor details: a stray paper, a cable run, a box by the forge
   crumpled(C.scene, 6.0, 0, 6.0); papers(C.scene, 11.4, 0, 5.1, 1, 2);
   floorCable(C.scene, [11.6, 7.4], [12.3, 9.0]); floorCable(C.scene, [X1 - 0.05, 8.5], [13.6, 8.9]);
@@ -586,8 +643,8 @@ function buildDecor() {
   const dock = group(null, 10.9, 0, 5.6);
   cyl(0.24, 0.3, 0.06, std(0x1a1c1e, 0.35, 0.7), 0, 0.03, 0, dock, 32); cyl(0.06, 0.09, 0.7, std(0xe8e6e0, 0.25, 0.1), 0, 0.41, 0, dock, 24);
   cyl(0.2, 0.16, 0.05, std(0xe8e6e0, 0.25, 0.1), 0, 0.79, 0, dock, 32);
-  const dr = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.008, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 2.4, 3) })); dr.rotation.x = Math.PI / 2; dr.position.y = 0.82; dock.add(dr);
-  const dr2 = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.006, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 1.6, 2) })); dr2.rotation.x = Math.PI / 2; dr2.position.y = 0.065; dock.add(dr2);
+  const dr = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.008, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 1.2, 1.5) })); dr.rotation.x = Math.PI / 2; dr.position.y = 0.82; dock.add(dr);
+  const dr2 = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.006, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 0.9, 1.1) })); dr2.rotation.x = Math.PI / 2; dr2.position.y = 0.065; dock.add(dr2);
   lampPoint(10.9, 0.95, 5.6, 0x6ee7ff, 0.5, 1.6);
   C.colliders.push({ x0: 10.6, x1: 11.2, z0: 5.3, z1: 5.9 });
   place('vintage_suitcase', X0 + 0.35, 0, 4.95, Math.PI / 2, 0.9, null, { pick: /suitcase_02/ });
@@ -601,27 +658,33 @@ export function buildRoom(G) {
 // where light would catch them.
 let dust;
 function buildDust() {
-  const n = 1400, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), seedA = new Float32Array(n);
+  const want = 300, pos = [], col = [], seedA = [];
   const ls = C.lights.filter(l => (l.isPointLight || l.isSpotLight) && l.intensity > 0);
-  for (let i = 0; i < n; i++) {
-    const x = rr(X0 + 0.2, X1 - 0.2), y = rr(0.3, 2.4), z = rr(Z0 + 0.2, Z1 - 0.2); pos.set([x, y, z], i * 3); seedA[i] = rnd() * 100;
-    const c = new THREE.Color(0, 0, 0);
-    for (const l of ls) { const d2 = (l.position.x - x) ** 2 + (l.position.y - y) ** 2 + (l.position.z - z) ** 2; let k = Math.min(l.intensity, 6) / (1 + d2 * 6); if (l.isSpotLight && y > l.position.y) k *= 0.15; c.add(l.color.clone().multiplyScalar(k)); }
-    // moonlight shafts near the west windows
-    if (x < 3.5 && ((z > 1.4 && z < 4.6) || (z > 5.4 && z < 9.6)) && y < 2.6 && y > (x - X0) * 0.55) c.add(new THREE.Color(0x9db6ff).multiplyScalar(0.25));
-    col.set([c.r, c.g, c.b].map(v => Math.min(v, 1.0) * 0.55), i * 3);
+  for (let tries = 0; tries < 40000 && seedA.length < want; tries++) {
+    const x = rr(X0 + 0.2, X1 - 0.2), y = rr(0.4, 2.4), z = rr(Z0 + 0.2, Z1 - 0.2), c = new THREE.Color(0, 0, 0);
+    for (const l of ls) {
+      if (!l.isSpotLight) continue; // only inside lamp cones...
+      const dx = x - l.position.x, dy = y - l.position.y, dz = z - l.position.z, d = Math.hypot(dx, dy, dz), ax = new THREE.Vector3().subVectors(l.target.position, l.position).normalize();
+      const cosA = (dx * ax.x + dy * ax.y + dz * ax.z) / d; if (cosA < Math.cos(l.angle * 0.8)) continue;
+      c.add(l.color.clone().multiplyScalar(Math.min(l.intensity, 20) / 20 / (1 + d * d)));
+    }
+    // ...and the moonlight shafts at the west windows
+    if (x < 3.6 && ((z > 1.6 && z < 4.4) || (z > 5.6 && z < 9.4)) && Math.abs(y - (2.0 - (x - X0) * 0.8)) < 0.5) c.add(new THREE.Color(0x9db6ff).multiplyScalar(0.35));
+    if (c.r + c.g + c.b < 0.25) continue;
+    pos.push(x, y, z); col.push(...[c.r, c.g, c.b].map(v => Math.min(v, 1) * 0.5)); seedA.push(rnd() * 100);
   }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setAttribute('seed', new THREE.BufferAttribute(seedA, 1));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('seed', new THREE.Float32BufferAttribute(seedA, 1));
   const m = new THREE.ShaderMaterial({
     uniforms: { time: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `attribute float seed; attribute vec3 color; uniform float time; varying vec3 vC; varying float vA;
-      void main(){ vec3 p = position + vec3(sin(time*0.07+seed)*0.25, sin(time*0.05+seed*1.7)*0.18, cos(time*0.06+seed*0.9)*0.25);
-        vec4 mv = modelViewMatrix * vec4(p,1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(9.0 / -mv.z, 1.0, 6.0); vC = color; vA = 0.5 + 0.5 * sin(time * 0.8 + seed * 3.0); }`,
-    fragmentShader: `varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.0, length(d)); gl_FragColor = vec4(vC * a * (0.4 + 0.6 * vA), 1.0); }`,
+      void main(){ vec3 p = position + vec3(sin(time*0.07+seed)*0.12, sin(time*0.05+seed*1.7)*0.1, cos(time*0.06+seed*0.9)*0.12);
+        vec4 mv = modelViewMatrix * vec4(p,1.0); gl_Position = projectionMatrix * mv; float z = -mv.z; gl_PointSize = clamp(5.0 / z, 1.0, 3.0);
+        vC = color; vA = (0.5 + 0.5 * sin(time * 0.8 + seed * 3.0)) * smoothstep(0.6, 1.4, z) * (1.0 - smoothstep(3.5, 7.0, z)); }`,
+    fragmentShader: `varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.0, length(d)); gl_FragColor = vec4(vC * a * vA, 1.0); }`,
   });
   dust = new THREE.Points(g, m); dust.frustumCulled = false; dust.userData.noAO = true; C.scene.add(dust);
 }
 export function tickRoom(t) {
   if (dust) dust.material.uniforms.time.value = t;
-  for (const m of rackLeds) if (!m.userData.off) m.emissiveIntensity = 1.3 + Math.sin(t * 7 + m.id) * 0.25;
+  for (const m of rackLeds) if (!m.userData.off) m.emissiveIntensity = 0.75 + Math.sin(t * 7 + m.id) * 0.12;
 }

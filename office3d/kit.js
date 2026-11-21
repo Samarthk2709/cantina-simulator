@@ -111,13 +111,43 @@ export function floorCable(parent, a, b, r = 0.006, mat) {
   return cable(parent, pts, r, mat);
 }
 
+// ---------- worn materials ----------
+// Painted / powder-coated metal: mottled grime in the colour, dents and scratches in the normal, patchy roughness.
+let grimeSRGB, scuffT;
+function grimeColor() {
+  if (grimeSRGB) return grimeSRGB;
+  grimeSRGB = canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = '#e6e6e6'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 700; i++) { const r = rr(3, 50), x = rnd() * w, y = rnd() * h, v = Math.floor(rr(150, 255)); const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${v},${v},${v},.22)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; for (let i = 0; i < 160; i++) { const x = rnd() * w, y = rnd() * h, a = rnd() * 6.3, l = rr(4, 30); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    // darker grime pooling toward the bottom edge
+    const gr = g.createLinearGradient(0, h * 0.7, 0, h); gr.addColorStop(0, 'rgba(60,55,50,0)'); gr.addColorStop(1, 'rgba(60,55,50,.35)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+  return grimeSRGB;
+}
+export function worn(color, o = {}) {
+  const m = new THREE.MeshStandardMaterial({ color, map: grimeColor(), normalMap: tex('tex/rusty_painted_metal/nor.jpg'), roughnessMap: tex('tex/metal_plate_02/rough.jpg'),
+    roughness: o.roughness ?? 0.85, metalness: o.metalness ?? 0.45, envMapIntensity: 1 });
+  m.normalScale.set(o.ns ?? 0.35, -(o.ns ?? 0.35)); return m;
+}
+export function scuffs() { // floor clearcoat roughness: polished lanes, dull scuffed patches and fine scratches
+  if (scuffT) return scuffT;
+  scuffT = canvasTex(1024, 1024, (g, w, h) => {
+    g.fillStyle = '#5a5a5a'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 500; i++) { const r = rr(10, 120), x = rnd() * w, y = rnd() * h, v = Math.floor(rr(30, 200)); const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${v},${v},${v},.25)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    for (let i = 0; i < 900; i++) { const x = rnd() * w, y = rnd() * h, a = rr(-0.5, 0.5) + (rnd() < 0.5 ? 0 : Math.PI / 2), l = rr(6, 60); g.strokeStyle = `rgba(230,230,230,${rr(0.15, 0.5)})`; g.lineWidth = rr(0.5, 1.5); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + rr(-4, 4), y + Math.sin(a) * l * 0.5 + rr(-4, 4), x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+    for (let i = 0; i < 60; i++) { const x = rnd() * w, y = rnd() * h; g.fillStyle = 'rgba(20,20,20,.5)'; g.beginPath(); g.ellipse(x, y, rr(4, 14), rr(2, 6), rnd() * 3, 0, 7); g.fill(); } // drips / glossy spots
+  }, { linear: true, repeat: true });
+  return scuffT;
+}
+
 // ---------- materials ----------
 export function makeMaterials() {
   const M = {
     floor: pbr('herringbone_parquet', { color: 0xb59d86, env: 1.0, ns: 0.8, physical: { clearcoat: 0.8, clearcoatRoughness: 0.09 } }),
     brick: pbr('red_brick_03', { color: 0xc9ada0, ns: 1.6 }),
-    plaster: pbr('painted_plaster_wall', { color: 0x8d9692 }),
-    plasterDark: pbr('painted_plaster_wall', { color: 0x283335 }),
+    plaster: pbr('plastered_wall_04', { color: 0x9aa39f }),
+    plasterDark: pbr('plastered_wall_04', { color: 0x3a4648 }),
     ceiling: pbr('rough_plaster_03', { color: 0x9a958c }),
     concrete: pbr('concrete_floor_02', { color: 0x8c8a86 }),
     oak: pbr('oak_veneer_01', { color: 0xe3cfb8, roughness: 0.75, env: 0.9 }),
@@ -126,27 +156,34 @@ export function makeMaterials() {
     fabric: pbr('fabric_pattern_07', { color: 0x9a9a9a }),
     leather: pbr('fabric_leather_02', { color: 0x2a2624, roughness: 0.75, env: 0.8 }),
     leatherBrown: pbr('fabric_leather_02', { color: 0x6b3d24, roughness: 0.6, env: 0.8 }),
-    steel: std(0x1b1c1e, 0.45, 0.85),
+    steel: worn(0x2a2b2e, { roughness: 0.7, metalness: 0.7 }),
     steelLight: std(0x8d9196, 0.32, 0.95),
     alu: std(0xb9bcc0, 0.3, 1),
     aluDark: std(0x3c3e42, 0.35, 1),
-    plastic: std(0x121314, 0.42, 0),
+    plastic: worn(0x161718, { roughness: 0.6, metalness: 0.0, ns: 0.15 }),
     plasticGrey: std(0x3a3c40, 0.5, 0),
     plasticWhite: std(0xd9d7d0, 0.45, 0),
     rubber: std(0x0b0b0c, 0.75, 0),
     paper: std(0xe9e5da, 0.85, 0),
     cardboard: std(0x9c7a52, 0.9, 0),
-    glass: new THREE.MeshPhysicalMaterial({ color: 0xaab8c0, roughness: 0.03, metalness: 0, transparent: true, opacity: 0.1, envMapIntensity: 1.6, depthWrite: false }),
+    glass: new THREE.MeshPhysicalMaterial({ color: 0xaab8c0, roughness: 0.04, metalness: 0, transparent: true, opacity: 1, envMapIntensity: 2.2, depthWrite: false,
+      alphaMap: canvasTex(512, 512, (g, w, h) => { // glass dirt: a faint film, streaks from rain, smudges at hand height
+        g.fillStyle = '#1a1a1a'; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 300; i++) { const x = rnd() * w, y = rnd() * h, r = rr(8, 60), v = Math.floor(rr(30, 80)); const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${v},${v},${v},.35)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+        for (let i = 0; i < 90; i++) { const x = rnd() * w; g.strokeStyle = `rgba(90,90,90,${rr(0.2, 0.5)})`; g.lineWidth = rr(1, 2.5); g.beginPath(); g.moveTo(x, rr(0, h * 0.6)); g.lineTo(x + rr(-6, 6), h); g.stroke(); }
+      }, { linear: true }) }),
     brass: std(0xb08d57, 0.3, 1),
     ceramicW: std(0xf1eee8, 0.25, 0),
     blackGloss: std(0x050506, 0.12, 0),
     screenOff: new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.08, metalness: 0.0, envMapIntensity: 1.2 }),
   };
+  const sc = scuffs(); sc.repeat.set(1, 1); M.floor.clearcoatRoughnessMap = sc; M.floor.clearcoatRoughness = 0.45;
   return (C.M = M);
 }
 
 // ---------- screen content ----------
 export function screenMat(t, k = 1.4) {
+  k = Math.min(k, 1.0) * 0.95;
   const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: k, roughness: 0.16, metalness: 0, envMapIntensity: 0.6 });
   m.userData.k = k; return m;
 }
@@ -377,10 +414,12 @@ export function keyboard(parent, x, y, z, rotY) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), M.plastic); m.scale.set(0.9, 0.45, 1.5); m.position.set(mx, y + 0.014, mz); parent.add(m);
 }
 export function mug(parent, x, y, z, color = 0xf1eee8, full = true) {
-  const mt = std(color, 0.3);
-  const c = cyl(0.04, 0.036, 0.095, mt, x, y + 0.048, z, parent, 18, false);
-  const hd = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 6, 14), mt); hd.position.set(x + 0.045, y + 0.05, z); parent.add(hd);
-  if (full) { const cof = new THREE.Mesh(new THREE.CircleGeometry(0.036, 18), std(0x1d0f07, 0.08)); cof.rotation.x = -Math.PI / 2; cof.position.set(x, y + 0.08, z); parent.add(cof); }
+  const mt = new THREE.MeshPhysicalMaterial({ color, roughness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.1, side: THREE.DoubleSide });
+  // ceramic mug: foot ring, slightly flared wall, rounded lip, inner wall
+  const P = [[0, 0], [0.033, 0], [0.035, 0.004], [0.036, 0.01], [0.04, 0.085], [0.0405, 0.093], [0.039, 0.096], [0.036, 0.094], [0.034, 0.02], [0, 0.016]].map(p => new THREE.Vector2(p[0], p[1]));
+  const c = new THREE.Mesh(new THREE.LatheGeometry(P, 28), mt); c.position.set(x, y, z); c.castShadow = true; c.receiveShadow = true; parent.add(c);
+  const hd = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.007, 8, 18, Math.PI * 1.25), mt); hd.rotation.z = -Math.PI * 0.62; hd.position.set(x + 0.04, y + 0.05, z); parent.add(hd);
+  if (full) { const cof = new THREE.Mesh(new THREE.CircleGeometry(0.035, 24), new THREE.MeshPhysicalMaterial({ color: 0x1d0f07, roughness: 0.05, clearcoat: 1 })); cof.rotation.x = -Math.PI / 2; cof.position.set(x, y + 0.078, z); parent.add(cof); }
   return c;
 }
 export function coffeeCup(parent, x, y, z) { // takeaway cup with sleeve and lid
@@ -480,7 +519,7 @@ export function pcTower(parent, x, z, rotY, rgb = 0x6a5cff, id) {
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.38), on);
   glass.rotation.y = Math.PI / 2; glass.position.set(0.106, 0.25, 0); g.add(glass);
   const fans = [];
-  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.05, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb).multiplyScalar(3) })); f.position.set(0.0, 0.12 + i * 0.12, 0.226); g.add(f); fans.push(f); }
+  for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.05, 20), new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb).multiplyScalar(1.4) })); f.position.set(0.0, 0.12 + i * 0.12, 0.226); g.add(f); fans.push(f); }
   if (id) onPower(id, p => { glass.material = p ? on : M.blackGloss; fans.forEach(f => (f.visible = p)); });
   return g;
 }
