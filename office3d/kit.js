@@ -386,8 +386,10 @@ export function place(id, x, y, z, rotY = 0, s = 1, parent, opts = {}) {
       const ox = keep.length ? keep[0].position.x : 0, oz = keep.length ? keep[0].position.z : 0;
       keep.forEach(c => { c.position.x -= ox; c.position.z -= oz; g.add(c); }); o = g;
     }
-    o.position.set(x, y, z); o.rotation.y = rotY; o.scale.setScalar(s);
+    o.position.set(x, y, z); o.rotation.y = rotY; o.scale.setScalar(s); if (opts.sy) o.scale.y *= opts.sy;
     { const bb = new THREE.Box3().setFromObject(o); const sz = bb.getSize(new THREE.Vector3()); if (Math.max(sz.x, sz.y, sz.z) * s < 0.45) opts.shadow = false; }
+    if (opts.contact) o.traverse(m => { if (m.isMesh) m.userData.contact = opts.contact; });
+    if (opts.noCollider) o.traverse(m => { if (m.isMesh) m.userData.noCollider = true; });
     if (opts.shadow === false || opts.tint) o.traverse(m => { if (!m.isMesh) return; if (opts.shadow === false) m.castShadow = false; if (opts.tint) { m.material = m.material.clone(); m.material.color.multiply(new THREE.Color(opts.tint)); } });
     (parent || C.scene).add(o); return o;
   }).catch(e => console.warn('office3d model', id, e));
@@ -433,7 +435,7 @@ let keyboardMat;
 export function keyboard(parent, x, y, z, rotY) {
   const M = C.M;
   const kbM = keyboardMat || (keyboardMat = new THREE.MeshStandardMaterial({ roughness: 0.55, map: canvasTex(512, 160, (g, w, h) => { g.fillStyle = '#1a1b1e'; g.fillRect(0, 0, w, h); g.fillStyle = '#2b2d31'; for (let r = 0; r < 5; r++) for (let c = 0; c < 15; c++) g.fillRect(8 + c * 33, 8 + r * 30, 29, 26); g.fillRect(140, 128, 200, 26); g.fillStyle = 'rgba(255,255,255,.18)'; g.font = '9px Arial'; for (let r = 0; r < 4; r++) for (let c = 0; c < 15; c++) g.fillText('QWERTYUIOPASDFGHJKLZXCVBNM'[(r * 15 + c) % 26], 12 + c * 33, 20 + r * 30); }) }));
-  const k = rbox(0.42, 0.018, 0.13, 0.005, kbM, x, y + 0.009, z, parent, false); k.rotation.y = rotY;
+  const k = rbox(0.42, 0.018, 0.13, 0.005, kbM, x, y + 0.009, z, parent, false); k.rotation.y = rotY; k.userData.contact = 'surface';
   const mx = x + Math.cos(rotY) * 0.3, mz = z - Math.sin(rotY) * 0.3;
   const pad = box(0.3, 0.003, 0.24, std(0x16181a, 0.9), mx, y + 0.0015, mz, 1, parent, false); pad.rotation.y = rotY;
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), M.plastic); m.scale.set(0.9, 0.45, 1.5); m.position.set(mx, y + 0.014, mz); parent.add(m);
@@ -537,16 +539,17 @@ export function binders(parent, x, y, z, n, rotY = 0) { // office ring binders w
 }
 export function officeChair(parent, x, z, rotY, o = {}) {
   const M = C.M, g = group(parent, x, 0, z, rotY + (o.exact ? 0 : (rnd() - 0.5) * 0.5));
+  if (o.exact) { g.userData.dynamic = true; g.userData.compact = true; } // chairs the robot pulls in and sits on
   for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2, leg = box(0.3, 0.035, 0.05, M.alu, Math.cos(a) * 0.15, 0.075, Math.sin(a) * 0.15, 1, g); leg.rotation.y = -a;
-    const w = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 6), M.plastic); w.position.set(Math.cos(a) * 0.3, 0.03, Math.sin(a) * 0.3); g.add(w);
+    const a = (i / 5) * Math.PI * 2, leg = box(0.24, 0.035, 0.05, M.alu, Math.cos(a) * 0.12, 0.075, Math.sin(a) * 0.12, 1, g); leg.rotation.y = -a;
+    const w = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 6), M.plastic); w.position.set(Math.cos(a) * 0.24, 0.03, Math.sin(a) * 0.24); g.add(w);
   }
   cyl(0.025, 0.025, 0.3, M.steelLight, 0, 0.25, 0, g);
   const seat = o.mat || M.leather;
-  rbox(0.52, 0.08, 0.5, 0.03, seat, 0, 0.46, 0, g);
+  rbox(0.5, 0.07, 0.46, 0.03, seat, 0, 0.405, 0, g).userData.contact = 'seat'; // seat top at 0.44
   const back = rbox(0.5, 0.62, 0.07, 0.03, seat, 0, 0.86, 0.25, g); back.rotation.x = -0.12;
   box(0.06, 0.4, 0.03, M.steel, 0, 0.62, 0.28, 1, g).rotation.x = -0.12;
-  for (const s of [-1, 1]) { box(0.035, 0.2, 0.035, M.steel, s * 0.27, 0.58, 0.02, 1, g); rbox(0.06, 0.03, 0.26, 0.012, M.plastic, s * 0.27, 0.69, 0.02, g); }
+  if (!o.noArms) for (const s of [-1, 1]) { box(0.035, 0.2, 0.035, M.steel, s * 0.27, 0.58, 0.02, 1, g); rbox(0.06, 0.03, 0.26, 0.012, M.plastic, s * 0.27, 0.69, 0.02, g); }
   if (o.jacket) jacket(g, o.jacket);
   return g;
 }
@@ -561,7 +564,7 @@ export function jacket(chair, color = 0x2f3a4a) {
 }
 export function desk(parent, cx, cz, w, d, rotY, top, h = 0.74, o = {}) {
   const M = C.M, g = group(parent, cx, 0, cz, rotY);
-  rbox(w, 0.035, d, 0.008, top || M.oak, 0, h - 0.0175, 0, g);
+  rbox(w, 0.035, d, 0.008, top || M.oak, 0, h - 0.0175, 0, g).userData.contact = 'surface';
   for (const s of [-1, 1]) {
     box(0.06, h - 0.035, 0.04, M.steel, s * (w / 2 - 0.08), (h - 0.035) / 2, -d / 2 + 0.07, 1, g);
     box(0.06, h - 0.035, 0.04, M.steel, s * (w / 2 - 0.08), (h - 0.035) / 2, d / 2 - 0.07, 1, g);

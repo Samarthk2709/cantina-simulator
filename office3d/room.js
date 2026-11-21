@@ -311,15 +311,16 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   coffeeCup(g, r.cx + 0.78, y, dz + 0.05);
   can(g, r.cx - 0.5, y, dz + 0.27, 0x1d8fd6); can(g, r.cx - 0.85, y, dz + 0.3, 0xd61d4a, true);
   papers(g, r.cx - 0.72, y, dz + 0.12, 5);
-  headphones(g, r.cx + 0.35, y, dz + 0.28, 0.6);
+  headphones(g, r.cx + 0.62, y, dz + 0.22, 0.6);
   place('desk_lamp_arm_01', r.cx + 0.85, y, dz - 0.25, -2.2, 1, g);
   lampPoint(r.cx + 0.66, y + 0.45, dz - 0.12, 0xffb46b, 0.45, 2.2, id);
   place('potted_plant_04', r.cx - 0.88, y, dz - 0.27, 0.4, 1.2, g);
   place('office_notepads', r.cx - 0.1, y, dz + 0.31, 0.1, 0.5, g, { pick: /sticky_stack/, shadow: false });
   place('alarm_clock_01', r.cx - 0.95, y, dz + 0.0, 0.7, 0.9, g, { shadow: false });
   pcTower(g, r.cx + 0.72, dz + 0.02, 0, 0x6a5cff, id);
-  officeChair(g, r.cx + 0.05, dz + 0.72, 0.15, { jacket: 0x3b2f2a });
-  backpack(g, r.cx - 0.55, dz + 0.75, 0.5, 0x2c3540);
+  // the chair is parked beside the desk; the robot pulls it in when it sits down
+  (C.chairs || (C.chairs = {})).hunt = { g: officeChair(g, r.cx + 0.9, dz + 0.8, -Math.PI / 2, { jacket: 0x3b2f2a, exact: true, noArms: true }), park: [r.cx + 0.9, dz + 0.8, -Math.PI / 2], sit: [r.cx + 0.05, dz + 0.725, 0] };
+  backpack(g, r.cx - 1.25, dz + 0.55, 0.5, 0x2c3540);
   bin(g, r.cx - 1.25, dz + 0.1);
   powerStrip(g, r.cx + 0.2, dz - 0.2, 0.3);
   cable(g, [[r.cx, y + 0.12, dz - 0.26], [r.cx + 0.1, y - 0.1, dz - 0.36], [r.cx + 0.2, 0.3, dz - 0.36], [r.cx + 0.25, 0.02, dz - 0.25]]);
@@ -328,7 +329,7 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   floorCable(g, [r.cx + 0.2, dz - 0.2], [r.cx + 1.6, dz - 0.6]);
   // nameplate
   const np = canvasTex(256, 64, (q, w, h) => { q.fillStyle = '#1a1612'; q.fillRect(0, 0, w, h); q.fillStyle = '#d9b77a'; q.font = 'bold 26px Georgia'; q.textAlign = 'center'; q.fillText('FOUNDER', w / 2, 42); });
-  const pl = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.02), [M.brass, M.brass, M.brass, M.brass, new THREE.MeshStandardMaterial({ map: np, roughness: 0.4, metalness: 0.3 }), M.brass]); pl.position.set(r.cx + 0.3, y + 0.025, dz + 0.36); pl.rotation.x = -0.4; g.add(pl);
+  const pl = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.045, 0.02), [M.brass, M.brass, M.brass, M.brass, new THREE.MeshStandardMaterial({ map: np, roughness: 0.4, metalness: 0.3 }), M.brass]); pl.position.set(r.cx - 0.62, y + 0.025, dz + 0.3); pl.rotation.x = -0.4; g.add(pl);
   rugSlab(g, 3.4, 2.4, M.rug, r.cx, dz + 0.35);
   pendant(r.cx, dz + 0.05, 1.25, { shadow: true, id, intensity: 26 });
   rectLight(0x7fb0ff, 3.2, 1.6, 0.35, new THREE.Vector3(r.cx, y + 0.3, dz - 0.15), new THREE.Vector3(r.cx, y + 0.3, dz + 2), id);
@@ -346,10 +347,10 @@ function buildContract() { // Ops Center: contracts come in here.
   place('binder_notebook', r.cx + 0.45, y, r.cz + 0.26, 0.2, 1, g, { pick: /closed/, shadow: false });
   // desk phone
   const ph = group(g, r.cx - 0.8, y, r.cz - 0.12, 0.3); rbox(0.2, 0.05, 0.18, 0.02, M.plastic, 0, 0.025, 0, ph); rbox(0.2, 0.04, 0.05, 0.02, M.plastic, 0, 0.07, -0.05, ph);
-  officeChair(g, r.cx + 0.1, r.cz + 0.68, -0.2, { mat: M.leatherBrown });
+  (C.chairs || (C.chairs = {})).contract = { g: officeChair(g, r.cx + 1.36, r.cz + 0.82, -Math.PI / 2, { mat: M.leatherBrown, exact: true, noArms: true }), park: [r.cx + 1.36, r.cz + 0.82, -Math.PI / 2], sit: [r.cx + 0.1, r.cz + 0.705, 0] };
   pcTower(g, r.cx - 0.8, r.cz + 0.05, 0, 0xff7a2b, id);
   for (let i = 0; i < 2; i++) { box(0.26, 0.05, 0.34, std(0x232528, 0.4, 0.8), r.cx + 0.82, y + 0.025 + i * 0.07, r.cz - 0.2, 1, g); papers(g, r.cx + 0.82, y + 0.03 + i * 0.07, r.cz - 0.2, 3, 0.15); }
-  bin(g, r.cx + 1.25, r.cz + 0.15);
+  bin(g, r.cx - 0.55, r.cz - 0.65);
   // contract corkboard on an easel behind the desk: pinned contracts, red string
   const cork = canvasTex(1024, 640, (q, w, h) => {
     q.fillStyle = '#a77b4f'; q.fillRect(0, 0, w, h); for (let i = 0; i < 4000; i++) { q.fillStyle = `rgba(${rnd() < 0.5 ? '70,40,20' : '220,180,130'},.25)`; q.fillRect(rnd() * w, rnd() * h, 2, 2); }
@@ -380,14 +381,14 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   rbox(0.66, 1.05, 0.62, 0.03, sm, 0, 0.525, 0, safe);
   // the door hangs on a hinge (left edge) so the robot can swing it open; the dial and wheel turn
   rbox(0.58, 0.94, 0.02, 0.01, std(0x0b0d0c, 0.6, 0.2), 0, 0.53, 0.302, safe); // dark recess behind the door
-  const door = group(safe, -0.28, 0, 0.3); door.userData.dynamic = true;
+  const door = group(safe, -0.28, 0, 0.3); door.userData.dynamic = true; door.userData.contact = 'surface'; door.userData.compact = true;
   rbox(0.56, 0.92, 0.045, 0.015, std(0x34423b, 0.28, 0.8), 0.28, 0.53, 0.025, door);
   rbox(0.46, 0.8, 0.012, 0.01, std(0x2a3530, 0.35, 0.8), 0.28, 0.53, 0.052, door);  // inset panel
-  const dial = group(door, 0.38, 0.68, 0.06);
+  const dial = group(door, 0.38, 0.68, 0.06); dial.userData.compact = true;
   const dm = cyl(0.07, 0.07, 0.03, M.brass, 0, 0, 0, dial, 32); dm.rotation.x = Math.PI / 2;
   for (let i = 0; i < 24; i++) { const tk = box(0.004, 0.014, 0.004, std(0x1a1a1a, 0.5), Math.sin(i / 24 * 6.283) * 0.058, Math.cos(i / 24 * 6.283) * 0.058, 0.017, 1, dial, false); tk.rotation.z = -i / 24 * 6.283; }
   box(0.01, 0.03, 0.006, std(0xb3261e, 0.4), 0, 0.075, 0.02, 1, dial, false);
-  const wheel = group(door, 0.18, 0.55, 0.07);
+  const wheel = group(door, 0.18, 0.55, 0.07); wheel.userData.compact = true;
   for (let i = 0; i < 3; i++) { const sp = cyl(0.008, 0.008, 0.16, M.alu, 0, 0, 0, wheel, 8); sp.rotation.z = (i / 3) * Math.PI; }
   cyl(0.025, 0.025, 0.05, M.alu, 0, 0, -0.01, wheel, 16).rotation.x = Math.PI / 2;
   for (const yy of [0.25, 0.85]) cyl(0.02, 0.02, 0.1, M.steelLight, 0.57, yy, 0.03, door, 12);
@@ -437,7 +438,7 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
   mug(g, r.cx + 0.88, y, r.cz + 0.18, 0x8a2c2c);
   place('rubber_duck_toy', r.cx + 0.82, y, r.cz - 0.22, -0.6, 0.5, g, { shadow: false });
   place('magnifying_glass_01', r.cx - 0.4, y, r.cz + 0.26, 1.2, 1, g, { shadow: false });
-  officeChair(g, r.cx - 0.2, r.cz + 0.66, 0.3);
+  officeChair(g, r.cx - 0.95, r.cz + 0.72, 0.6);
   // rolling whiteboard behind the desk
   const wbT = canvasTex(1024, 640, (c, w, h) => {
     c.fillStyle = '#f4f5f2'; c.fillRect(0, 0, w, h); c.lineCap = 'round'; c.lineJoin = 'round';
@@ -452,20 +453,20 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
     pen('#b3261e', 6); c.beginPath(); c.arc(700, 440, 75, 0, 7); c.stroke();
     ['#ffe873', '#ff9ec7', '#8de3ff'].forEach((col, i) => { c.fillStyle = col; c.save(); c.translate(80 + i * 130, 420); c.rotate(rr(-0.1, 0.1)); c.fillRect(0, 0, 110, 110); c.fillStyle = '#333'; c.font = '20px "Marker Felt", cursive'; c.fillText(['retest', 'ask Nib', 'CVE?'][i], 12, 50); c.restore(); });
   });
-  const wb = group(g, r.cx + 1.12, 0, r.z0 - 0.12); wb.scale.set(0.95, 0.8, 1);
-  { const wm = std(0xd8d8d8, 0.3, 0, { map: wbT }), bm = std(0x9a9c9e, 0.6); const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.03), [bm, bm, bm, bm, wm, bm]); b.position.set(0, 1.45, 0); b.castShadow = b.receiveShadow = true; wb.add(b); }
+  const wb = group(g, r.cx + 1.47, 0, r.z0 - 0.12); wb.scale.set(0.95, 0.8, 1);
+  { const wm = std(0xd8d8d8, 0.3, 0, { map: wbT }), bm = std(0x9a9c9e, 0.6); const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.03), [bm, bm, bm, bm, wm, bm]); b.position.set(0, 1.45, 0); b.castShadow = b.receiveShadow = true; b.userData.contact = 'surface'; wb.add(b); }
   box(1.64, 0.025, 0.04, M.alu, 0, 1.96, 0, 1, wb); box(1.64, 0.025, 0.04, M.alu, 0, 0.94, 0, 1, wb);
   box(1.4, 0.03, 0.07, M.alu, 0, 0.93, 0.03, 1, wb);
   for (let i = 0; i < 3; i++) { const mk = cyl(0.008, 0.008, 0.12, std([0x1f3b8f, 0xb3261e, 0x1b7a3a][i], 0.4), -0.3 + i * 0.05, 0.955, 0.04, wb, 8, false); mk.rotation.z = Math.PI / 2; }
   for (const s of [-1, 1]) { box(0.035, 1.9, 0.035, M.alu, s * 0.82, 0.98, 0, 1, wb); box(0.035, 0.035, 0.5, M.alu, s * 0.82, 0.06, 0, 1, wb); }
-  C.colliders.push({ x0: r.cx + 1.12 - 0.8, x1: r.cx + 1.12 + 0.8, z0: r.z0 - 0.4, z1: r.z0 - 0.02 });
+  C.colliders.push({ x0: r.cx + 1.47 - 0.8, x1: r.cx + 1.47 + 0.8, z0: r.z0 - 0.4, z1: r.z0 - 0.02 });
   pendant(r.cx, r.cz + 0.15, 1.15, { shadow: true, id, intensity: 10, tz: 0.35 });
   lampPoint(r.cx + 0.42, y + 0.45, r.cz - 0.02, 0xa58cff, 0.5, 2.0, id);
   standbyTag(g, r.cx, y + 0.45, r.cz - 0.2, 0, id);
 }
 function buildForge() { // Agent Forge: a workbench where tools get built.
   const id = 'forge', r = tr(4, 10, 2, 1), g = stationGroup(id), M = C.M, y = 0.92;
-  rbox(1.5, 0.05, 0.72, 0.006, M.walnut, r.cx, y - 0.025, r.cz, g);
+  rbox(1.5, 0.05, 0.72, 0.006, M.walnut, r.cx, y - 0.025, r.cz, g).userData.contact = 'surface';
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(0.05, y - 0.05, 0.05, M.steel, r.cx + sx * 0.68, (y - 0.05) / 2, r.cz + sz * 0.3, 1, g);
   box(1.4, 0.03, 0.62, M.walnut, r.cx, 0.22, r.cz, 1, g);
   const peg = canvasTex(512, 256, (c, w, h) => { c.fillStyle = '#b08a5c'; c.fillRect(0, 0, w, h); c.fillStyle = '#3b2a18'; for (let x = 8; x < w; x += 16) for (let yy = 8; yy < h; yy += 16) { c.beginPath(); c.arc(x, yy, 2.4, 0, 7); c.fill(); } });
@@ -532,7 +533,7 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
     rows.forEach(([t, p], i) => { const y = 340 + i * 110; c.fillStyle = '#cbd5e1'; c.font = '34px Arial'; c.fillText(t, 60, y); c.fillStyle = '#1e293b'; c.fillRect(60, y + 22, 1160, 26); const gr = c.createLinearGradient(60, 0, 1220, 0); gr.addColorStop(0, '#22d3ee'); gr.addColorStop(1, '#a78bfa'); c.fillStyle = gr; c.fillRect(60, y + 22, 1160 * Math.max(0.04, p), 26); });
   });
   const disp = group(g, r.cx, 1.55, Z0 + 0.1);
-  rbox(2.3, 1.32, 0.05, 0.01, M.plastic, 0, 0, 0, disp);
+  rbox(2.3, 1.32, 0.05, 0.01, M.plastic, 0, 0, 0, disp).userData.contact = 'surface';
   const gm = screenMat(goalTex, 1.2), sc = plane(2.26, 1.27, gm, 0, 0, 0.026, disp); powerScreen(id, sc, gm);
   rectLight(0x7ab8ff, 2.5, 2.2, 1.2, new THREE.Vector3(r.cx, 1.55, Z0 + 0.16), new THREE.Vector3(r.cx, 1.2, Z0 + 3), id);
   // neon sign above (original wordmark)
@@ -580,7 +581,7 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
   });
   const rackM = worn(0x17181b, { roughness: 0.6, metalness: 0.7, ns: 0.4 });
   for (let i = 0; i < 3; i++) {
-    const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 9.46, 0); rk.scale.z = 0.83;
+    const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 9.78, 0); rk.scale.z = 0.83;
     rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk);
     const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
@@ -595,7 +596,7 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
   for (let i = 0; i < 4; i++) cable(g, [[r.x0 + 0.3 + i * 0.5, 1.95, r.cz + 0.2], [r.x0 + 0.3 + i * 0.5, 2.6, r.cz + 0.25], [r.x0 + 0.2 + i * 0.45, H - 0.05, r.cz + 0.3]], 0.012);
   lampPoint(r.cx, 1.6, 8.95, 0x3fb8ff, 0.8, 2.0, id);
   // floor fan and a crate of spare parts
-  place('plastic_crate_02', r.x0 - 0.15, 0, r.cz + 0.5, 0.3, 1, g);
+  place('plastic_crate_02', r.x0 - 0.55, 0, r.cz + 0.82, 0.3, 1, g);
 }
 function buildTerminals() { // six one-tile agent terminals: compact pods where the AI agents run
   const id = 'terminals', g = stationGroup(id), M = C.M, names = ['scout', 'fuzzer', 'triage', 'repro', 'writer', 'ledger'];
@@ -603,7 +604,7 @@ function buildTerminals() { // six one-tile agent terminals: compact pods where 
     // pods sit back to back: row 10 faces north (screens toward its north side), row 11 faces south
     const r = tr(p[0], p[1], 1, 1), north = p[1] === 10, ry = north ? Math.PI : 0, cz = r.cz + (north ? 0.12 : -0.12);
     const pod = group(g, r.cx, 0, cz, ry);
-    rbox(0.7, 0.03, 0.44, 0.006, M.oak, 0, 0.74, 0, pod);
+    rbox(0.7, 0.03, 0.44, 0.006, M.oak, 0, 0.74, 0, pod).userData.contact = 'surface';
     box(0.03, 0.72, 0.4, M.steel, -0.33, 0.36, 0, 1, pod); box(0.03, 0.72, 0.4, M.steel, 0.33, 0.36, 0, 1, pod);
     box(0.7, 0.42, 0.02, std(0x2e3b3a, 0.9), 0, 0.95, -0.22, 1, pod); // privacy screen between rows
     monitor(pod, 0, 0.755, -0.12, 0, 0.5, 0.29, agentScreen(100 + i, names[i]), { id, k: 1.3 });
@@ -641,30 +642,32 @@ function buildDecor() {
   place('calathea_orbifolia_01', 1.15, 0, 10.1, 0.2, 1.1, null, { pick: /_b$/ });
   place('calathea_orbifolia_01', 13.85, 0, 10.1, 2.0, 1.1, null, { pick: /_d$/ });
   // ---- lounge on the south wall, west side ----
-  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1);
+  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.82 }); // a low lounge sofa
+  (C.proxyBoxes || (C.proxyBoxes = [])).push(
+    { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.455, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.91, 10.48], contact: 'seat' },
+    { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.6, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.6, 10.48] });
   C.colliders.push({ x0: 2.05, x1: 4.75, z0: Z1 - 0.95, z1: Z1 });
-  place('throw_pillows_01', 2.85, 0.45, Z1 - 0.5, Math.PI, 1);
+  place('throw_pillows_01', 4.4, 0.37, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
   place('side_table_01', 1.65, 0, Z1 - 0.4, 0, 1); C.colliders.push({ x0: 1.4, x1: 1.9, z0: Z1 - 0.65, z1: Z1 - 0.15 });
-  place('vintage_electric_kettle', 1.65, 0.45, Z1 - 0.4, 0.5, 0.6, null, { shadow: false });
+  
   rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);
-  place('modern_coffee_table_01', 3.4, 0, Z1 - 1.35, Math.PI / 2, 1); C.colliders.push({ x0: 2.8, x1: 4.0, z0: Z1 - 1.65, z1: Z1 - 1.05 });
-  pizzaBox(C.scene, 3.1, 0.39, Z1 - 1.35, 0.2, true);
-  can(C.scene, 3.65, 0.39, Z1 - 1.25, 0xd61d4a); can(C.scene, 3.75, 0.39, Z1 - 1.42, 0x1d8fd6, true);
-  place('gamepad', 3.9, 0.39, Z1 - 1.3, 0.6, 0.45, null, { shadow: false });
+  pizzaBox(C.scene, 1.65, 0.55, Z1 - 0.42, 0.3, false); // takeaway on the side table
+  can(C.scene, 1.5, 0.596, Z1 - 0.25, 0xd61d4a);
+  place('gamepad', 2.3, 0.0, Z1 - 0.9, 0.6, 0.45, null, { shadow: false }); // dropped on the rug
   // arc floor lamp over the sofa
-  const fl = group(null, 4.95, 0, Z1 - 0.35);
+  const fl = group(null, 5.45, 0, Z1 - 0.35);
   cyl(0.15, 0.16, 0.03, std(0x222222, 0.3, 0.6), 0, 0.015, 0, fl, 32);
   const arc = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(-0.4, 2.0, -0.2), new THREE.Vector3(-1.1, 1.85, -0.35)]);
   const am = new THREE.Mesh(new THREE.TubeGeometry(arc, 40, 0.012, 8), M.brass); am.castShadow = true; fl.add(am);
   const sh = new THREE.Mesh(new THREE.SphereGeometry(0.17, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x111111, 0.3, 0.8, { side: THREE.DoubleSide })); sh.position.set(-1.1, 1.82, -0.35); fl.add(sh);
   const fb = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), emissive(0xffc890, 2)); fb.position.set(-1.1, 1.76, -0.35); fl.add(fb);
-  const fll = new THREE.SpotLight(0xffb070, 9, 6, 1.1, 0.8, 2); fll.position.set(3.85, 1.75, Z1 - 0.7); fll.target.position.set(3.6, 0, Z1 - 1.0);
+  const fll = new THREE.SpotLight(0xffb070, 9, 6, 1.1, 0.8, 2); fll.position.set(4.35, 1.75, Z1 - 0.7); fll.target.position.set(4.1, 0, Z1 - 1.0);
   fll.castShadow = true; fll.shadow.mapSize.set(1024, 1024); fll.shadow.bias = -0.0004; fll.shadow.radius = 5; addLight(fll);
-  C.colliders.push({ x0: 4.75, x1: 5.15, z0: Z1 - 0.55, z1: Z1 - 0.15 });
+  C.colliders.push({ x0: 5.25, x1: 5.65, z0: Z1 - 0.55, z1: Z1 - 0.15 });
   poster('ship', 2.7, 1.65, Z1 - 0.02, Math.PI, 0.62); poster('nib', 4.0, 1.65, Z1 - 0.02, Math.PI, 0.62);
   // ---- coffee corner on the south wall, east side ----
-  place('CoffeeCart_01', 10.6, 0, Z1 - 0.4, Math.PI, 1);
-  C.colliders.push({ x0: 9.85, x1: 11.35, z0: Z1 - 0.85, z1: Z1 });
+  place('CoffeeCart_01', 10.45, 0, Z1 - 0.4, Math.PI, 1, null, { pick: /_cart$|_mugs$/ });
+  C.colliders.push({ x0: 9.72, x1: 11.18, z0: Z1 - 0.85, z1: Z1 });
   lampPoint(10.6, 1.25, Z1 - 0.45, 0xffc98a, 1.0, 2.2);
   place('metal_trash_can', 11.8, 0, Z1 - 0.32, 0, 0.9, null, { pick: /^metal_trash_can(_lid|_handle|$)/ }); C.colliders.push({ x0: 11.5, x1: 12.1, z0: Z1 - 0.6, z1: Z1 });
   place('trashbag', 12.25, 0, Z1 - 0.3, 1.2, 0.8);

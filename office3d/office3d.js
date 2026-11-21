@@ -14,7 +14,7 @@ import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { C, A, K, T, X0, X1, Z0, Z1, H, makeMaterials, allTextures, gltf, hazeMats } from './kit.js';
 import { buildRoom, buildSkyline, tickRoom, getGoalTex } from './room.js';
-import { buildRobot } from './robot.js';
+import { buildRobot, setSofaSeat } from './robot.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const Q = new URLSearchParams(location.search);
@@ -167,7 +167,7 @@ let renderer, scene, camera, composer, gtao, bloom, smaa, grade, cine, tPrev = 0
 let world, G;
 
 // ---------- Nib: a small hovering drone that follows Nib's position in the 2D game ----------
-let nib3d;
+let nib3d, nibY = 1.45;
 function buildNib() {
   const M = C.M, g = new THREE.Group(); scene.add(g); nib3d = g;
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 32, 20), new THREE.MeshPhysicalMaterial({ color: 0xb9b6ae, roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.15 })); body.castShadow = true; g.add(body);
@@ -179,16 +179,16 @@ function buildNib() {
 }
 
 // ---------- the player: FO-1, the founder robot (robot.js) ----------
-let charLight, rimLight, player, robot, playerRadius = 0.2;
+let charLight, rimLight, player, robot, playerRadius = 0.41;
 function buildPlayer() {
   robot = buildRobot();
-  player = new THREE.Group(); player.add(robot.mesh); scene.add(player);
+  player = new THREE.Group(); player.name = 'robot'; player.add(robot.mesh); scene.add(player);
   // soft key + cool rim on the character (keeps the robot readable against the dark room)
   charLight = new THREE.PointLight(0xffe6cc, 0.8, 2.6, 2); scene.add(charLight);
   rimLight = new THREE.PointLight(0x9fbfff, 1.4, 2.4, 2); scene.add(rimLight);
   // soft contact shadow blob under the feet
   const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; })());
-  const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; blob.userData.dynamic = true; player.add(blob);
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; blob.userData.dynamic = true; blob.name = 'robot_contact_shadow'; scene.add(blob); player.userData.blob = blob;
   player.traverse(o => (o.userData.dynamic = true));
 }
 
@@ -224,8 +224,8 @@ let hiddenRects = [];
 function blockedAt(x, z) {
   if (!world.walkable(x / K, z / K)) return true;
   const r = playerRadius;
-  for (const c of C.colliders) if (x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r) return true;
-  for (const c of hiddenRects) if (x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r) return true;
+  for (const c of C.colliders) { const rr = c.high ? 0.33 : r; if (x > c.x0 - rr && x < c.x1 + rr && z > c.z0 - rr && z < c.z1 + rr) return true; }
+  for (const c of hiddenRects) if (x > c.x0 - 0.3 && x < c.x1 + 0.3 && z > c.z0 - 0.3 && z < c.z1 + 0.3) return true;
   return false;
 }
 const ray = new THREE.Raycaster();
@@ -253,11 +253,12 @@ function updatePlayer(dt) {
   let anim = { speed: sp };
   if (act) anim = stepInteraction(dt);
   else { vis.copy(pos); visH = heading; }
-  player.position.copy(vis); player.rotation.y = visH;
-  robot.anim.update(dt, performance.now() / 1000, anim);
-  sparks(dt, !!(act && act.id === 'forge' && act.phase === 'loop')); stationFX(dt);
+  player.position.copy(vis); player.rotation.y = visH; player.userData.blob.position.set(vis.x, 0.006, vis.z);
+  anim.groundY = groundAt(vis.x, vis.z); robot.anim.update(dt, performance.now() / 1000, anim);
+  sparks(dt, !!(act && act.id === 'forge' && act.phase === 'loop' && act.st > 0.8)); stationFX(dt);
 }
 
+function groundAt(x, z) { let g = 0; for (const c of COLLIDERS) { const b = c.box; if (b.max.y < 0.03 && b.max.y > g && x > b.min.x && x < b.max.x && z > b.min.z && z < b.max.z && c.name !== 'floor') g = b.max.y; } return g; }
 // small solder sparks from the robot's tool hand while it tinkers at the forge
 const SPK = { n: 40, pts: null, life: new Float32Array(40), vel: new Float32Array(120), t: 0 };
 function sparks(dt, on) {
@@ -281,20 +282,86 @@ function sparks(dt, on) {
 // E (or Office3D.interact) walks the robot to the spot, turns it, then loops the station animation while the window
 // is open; closing the window plays the exit (stand up / step back) and returns control.
 const vis = new THREE.Vector3(); let visH = Math.PI;
+// spot: where the robot stands/sits and its heading; stand: clear floor point it walks from / back to;
+// seat: 'chair' (swivel chair: sit from the side, swivel to the desk) or 'sofa' (back up and sit); side: where it sits from.
 const USE = {
-  hunt: [7.175, 4.83, Math.PI], contract: [2.725, 3.31, Math.PI], stats: [12.5, 2.67, Math.PI / 2], training: [11.47, 7.8, Math.PI],
-  forge: [3.75, 8.55, Math.PI], hq: [7.25, 1.62, Math.PI], rig: [12.38, 8.93, 0], terminals: [13.125, 7.4, 0], lounge: [3.2, 9.95, Math.PI],
+  hunt: { spot: [7.175, 4.78, Math.PI], seat: 'chair', side: [6.52, 4.95], stand: [6.45, 5.45] },
+  contract: { spot: [2.725, 3.28, Math.PI], seat: 'chair', side: [2.05, 3.45], stand: [2.1, 4.05] },
+  stats: { spot: [12.2, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
+  training: { spot: [11.55, 7.82, Math.PI], stand: [11.58, 8.7] },
+  forge: { spot: [3.75, 8.62, Math.PI], stand: [3.75, 9.25] },
+  hq: { spot: [7.25, 1.62, Math.PI], stand: [7.25, 2.45] },
+  rig: { spot: [12.38, 9.04, 0], stand: [11.5, 9.04] },
+  terminals: { spot: [13.125, 7.38, 0], stand: [13.125, 6.75] },
+  lounge: { spot: [3.05, 9.8, Math.PI], seat: 'sofa', side: [3.05, 9.25], stand: [2.4, 9.0] },
 };
+for (const k in USE) { const u = USE[k]; u[0] = u.spot[0]; u[1] = u.spot[1]; u[2] = u.spot[2]; } // array-style access (camera helpers)
 let act = null;
 const angDiff = (a, b) => { const d = b - a; return Math.atan2(Math.sin(d), Math.cos(d)); };
-function startInteraction(id) {
+const V2 = (a) => new THREE.Vector3(a[0], 0, a[1]);
+function startInteraction(id, fromStand) {
   if (!USE[id]) return Promise.reject(new Error('no such station: ' + id));
   if (act && act.id === id && act.phase === 'loop') return Promise.resolve(id);
   let resolve; const p = new Promise(r => (resolve = r));
-  const [x, z, h] = USE[id];
-  act = { id, phase: 'walk', t: 0, st: 0, spot: new THREE.Vector3(x, 0, z), h, resolve };
-  if (vis.distanceTo(act.spot) > 4) { vis.set(x - Math.sin(h) * 0.9, 0, z - Math.cos(h) * 0.9); } // far away: start a short walk from just behind the spot
+  const u = USE[id], spot = V2(u.spot);
+  if (fromStand || vis.distanceTo(spot) > 4) { vis.copy(V2(u.stand)); }
+  const path = [V2(u.stand), u.seat ? V2(u.side) : spot]; if (vis.distanceTo(path[0]) < 0.05) path.shift();
+  act = { id, u, phase: 'path', path, after: u.seat === 'chair' ? 'swivelOut' : u.seat === 'sofa' ? 'turnSofa' : 'turn', t: 0, st: 0, spot, h: u.spot[2], resolve };
   return p;
+}
+const chairOf = id => (C.chairs && C.chairs[id] ? C.chairs[id] : null);
+// place a pull-in chair: k = 0 parked beside the desk, 1 at the desk; yaw = absolute rotation once at the desk
+function setChair(c, k, yaw) { if (!c) return; const e = k * k * (3 - 2 * k); c.g.position.set(c.park[0] + (c.sit[0] - c.park[0]) * e, 0, c.park[1] + (c.sit[1] - c.park[1]) * e); c.g.rotation.y = c.park[2] + angDiff(c.park[2], yaw) * e; }
+function stepInteraction(dt) {
+  const A = act, u = A.u; A.t += dt;
+  const turnTo = (h, k = 8) => { visH += angDiff(visH, h) * Math.min(1, dt * k); };
+  const ease = x => x * x * (3 - 2 * x);
+  if (A.phase === 'path') {
+    const goal = A.path[0], d = goal.clone().sub(vis).setY(0), dist = d.length(), sp = Math.min(1.3, 0.25 + dist * 3);
+    if (dist > 0.02) { turnTo(Math.atan2(d.x, d.z), 9); vis.addScaledVector(d.normalize(), Math.min(dist, sp * dt)); }
+    if (dist <= 0.02 || A.t > 8) { A.path.shift(); A.t = 0; if (!A.path.length) { A.phase = A.after; } }
+    return { speed: sp };
+  }
+  const chair = chairOf(A.id), out = u.seat === 'chair' ? Math.atan2(u.side[0] - u.spot[0], 0) : Math.atan2(u.side ? u.side[0] - u.spot[0] : 0, u.side ? u.side[1] - u.spot[1] : 1);
+  // --- swivel chair: turn the chair to the robot, back up onto the seat, swivel to the desk ---
+  if (A.phase === 'swivelOut') { turnTo(out, 7); setChair(chair, Math.min(1, A.t / 0.9), out - Math.PI); if (A.t > 1.0) { A.phase = 'sitDown'; A.t = 0; } return { speed: 0 }; }
+  if (A.phase === 'sitDown') { const k = ease(Math.min(1, A.t / 0.9)); vis.copy(V2(u.side)).lerp(A.spot, k); turnTo(out, 9); if (A.t > 1.0) { A.phase = 'swivelIn'; A.t = 0; } return { station: 'sit', stationT: A.t, rate: 5 }; }
+  if (A.phase === 'swivelIn') { const k = ease(Math.min(1, A.t / 0.8)); visH = out + angDiff(out, A.h) * k; setChair(chair, 1, visH - Math.PI); if (A.t > 0.8) { A.phase = 'loop'; A.t = 0; A.resolve && A.resolve(A.id); A.resolve = null; } return { station: 'sit', stationT: A.t, rate: 5 }; }
+  // --- sofa: turn your back to it, back up and sit ---
+  if (A.phase === 'turnSofa') { turnTo(A.h, 8); if (A.t > 0.45) { A.phase = 'sitSofa'; A.t = 0; } return { speed: 0 }; }
+  if (A.phase === 'sitSofa') { const k = ease(Math.min(1, A.t / 0.9)); vis.copy(V2(u.side)).lerp(A.spot, k); turnTo(A.h, 9); if (A.t > 1.0) { A.phase = 'loop'; A.t = 0; A.resolve && A.resolve(A.id); A.resolve = null; } return { station: 'sitSofa', stationT: A.t, rate: 5 }; }
+  // --- standing stations ---
+  if (A.phase === 'turn') { turnTo(A.h, 8); if (A.t > 0.4) { A.phase = 'enter'; A.t = 0; } return { speed: 0 }; }
+  if (A.phase === 'enter' || A.phase === 'loop') {
+    if (!u.seat || A.phase === 'enter') turnTo(A.h, 8); A.st += dt;
+    if (u.seat === 'chair') setChair(chair, 1, visH - Math.PI);
+    if (A.phase === 'enter' && A.t > 0.5) { A.phase = 'loop'; A.resolve && A.resolve(A.id); A.resolve = null; }
+    return { station: A.id, stationT: A.st, rate: A.phase === 'enter' || A.st < 1 ? 4 : 7 };
+  }
+  // --- exits ---
+  if (A.phase === 'exit') {
+    if (u.seat === 'chair') { // swivel out, stand up stepping to the side, chair swivels back
+      if (A.t < 0.5) return { station: 'sit', stationT: A.t, rate: 5 };
+      if (A.t < 1.3) { const k = ease((A.t - 0.5) / 0.8); visH = A.h + angDiff(A.h, out) * k; setChair(chair, 1, visH - Math.PI); return { station: 'sit', stationT: A.t, rate: 5 }; }
+      const k = ease(Math.min(1, (A.t - 1.3) / 0.9)); vis.copy(A.spot).lerp(V2(u.side), k);
+      if (A.t > 2.3) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; A.chairT = 0; }
+      return { speed: 0, rate: 4 };
+    }
+    if (u.seat === 'sofa') { const k = Math.min(1, A.t / 1.1); vis.copy(A.spot).lerp(V2(u.side), k); if (A.t > 1.25) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; } return { station: 'rise', stationT: k, rate: 12 }; }
+    if (A.t < 0.55) return { station: 'retract', stationT: A.t, rate: 6 };
+    if (A.t > 1.1) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; }
+    return { speed: 0, rate: 4 };
+  }
+  if (A.phase === 'home') {
+    if (chair && u.seat === 'chair') { A.chairT = Math.min(1, (A.chairT || 0) + dt / 0.9); setChair(chair, 1 - A.chairT, out - Math.PI); }
+    const goal = A.path[0], d = goal.clone().sub(vis).setY(0), dist = d.length(), sp = Math.min(1.3, 0.25 + dist * 3);
+    if (dist > 0.02 && A.t < 6) { turnTo(Math.atan2(d.x, d.z), 9); vis.addScaledVector(d.normalize(), Math.min(dist, sp * dt)); return { speed: sp }; }
+    // hand control back: the founder now stands at this clear spot
+    if (chair && u.seat === 'chair') setChair(chair, 0, 0);
+    pos.copy(vis); heading = visH; if (world.walkable(pos.x / K, pos.z / K)) world.setPose(pos.x / K, pos.z / K, 'down', false);
+    act = null; return { speed: 0 };
+  }
+  return { speed: 0 };
 }
 // while a station is being used it is lit and its screens are on (even if the game hasn't unlocked it yet)
 let usePowered = null;
@@ -313,7 +380,7 @@ function buildLedger() { // a ledger the robot holds and leafs through at the va
   robot.bones.lWr.add(g); return g;
 }
 function stationFX(dt) {
-  const st = act && (act.phase === 'loop' || act.phase === 'enter' || act.phase === 'exit') ? act.id : null, t = act ? act.st : 0;
+  const st = act && act.phase !== 'path' && act.phase !== 'home' ? act.id : null, t = act ? act.st : 0;
   if (st) usePower(st, true); else usePower(null, false);
   // vault: spin the dial, swing the door, leaf through the ledger
   const S = C.safe;
@@ -324,33 +391,16 @@ function stationFX(dt) {
     if (st === 'stats' && ph >= 2.6 && ph < 3.4) S.wheel.rotation.z += dt * 6;
     S.key.intensity += ((st === 'stats' ? 9 : 3.5) - S.key.intensity) * Math.min(1, dt * 4);
     if (!ledger) ledger = buildLedger();
-    ledger.visible = st === 'stats' && act.phase !== 'exit';
+    ledger.visible = st === 'stats' && act.phase === 'loop';
     if (ledger.visible) ledger.userData.pivot.rotation.z = (Math.sin(t * 1.6) > 0.6 ? Math.PI * Math.min(1, (Math.sin(t * 1.6) - 0.6) * 3) : 0);
   }
-}
-function stepInteraction(dt) {
-  const A = act; A.t += dt;
-  if (A.phase === 'walk' || A.phase === 'return') {
-    const goal = A.phase === 'walk' ? A.spot : pos, d = goal.clone().sub(vis).setY(0), dist = d.length(), sp = Math.min(1.45, dist * 4);
-    if (dist > 0.03) { const want = Math.atan2(d.x, d.z); visH += angDiff(visH, want) * Math.min(1, dt * 10); vis.addScaledVector(d.normalize(), Math.min(dist, sp * dt)); }
-    if (dist <= 0.03 || A.t > 6) { if (A.phase === 'walk') { A.phase = 'turn'; A.t = 0; } else { act = null; return { speed: 0 }; } }
-    return { speed: sp };
-  }
-  if (A.phase === 'turn') { visH += angDiff(visH, A.h) * Math.min(1, dt * 9); if (A.t > 0.35) { A.phase = 'enter'; A.t = 0; } return { speed: 0 }; }
-  if (A.phase === 'enter' || A.phase === 'loop') {
-    visH += angDiff(visH, A.h) * Math.min(1, dt * 9); A.st += dt;
-    if (A.phase === 'enter' && A.t > 0.45) { A.phase = 'loop'; A.resolve && A.resolve(A.id); A.resolve = null; }
-    return { station: A.id, stationT: A.st };
-  }
-  if (A.phase === 'exit') { if (A.t > 0.7) { A.phase = 'return'; A.t = 0; } return { speed: 0, rate: 6 }; }
-  return { speed: 0 };
 }
 function leaveInteraction() {
   if (!act) return Promise.resolve();
   if (act.resolve) { act.resolve(act.id); act.resolve = null; }
   act.phase = 'exit'; act.t = 0;
   const dlg = document.getElementById('panel-dialog'); if (dlg?.open) { suppressClose = true; dlg.close(); suppressClose = false; }
-  return new Promise(r => { const chk = () => (!act || act.phase === 'return' ? r() : setTimeout(chk, 50)); chk(); });
+  return new Promise(r => { const chk = () => (!act || act.phase === 'home' ? r() : setTimeout(chk, 50)); chk(); });
 }
 let suppressClose = false;
 // The game opens a station window when E is pressed near a usable station: start that station's interaction.
@@ -358,7 +408,7 @@ function watchWindows() {
   const dlg = document.getElementById('panel-dialog'); if (!dlg) return;
   new MutationObserver(() => {
     if (dlg.open && !act) { const id = nearestStation(); if (id) startInteraction(id); }
-    else if (!dlg.open && act && act.phase !== 'exit' && act.phase !== 'return' && !suppressClose) leaveInteraction();
+    else if (!dlg.open && act && act.phase !== 'exit' && act.phase !== 'home' && !suppressClose) leaveInteraction();
   }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
 }
 function nearestStation() {
@@ -371,7 +421,7 @@ function nearestStation() {
 function interact(id) {
   const s = window.CantinaWorld.stations.find(s => s.id === id && s.room === 'office');
   if (s) { pos.set(s.approach.x * K, 0, s.approach.y * K); world.setPose(s.approach.x, s.approach.y, 'up', false); }
-  const p = startInteraction(id);
+  const p = startInteraction(id, true);
   if (s) setTimeout(() => { const btn = document.getElementById('interact'); if (btn && !btn.disabled && !document.getElementById('panel-dialog')?.open) btn.click(); }, 120);
   return p;
 }
@@ -379,13 +429,14 @@ function interact(id) {
 const DOF = { focus: 2.6, ap: 0.12 };
 let userOrbit = false; const camTgt = new THREE.Vector3();
 // never let the camera sit inside the robot (exit animations, tight corners): push it out horizontally
-function keepOff(p) { const dx = p.x - vis.x, dz = p.z - vis.z, d = Math.hypot(dx, dz), m = 0.95; if (d < m && p.y < 1.9) { const k = d > 1e-3 ? m / d : 0; if (k) { p.x = vis.x + dx * k; p.z = vis.z + dz * k; } else p.y = 1.95; } }
+function camOut(p) { for (const c of COLLIDERS) { if (c.mesh || c.name === 'floor') continue; const b = c.box; if (p.x > b.min.x - 0.06 && p.x < b.max.x + 0.06 && p.y > b.min.y - 0.06 && p.y < b.max.y + 0.06 && p.z > b.min.z - 0.06 && p.z < b.max.z + 0.06) { const d = [p.x - b.min.x + 0.06, b.max.x + 0.06 - p.x, p.y - b.min.y + 0.06, b.max.y + 0.06 - p.y, p.z - b.min.z + 0.06, b.max.z + 0.06 - p.z]; let k = 0; for (let i = 1; i < 6; i++) if (d[i] < d[k]) k = i; if (k === 0) p.x = b.min.x - 0.07; else if (k === 1) p.x = b.max.x + 0.07; else if (k === 2) p.y = b.min.y - 0.07; else if (k === 3) p.y = b.max.y + 0.07; else if (k === 4) p.z = b.min.z - 0.07; else p.z = b.max.z + 0.07; } } }
+function keepOff(p) { camOut(p); const dx = p.x - vis.x, dz = p.z - vis.z, d = Math.hypot(dx, dz), m = 0.95; if (d < m && p.y < 1.9) { const k = d > 1e-3 ? m / d : 0; if (k) { p.x = vis.x + dx * k; p.z = vis.z + dz * k; } else p.y = 1.95; } }
 function stationCam(id) {
-  const sp = USE[id], c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95], f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x);
+  const sp = USE[id].spot, c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95], f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x);
   return { p: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]), t: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]) };
 }
 function updateCamera(dt) {
-  const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'walk' ? 1.15 : 1.5, vis.z);
+  const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'path' && act.phase !== 'home' ? 1.15 : 1.5, vis.z);
   if (freeCam) {
     let p = freeCam.p, t = freeCam.t;
     if (freeCam.follow) { t = vis.clone().add(new THREE.Vector3(0, freeCam.ty ?? 1.05, 0)); p = t.clone().add(freeCam.follow); }
@@ -399,7 +450,7 @@ function updateCamera(dt) {
   }
   if (nib3d) nib3d.visible = true;
   // station interactions get a framed shot of the robot at work (until the player drags the camera)
-  if (act && !userOrbit && act.phase !== 'walk' && act.phase !== 'return') {
+  if (act && !userOrbit && act.phase !== 'path' && act.phase !== 'home') {
     yaw = Math.atan2(camPos.x - vis.x, camPos.z - vis.z); // so the orbit camera resumes from here, not from behind the robot's old spot
     const { p, t } = stationCam(act.id), k = Math.min(1, dt * 3);
     camPos.lerp(p, k); camTgt.lerp(t, k); keepOff(camPos); camera.position.copy(camPos); camera.lookAt(camTgt);
@@ -632,6 +683,58 @@ function vcMaterial(m) {
   return v;
 }
 
+// Moving furniture (swivel chairs, the safe door, dial, wheel) is merged per material inside its own group.
+function compactGroups() {
+  const groups = []; scene.traverse(o => { if (o.userData.compact) groups.push(o); });
+  for (const g of groups) {
+    g.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(), by = new Map(), victims = [];
+    g.traverse(o => {
+      if (!o.isMesh || Array.isArray(o.material)) return;
+      let owner = o.parent; while (owner && !owner.userData.compact) owner = owner.parent; if (owner !== g) return;
+      const key = o.material.uuid + (o.castShadow ? 1 : 0); (by.get(key) || by.set(key, []).get(key)).push(o);
+    });
+    for (const list of by.values()) {
+      if (list.length < 2) continue;
+      const geos = list.map(o => { const q = o.geometry.clone(); for (const n of Object.keys(q.attributes)) if (!['position', 'normal', 'uv'].includes(n)) q.deleteAttribute(n); if (!q.attributes.uv) q.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(q.attributes.position.count * 2), 2)); if (!q.index) { const n = q.attributes.position.count, idx = new Uint32Array(n); for (let i = 0; i < n; i++) idx[i] = i; q.setIndex(new THREE.BufferAttribute(idx, 1)); } q.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); return q; });
+      let mg; try { mg = mergeGeometries(geos, false); } catch { mg = null; } if (!mg) continue;
+      const m = new THREE.Mesh(mg, list[0].material); m.castShadow = list[0].castShadow; m.receiveShadow = true; m.userData.contact = list.find(o => o.userData.contact)?.userData.contact; m.name = (g.name || 'part') + '_' + (list[0].material.name || 'mat');
+      g.add(m); victims.push(...list);
+    }
+    victims.forEach(o => o.parent && o.parent.remove(o));
+  }
+}
+
+// ---------- collision proxies (Office3D.colliders) ----------
+// Recorded before the static merge, so every piece of furniture / prop / wall keeps its own volume: primitive parts as
+// world AABBs, scanned models (Poly Haven) as their meshes. Surfaces the robot is meant to touch carry `contact`.
+const COLLIDERS = [];
+const STATION_IDS = new Set(['hunt', 'contract', 'stats', 'training', 'forge', 'hq', 'rig', 'terminals']);
+function collectColliders() {
+  scene.updateMatrixWorld(true);
+  const skip = o => { for (let p = o; p; p = p.parent) if (p === player || p === nib3d || p.userData.city) return true; return false; };
+  scene.traverse(o => {
+    if (!o.isMesh || o.isPoints || skip(o) || o.userData.proxy || o.userData.noCollider || !o.visible) return;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (o.userData.noAO && !(m && m === C.M.glass)) return; // haze / decals / contact shadows
+    if (o.layers.mask === 2) return;                          // reflection-only silhouettes
+    let station, name = o.name, contact = o.userData.contact;
+    for (let p = o.parent; p && p !== scene; p = p.parent) { if (!name && p.name) name = p.name; if (STATION_IDS.has(p.name)) station = p.name; if (!contact && p.userData.contact) contact = p.userData.contact; }
+    if (o === C.floorMesh) { COLLIDERS.push({ name: 'floor', box: new THREE.Box3(new THREE.Vector3(X0, -0.1, Z0), new THREE.Vector3(X1, 0, Z1)), contact: 'surface' }); return; }
+    const box = new THREE.Box3().setFromObject(o); const sz = box.getSize(new THREE.Vector3());
+    if (!contact && sz.y < 0.03 && box.max.y < 1.3) contact = 'surface'; // papers, pads, mats lying on something
+    const gltfModel = !!(o.geometry.attributes.uv && o.geometry.index && o.geometry.attributes.position.count > 300 && /_|\d/.test(o.name || '') && !o.geometry.parameters);
+    const e = { name: name || (m && m.name) || 'prop', box };
+    if (station) e.station = station; if (contact) e.contact = contact;
+    let moving = false; for (let p = o; p; p = p.parent) if (p.userData.compact) moving = true;
+    if (gltfModel || moving) e.mesh = o;
+    COLLIDERS.push(e);
+  });
+  for (const pb of C.proxyBoxes || []) { const b = pb.box; COLLIDERS.push({ name: pb.name, box: new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5])), ...(pb.contact ? { contact: pb.contact } : {}) }); }
+  // anything standing on the floor blocks walking (the 2D grid only knows desks and walls)
+  for (const c of COLLIDERS) { const b = c.box; if (c.name === 'floor' || /wall|ceil/i.test(c.name) || b.min.y > 1.2 || b.max.y < 0.025 || (b.max.y - b.min.y < 0.02 && b.min.y > 0.03)) continue; const sx = b.max.x - b.min.x, sz = b.max.z - b.min.z; if (sx * sz > 4 || sx > 3.2 || sz > 3.2) continue; C.colliders.push({ x0: b.min.x, x1: b.max.x, z0: b.min.z, z1: b.max.z, high: b.min.y > 0.6 }); }
+}
+
 // ---------- frame stats / GPU memory estimate ----------
 const STATS = { calls: 0, tris: 0, frameMs: 16, gpuMB: 0 };
 function estimateGPU() {
@@ -690,7 +793,7 @@ function syncStations(force) {
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 // camera for station shots, in the robot's frame: [forward, height, side, target forward, target height]
 const USE_CAM = {
-  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.2, 1.75, -0.45, 0.4, 1.35],
+  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.25, 1.75, -0.15, 0.4, 1.35],
   forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.5, 1.55, 1.2, 0.5, 1.4], rig: [-0.95, 1.55, -1.2, 0.5, 1.05], terminals: [-1.3, 1.65, -1.1, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
 };
 const DESK_VIEWS = {
@@ -724,9 +827,9 @@ function shot(name) {
   else if (name === 'walking') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-1.75, 0.25, 1.95), ty: 0.95, fov: 50, ap: 0.25 }; }
   else if (name === 'using-desk') { const [x, z] = approach('hunt'); setPlayer(x, z, Math.PI, 'up'); yaw = 0.35; pitch = 0.2; dist = 2.0; }
   else if (DESK_VIEWS[name] || name.startsWith('use-')) {
-    const id = name.replace(/^(desk|use)-/, '') ; const sp = USE[id];
+    const id = name.replace(/^(desk|use)-/, '') ; const sp = USE[id] && USE[id].spot;
     if (sp) { // the robot is at the station, already in its animation
-      setPlayer(sp[0], sp[1], sp[2], 'up'); act = { id, phase: 'loop', t: 0, st: 0, spot: new THREE.Vector3(sp[0], 0, sp[1]), h: sp[2], resolve: null };
+      setPlayer(sp[0], sp[1], sp[2], 'up'); act = { id, u: USE[id], phase: 'loop', t: 0, st: 0, spot: new THREE.Vector3(sp[0], 0, sp[1]), h: sp[2], resolve: null }; if (C.chairs && C.chairs[id]) setChair(C.chairs[id], 1, sp[2] - Math.PI);
       const f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x), c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95];
       const p = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]);
       const t = new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]);
@@ -786,7 +889,9 @@ async function start() {
   t0 = performance.now() / 1000;
   const s0 = world.getState(); pos.set(s0.x * K, 0, s0.y * K); vis.copy(pos); heading = visH = Math.PI; yaw = 0;
   buildPost(); applyQuality(); setupReflection(C.M.floor);
-  syncStations(true); mergeStatic(); prepass.collect();
+  syncStations(true); compactGroups(); collectColliders();
+  setSofaSeat(0.455 - 0.04); Office3D_SOFA = 0.455; // the lounge sofa's seat proxy top
+  mergeStatic(); prepass.collect();
   for (const l of C.lights) if (l.castShadow && l !== C.moon) { l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }
   bakeIrradiance();
   setLoading(0.8, 'compiling shaders');
@@ -818,19 +923,19 @@ async function start() {
   canvas.addEventListener('webglcontextrestored', () => { ctxLost = false; for (const l of C.lights) if (l.castShadow) l.shadow.needsUpdate = true; bakeIrradiance(); bakeEnvironment(); renderer.setAnimationLoop(loop); }, false);
   STATS.gpuMB = estimateGPU();
   window.Office3D = {
-    ready: false, renderer, scene, camera, shots, shot,
+    ready: false, renderer, scene, camera, shots, shot, THREE,
     quality: q => { if (q) { quality = q; try { localStorage.setItem('fo.q3d', q); } catch {} applyQuality(); STATS.gpuMB = estimateGPU(); } return quality; },
     fps: () => fpsNow, view: (y, p, d) => { yaw = y; pitch = p; dist = d; camInit = false; freeCam = null; },
     cam: (p, t, o = {}) => { freeCam = { p: V3(...p), t: V3(...t), ...o }; },
     stations: () => Object.keys(USE), interact, leave: leaveInteraction,
     stats: () => ({ fps: Math.round(fpsNow * 10) / 10, frameMs: Math.round(STATS.frameMs * 10) / 10, calls: STATS.calls, triangles: STATS.tris, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, gpuMB: Math.round(STATS.gpuMB), quality, pixelRatio: renderer.getPixelRatio() }),
     prepass: on => (prepassOn = on), passes: { gtao: () => gtao, bloom: () => bloom, smaa: () => smaa, grade: () => grade, cine: () => cine },
-    lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, robot: () => robot,
+    blocked: (x, z) => blockedAt(x, z), walkCols: () => C.colliders.length, lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, robot: player, robotRig: robot, colliders: () => COLLIDERS, sofaSeat: () => Office3D_SOFA,
     dbg: () => ({ pos: pos.toArray(), vis: vis.toArray(), act: act && { id: act.id, phase: act.phase }, keys: { ...keys }, speedNow, yaw, heading, active: world.active(), st: world.getState() }),
   };
   renderer.setAnimationLoop(loop);
 }
-let ctxLost = false, firstFrame = true;
+let ctxLost = false, firstFrame = true, Office3D_SOFA = null;
 let rebakeAt = 0;
 function loop() {
   // per-frame draw stats; if an external tool is accumulating renderer.info (autoReset off), measure by difference
@@ -841,7 +946,7 @@ function loop() {
   if ((frames & 15) === 0 && syncStations()) rebakeAt = now + 0.5;
   if (rebakeAt && now > rebakeAt) { rebakeAt = 0; for (const l of C.lights) if (l.castShadow) l.shadow.needsUpdate = true; bakeIrradiance(); bakeEnvironment(); }
   const np = G.nib?.pos?.();
-  if (np && nib3d) { const tx = np.x * K, tz = np.y * K; nib3d.position.x += (tx - nib3d.position.x) * Math.min(1, dt * 4); nib3d.position.z += (tz - nib3d.position.z) * Math.min(1, dt * 4); nib3d.position.y = 1.45 + Math.sin(t * 2.2) * 0.04; const look = Math.atan2(pos.x - nib3d.position.x, pos.z - nib3d.position.z); nib3d.rotation.y += (((look - nib3d.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3); }
+  if (np && nib3d) { const tx = np.x * K, tz = np.y * K; nib3d.position.x += (tx - nib3d.position.x) * Math.min(1, dt * 4); nib3d.position.z += (tz - nib3d.position.z) * Math.min(1, dt * 4); { let top = 1.45; for (const c of COLLIDERS) { const b = c.box; if (b.max.y < 2.6 && b.max.y > 1.2 && nib3d.position.x > b.min.x - 0.25 && nib3d.position.x < b.max.x + 0.25 && nib3d.position.z > b.min.z - 0.25 && nib3d.position.z < b.max.z + 0.25) top = Math.max(top, b.max.y + 0.3); } nibY += (top - nibY) * Math.min(1, dt * 3); nib3d.position.y = nibY + Math.sin(t * 2.2) * 0.04; } const look = Math.atan2(pos.x - nib3d.position.x, pos.z - nib3d.position.z); nib3d.rotation.y += (((look - nib3d.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3); }
   tickRoom(t);
   for (const m of hazeMats) m.uniforms.time.value = t;
   const gt = getGoalTex(); if (gt && (Math.floor(t * 60) % 120) === 0) gt.userData.redraw();
