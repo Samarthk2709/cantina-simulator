@@ -246,7 +246,7 @@ export function buildSkyline(yaw) {
   // sodium haze glowing up from the streets along the horizon
   const glowT = canvasTex(16, 256, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,140,80,0)'); gr.addColorStop(0.55, 'rgba(255,130,80,0.05)'); gr.addColorStop(0.85, 'rgba(255,150,90,0.28)'); gr.addColorStop(1, 'rgba(255,170,110,0.42)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
   const glow = new THREE.Mesh(new THREE.CylinderGeometry(240, 240, 90, 48, 1, true), new THREE.MeshBasicMaterial({ map: glowT, transparent: true, depthWrite: false, side: THREE.BackSide }));
-  glow.position.set(cx, 20, cz); glow.userData.city = true; glow.renderOrder = -1; C.scene.add(glow);
+  glow.position.set(cx, 20, cz); glow.userData.cityDetail = true; glow.renderOrder = -1; C.scene.add(glow);
   let n = 0;
   for (let tries = 0; tries < 1600 && n < 150; tries++) {
     const far = n >= 75, x = far ? rr(-230, 60) : rr(-110, 40), z = far ? rr(-230, 60) : rr(-110, 40);
@@ -259,8 +259,8 @@ export function buildSkyline(yaw) {
     // setback upper tiers and lit crowns make the silhouettes read as real towers
     let top = -9 + hgt;
     if (hgt > 35 && rnd() < 0.6) { const h2 = hgt * rr(0.15, 0.35), g2 = new THREE.BoxGeometry(w * rr(0.55, 0.8), h2, dd * rr(0.55, 0.8)); g2.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(g2.attributes.position.count).fill(sd + 1), 1)); const b2 = new THREE.Mesh(g2, cityM); b2.position.set(x, top + h2 / 2, z); b2.rotation.y = ry; b2.userData.city = true; C.scene.add(b2); top += h2; }
-    if (rnd() < 0.45) { const cm = crownMats[Math.floor(rnd() * crownMats.length)], cr = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6 + 0.4, 1.2, dd * 0.6 + 0.4), cm); cr.position.set(x, top - 0.8, z); cr.rotation.y = ry; cr.userData.city = true; C.scene.add(cr); }
-    if (rnd() < 0.35) { const an = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 8, 6), roofM); an.position.set(x, top + 4, z); an.userData.city = true; C.scene.add(an); }
+    if (rnd() < 0.45) { const cm = crownMats[Math.floor(rnd() * crownMats.length)], cr = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6 + 0.4, 1.2, dd * 0.6 + 0.4), cm); cr.position.set(x, top - 0.8, z); cr.rotation.y = ry; cr.userData.cityDetail = true; C.scene.add(cr); }
+    if (rnd() < 0.35) { const an = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 8, 6), roofM); an.position.set(x, top + 4, z); an.userData.cityDetail = true; C.scene.add(an); }
     if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconM || (beaconM = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) }))); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
   }
@@ -268,10 +268,11 @@ export function buildSkyline(yaw) {
 
 // ---------- global light rig ----------
 // warm uplights on the steel beams: wash the ceiling and the upper walls (and fill the dark back corner)
-function uplight(x, z) {
+let upM;
+function uplight(x, z) { // fixture + baked fill (feeds the irradiance volume; no runtime light, to keep the per-pixel cost flat)
   const M = C.M, g = group(null, x, H - 0.36, z);
-  cyl(0.07, 0.05, 0.08, M.steel, 0, 0, 0, g, 16, false); cyl(0.06, 0.06, 0.005, emissive(0xffe0b8, 2), 0, 0.043, 0, g, 16, false);
-  const l = new THREE.PointLight(0xffd9b0, 2.2, 4.4, 2); l.position.set(x, H - 0.2, z); return addLight(l);
+  cyl(0.07, 0.05, 0.08, M.steel, 0, 0, 0, g, 16, false); cyl(0.06, 0.06, 0.005, upM || (upM = emissive(0xffe0b8, 2)), 0, 0.043, 0, g, 16, false);
+  (C.fakeLights || (C.fakeLights = [])).push({ x, y: H - 0.15, z, color: new THREE.Color(0xffd9b0), intensity: 2.6 });
 }
 export function buildLightRig() {
   for (const [x, z] of [[3.5, 3.0], [3.5, 8.0], [11.5, 3.0], [11.5, 8.0]]) uplight(x, z);
@@ -316,7 +317,6 @@ function buildHunt() { // Founder Workstation: triple monitors, the main desk.
   lampPoint(r.cx + 0.66, y + 0.45, dz - 0.12, 0xffb46b, 0.45, 2.2, id);
   place('potted_plant_04', r.cx - 0.88, y, dz - 0.27, 0.4, 1.2, g);
   place('office_notepads', r.cx - 0.1, y, dz + 0.31, 0.1, 0.5, g, { pick: /sticky_stack/, shadow: false });
-  place('alarm_clock_01', r.cx - 0.95, y, dz + 0.0, 0.7, 0.9, g, { shadow: false });
   pcTower(g, r.cx + 0.72, dz + 0.02, 0, 0x6a5cff, id);
   // the chair is parked beside the desk; the robot pulls it in when it sits down
   (C.chairs || (C.chairs = {})).hunt = { g: officeChair(g, r.cx + 0.9, dz + 0.8, -Math.PI / 2, { jacket: 0x3b2f2a, exact: true, noArms: true }), park: [r.cx + 0.9, dz + 0.8, -Math.PI / 2], sit: [r.cx + 0.05, dz + 0.725, 0] };
@@ -342,7 +342,6 @@ function buildContract() { // Ops Center: contracts come in here.
   monitor(g, r.cx + 0.36, y, r.cz - 0.16, -0.12, 0.6, 0.34, dashScreen(31, '#f0883e', 'Ops · SLAs'), { id });
   keyboard(g, r.cx, y, r.cz + 0.16, 0);
   mug(g, r.cx - 0.75, y, r.cz + 0.12, 0xb3261e);
-  place('stationery_supplies', r.cx + 0.78, y + 0.07, r.cz + 0.08, -0.4, 1, g, { shadow: false });
   place('clipboard', r.cx - 0.55, y, r.cz + 0.22, 0.6, 1, g, { shadow: false });
   place('binder_notebook', r.cx + 0.45, y, r.cz + 0.26, 0.2, 1, g, { pick: /closed/, shadow: false });
   // desk phone
@@ -437,7 +436,6 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
   papers(g, r.cx + 0.6, y, r.cz + 0.2, 2);
   mug(g, r.cx + 0.88, y, r.cz + 0.18, 0x8a2c2c);
   place('rubber_duck_toy', r.cx + 0.82, y, r.cz - 0.22, -0.6, 0.5, g, { shadow: false });
-  place('magnifying_glass_01', r.cx - 0.4, y, r.cz + 0.26, 1.2, 1, g, { shadow: false });
   officeChair(g, r.cx - 0.95, r.cz + 0.72, 0.6);
   // rolling whiteboard behind the desk
   const wbT = canvasTex(1024, 640, (c, w, h) => {
@@ -472,9 +470,6 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   const peg = canvasTex(512, 256, (c, w, h) => { c.fillStyle = '#b08a5c'; c.fillRect(0, 0, w, h); c.fillStyle = '#3b2a18'; for (let x = 8; x < w; x += 16) for (let yy = 8; yy < h; yy += 16) { c.beginPath(); c.arc(x, yy, 2.4, 0, 7); c.fill(); } });
   box(1.5, 0.75, 0.02, std(0xffffff, 0.8, 0, { map: peg }), r.cx, y + 0.55, r.z0 - 0.02, 1, g);
   C.colliders.push({ x0: r.cx - 0.8, x1: r.cx + 0.8, z0: r.z0 - 0.1, z1: r.z0 });
-  place('pliers', r.cx - 0.6, y + 0.62, r.z0 + 0.01, 0, 1, g, { shadow: false });
-  place('screwdriver', r.cx - 0.5, y + 0.62, r.z0 + 0.02, 0, 1, g, { shadow: false });
-  place('measuring_tape_01', r.cx - 0.35, y + 0.5, r.z0 + 0.05, 0, 1, g, { shadow: false });
   for (let i = 0; i < 4; i++) cyl(0.012, 0.012, 0.22, std([0xe0b030, 0x2060c0, 0xc03030, 0x202020][i], 0.5), r.cx + 0.2 + i * 0.07, y + 0.62, r.z0 + 0.01, g, 8, false);
   // 3D printer with a glowing build
   const pr = group(g, r.cx - 0.42, y, r.cz - 0.06);
@@ -499,7 +494,6 @@ function buildForge() { // Agent Forge: a workbench where tools get built.
   place('metal_toolbox', r.cx + 0.3, 0.235, r.cz, 0.2, 1, g);
   const iron = cyl(0.006, 0.01, 0.2, std(0x1a3a8a, 0.4), r.cx + 0.45, y + 0.06, r.cz + 0.18, g, 8, false); iron.rotation.z = 1.2;
   laptop(g, r.cx + 0.1, y, r.cz - 0.12, -0.15, nodeScreen(61), id);
-  place('vintage_stapler', r.cx + 0.6, y, r.cz + 0.22, 0.5, 1, g, { shadow: false });
   place('cardboard_box_01', r.cx - 0.4, 0.25, r.cz + 0.05, 0.3, 0.7, g);
   can(g, r.cx + 0.6, y, r.cz - 0.02, 0x2a5fd0); can(g, r.cx + 0.67, y, r.cz + 0.05, 0xc8401e);
   // bench stool
@@ -552,9 +546,6 @@ function buildHQ(G) { // Headquarters: the goal board on the brick wall, a crede
   books(g, r.cx - 1.45, 0.67, Z0 + 0.3, 9, 0);
   place('ceramic_vase_01', r.cx + 1.3, 0.67, Z0 + 0.3, 0, 1.0, g);
   place('potted_plant_04', r.cx + 0.95, 0.67, Z0 + 0.3, 0, 1.4, g);
-  place('standing_picture_frame_01', r.cx - 0.7, 0.67, Z0 + 0.3, 1.4, 1, g, { shadow: false });
-  place('standing_picture_frame_02', r.cx + 0.6, 0.67, Z0 + 0.32, 1.9, 1, g, { shadow: false });
-  // trophy: a brass cup for the first critical
   const tp = group(g, r.cx - 0.25, 0.67, Z0 + 0.3); box(0.08, 0.04, 0.08, M.walnut, 0, 0.02, 0, 1, tp); cyl(0.012, 0.012, 0.08, M.brass, 0, 0.08, 0, tp); const cup = new THREE.Mesh(new THREE.LatheGeometry([0, 0.02, 0.04, 0.05, 0.052].map((x, i) => new THREE.Vector2(x, i * 0.025)), 20), M.brass); cup.position.y = 0.12; tp.add(cup);
   // standing command table with a tablet
   const ct = group(g, r.cx + 1.5, 0, r.z1 - 0.32);
@@ -653,7 +644,6 @@ function buildDecor() {
   rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);
   pizzaBox(C.scene, 1.65, 0.55, Z1 - 0.42, 0.3, false); // takeaway on the side table
   can(C.scene, 1.5, 0.596, Z1 - 0.25, 0xd61d4a);
-  place('gamepad', 2.3, 0.0, Z1 - 0.9, 0.6, 0.45, null, { shadow: false }); // dropped on the rug
   // arc floor lamp over the sofa
   const fl = group(null, 5.45, 0, Z1 - 0.35);
   cyl(0.15, 0.16, 0.03, std(0x222222, 0.3, 0.6), 0, 0.015, 0, fl, 32);
@@ -670,8 +660,6 @@ function buildDecor() {
   C.colliders.push({ x0: 9.72, x1: 11.18, z0: Z1 - 0.85, z1: Z1 });
   lampPoint(10.6, 1.25, Z1 - 0.45, 0xffc98a, 1.0, 2.2);
   place('metal_trash_can', 11.8, 0, Z1 - 0.32, 0, 0.9, null, { pick: /^metal_trash_can(_lid|_handle|$)/ }); C.colliders.push({ x0: 11.5, x1: 12.1, z0: Z1 - 0.6, z1: Z1 });
-  place('trashbag', 12.25, 0, Z1 - 0.3, 1.2, 0.8);
-  // water cooler
   const wc = group(null, 9.45, 0, Z1 - 0.3);
   rbox(0.32, 1.0, 0.32, 0.02, M.plasticWhite, 0, 0.5, 0, wc);
   const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.38, 20), new THREE.MeshPhysicalMaterial({ color: 0x7fb8e8, roughness: 0.05, transparent: true, opacity: 0.55, clearcoat: 1 })); jug.position.y = 1.2; wc.add(jug);
@@ -688,8 +676,6 @@ function buildDecor() {
   poster('crit', X1 - 0.02, 1.7, 3.95 + 0.0, -Math.PI / 2, 0.42);
   place('dartboard', 0.77, 1.75, 5.0, Math.PI / 2, 1);
   place('korean_fire_extinguisher_01', 8.1, 0, Z1 - 0.15, Math.PI, 1);
-  place('fire_alarm', 8.1, 1.5, Z1 - 0.01, Math.PI, 1, null, { shadow: false });
-  // boxes stacked in the NE corner by the plant
   place('cardboard_box_01', 12.6, 0, 1.0, 0.2, 1); place('cardboard_box_01', 12.9, 0.0, 1.45, -0.3, 0.8); place('cardboard_box_01', 12.65, 0.335, 1.05, 0.5, 0.75);
   C.colliders.push({ x0: 12.2, x1: 13.3, z0: 0.75, z1: 1.8 });
   // radiators under the west windows

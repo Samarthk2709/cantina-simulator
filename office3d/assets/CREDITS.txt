@@ -4,7 +4,7 @@ Character
 - FO-1, the founder robot: original design, modelled procedurally in office3d/robot.js (no external assets).
 
 Models (Poly Haven, CC0, https://polyhaven.com), textures downsized to 512-1024 px:
-  CoffeeCart_01, alarm_clock_01, binder_notebook, calathea_orbifolia_01, cardboard_box_01, ceramic_vase_01, circuit_board, clipboard, dartboard, desk_lamp_arm_01, fire_alarm, gamepad, industrial_wall_lamp, korean_fire_extinguisher_01, magnifying_glass_01, measuring_tape_01, metal_toolbox, metal_trash_can, modern_coffee_table_01, office_notepads, pachira_aquatica_01, plastic_crate_02, pliers, potted_plant_04, retro_multimeter, rubber_duck_toy, screwdriver, side_table_01, sofa_03, spray_paint_bottles, standing_picture_frame_01, standing_picture_frame_02, stationery_supplies, throw_pillows_01, tool_cart, trashbag, vintage_electric_kettle, vintage_stapler, wall_clock, wooden_bookshelf_worn
+  CoffeeCart_01, binder_notebook, calathea_orbifolia_01, cardboard_box_01, ceramic_vase_01, circuit_board, clipboard, dartboard, desk_lamp_arm_01, industrial_wall_lamp, korean_fire_extinguisher_01, metal_toolbox, metal_trash_can, modern_coffee_table_01, office_notepads, pachira_aquatica_01, plastic_crate_02, potted_plant_04, retro_multimeter, rubber_duck_toy, side_table_01, sofa_03, throw_pillows_01, tool_cart, vintage_electric_kettle, wall_clock, wooden_bookshelf_worn
 
 Textures (Poly Haven, CC0):
   concrete_floor_02, dirty_carpet, fabric_leather_02, fabric_pattern_07, herringbone_parquet, metal_plate_02, oak_veneer_01, plastered_wall_04, red_brick_03, rough_plaster_03, rusty_painted_metal, walnut_veneer

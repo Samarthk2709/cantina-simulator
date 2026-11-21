@@ -75,6 +75,7 @@ function irrSources() {
     else if (l.isSpotLight) { add(l.target.position.x, 0.15, l.target.position.z, l.color, l.intensity * 0.09, 0.9); add(l.position.x, l.position.y, l.position.z, l.color, l.intensity * 0.012, 0.3); }
     else if (l.isRectAreaLight) { const n = new THREE.Vector3(0, 0, -1).applyQuaternion(l.quaternion); add(l.position.x + n.x * 0.4, l.position.y + n.y * 0.4, l.position.z + n.z * 0.4, l.color, l.intensity * l.width * l.height * 0.35, 0.5); }
   }
+  for (const f of C.fakeLights || []) add(f.x, f.y, f.z, f.color, f.intensity * 0.35, 0.35);
   const moon = C.moon, cool = new THREE.Color(0x7d95d8);
   for (const w of C.windows || []) {
     const ac = (w.a0 + w.a1) / 2, wc = w.axis === 'z' ? [ac, w.at + 0.4] : [w.at + 0.4, ac], area = (w.a1 - w.a0) * (w.y1 - w.y0);
@@ -505,7 +506,7 @@ class PrepassRenderPass {
     this.rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: quality === 'ultra' ? 4 : 0, depthTexture: d });
     this.copy = new FullScreenQuad(new THREE.ShaderMaterial({ ...CopyShader, uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms) })); this.copy.material.uniforms.tDiffuse.value = this.rt.texture;
   }
-  collect() { this.skip = []; this.scene.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); const big = g.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 1.5; if (!big || o.userData.noAO || o.isSkinnedMesh || ms.some(m => m.transparent || m.alphaTest > 0 || m.alphaMap || m.isShaderMaterial || m.side === THREE.BackSide)) this.skip.push(o); }); }
+  collect() { this.skip = []; this.scene.traverse(o => { if (!o.isMesh) return; const ms = Array.isArray(o.material) ? o.material : [o.material]; const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); const big = g.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 3.0; if (!big || o.userData.noAO || o.isSkinnedMesh || ms.some(m => m.transparent || m.alphaTest > 0 || m.alphaMap || m.isShaderMaterial || m.side === THREE.BackSide)) this.skip.push(o); }); }
   setSize(w, h) { this.rt.setSize(w, h); }
   dispose() { this.rt.dispose(); }
   render(renderer, writeBuffer, readBuffer) {
@@ -582,7 +583,8 @@ function buildPost() {
   composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType }));
   prepass = new PrepassRenderPass(scene, camera); composer.addPass(prepass);
   gtao = new GTAOPass(scene, camera, innerWidth, innerHeight, { depthTexture: prepass.rt.depthTexture });
-  gtao.updateGtaoMaterial({ radius: 1.0, distanceExponent: 1.3, thickness: 2.0, scale: 1.35, samples: 16 });
+  gtao.updateGtaoMaterial({ radius: 1.0, distanceExponent: 1.3, thickness: 2.0, scale: 1.35, samples: 12 });
+  { const fs = gtao.setSize.bind(gtao); gtao.setSize = (w, h) => fs(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2))); } // AO at half resolution (upsampled in its blend)
   gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
   gtao.blendIntensity = 1.0;
   composer.addPass(gtao);
@@ -600,7 +602,7 @@ function applyQuality() {
   renderer.setPixelRatio(dpr); renderer.setSize(innerWidth, innerHeight, false); composer.setPixelRatio(dpr); composer.setSize(innerWidth, innerHeight);
   const low = quality === 'low';
   gtao.enabled = !low; cine.enabled = !low; bloom.enabled = !low; prepassOn = !low; REFL.on = !low;
-  gtao.updateGtaoMaterial({ samples: quality === 'medium' ? 8 : 16 });
+  gtao.updateGtaoMaterial({ samples: quality === 'medium' ? 8 : 12 });
   if (C.moon) { C.moon.shadow.autoUpdate = !low; C.moon.shadow.needsUpdate = true; }
   renderer.shadowMap.enabled = true;
   grade.uniforms.res.value.set(innerWidth * dpr, innerHeight * dpr);
@@ -712,7 +714,7 @@ const COLLIDERS = [];
 const STATION_IDS = new Set(['hunt', 'contract', 'stats', 'training', 'forge', 'hq', 'rig', 'terminals']);
 function collectColliders() {
   scene.updateMatrixWorld(true);
-  const skip = o => { for (let p = o; p; p = p.parent) if (p === player || p === nib3d || p.userData.city) return true; return false; };
+  const skip = o => { for (let p = o; p; p = p.parent) if (p === player || p === nib3d || p.userData.city || p.userData.cityDetail) return true; return false; };
   scene.traverse(o => {
     if (!o.isMesh || o.isPoints || skip(o) || o.userData.proxy || o.userData.noCollider || !o.visible) return;
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
