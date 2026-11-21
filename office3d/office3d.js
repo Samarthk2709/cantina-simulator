@@ -377,18 +377,18 @@ const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const DESK_VIEWS = {
   'desk-hunt': { p: V3(8.15, 1.18, 5.05), t: V3(7.0, 0.92, 3.95), fov: 48, ap: 0.45 },
   'desk-contract': { p: V3(3.75, 1.3, 3.85), t: V3(2.45, 0.95, 2.45), fov: 50, ap: 0.4 },
-  'desk-stats': { p: V3(12.0, 1.4, 4.05), t: V3(13.3, 1.0, 2.7), fov: 52, ap: 0.4 },
+  'desk-stats': { p: V3(11.75, 1.45, 3.6), t: V3(13.5, 1.15, 2.85), fov: 54, ap: 0.4 },
   'desk-training': { p: V3(11.1, 1.3, 9.1), t: V3(10.0, 0.95, 7.6), fov: 50, ap: 0.4 },
   'desk-forge': { p: V3(4.75, 1.45, 9.05), t: V3(3.65, 1.05, 7.65), fov: 50, ap: 0.4 },
   'desk-hq': { p: V3(8.9, 1.5, 3.35), t: V3(7.3, 1.45, 0.9), fov: 52, ap: 0.3 },
-  'desk-rig': { p: V3(11.15, 1.35, 8.95), t: V3(13.4, 1.05, 9.2), fov: 54, ap: 0.35 },
+  'desk-rig': { p: V3(11.5, 1.85, 7.25), t: V3(13.4, 1.05, 9.45), fov: 50, ap: 0.3 },
   'desk-terminals': { p: V3(11.2, 1.6, 6.7), t: V3(13.0, 0.95, 8.2), fov: 50, ap: 0.35 },
   'lounge': { p: V3(5.7, 1.45, 7.6), t: V3(3.3, 0.6, 9.9), fov: 52, ap: 0.3 },
 };
 function setPlayer(x, z, h, facing) { pos.set(x, 0, z); heading = h; world.setPose(x / K, z / K, facing || 'up', false); speedNow = 0; for (const k in blend) blend[k] = k === 'idle' ? 1 : 0; }
 function approach(id) { const s = window.CantinaWorld.stations.find(s => s.id === id); return s ? [s.approach.x * K, s.approach.y * K] : [7.1, 7.1]; }
 function shots() {
-  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
+  return [{ name: 'wide' }, { name: 'wide-west' }, { name: 'wide-ne' }, { name: 'gameplay' }, { name: 'walking', wait: 1500 }, { name: 'using-desk', wait: 3000 },
     ...Object.keys(DESK_VIEWS).map(name => ({ name }))];
 }
 function shot(name) {
@@ -396,10 +396,11 @@ function shot(name) {
   for (const k in keys) keys[k] = false;
   document.querySelectorAll('dialog[open]').forEach(d => d.close());
   freeCam = null; camInit = false;
-  if (name === 'wide') { setPlayer(7.9, 6.1, Math.PI * 0.9, 'up'); freeCam = { p: V3(11.7, 2.35, 10.25), t: V3(5.8, 0.75, 3.2), fov: 66, ap: 0.04 }; }
+  if (name === 'wide') { setPlayer(6.3, 6.4, Math.PI * 1.15, 'up'); freeCam = { p: V3(8.2, 2.2, 10.2), t: V3(7.0, 0.85, 3.0), fov: 68, ap: 0.04 }; }
   else if (name === 'wide-west') { setPlayer(6.4, 6.2, Math.PI * 1.25, 'left'); freeCam = { p: V3(1.2, 2.25, 4.3), t: V3(9.5, 0.7, 6.6), fov: 66, ap: 0.04 }; }
+  else if (name === 'wide-ne') { setPlayer(9.0, 6.6, Math.PI * 0.5, 'right'); freeCam = { p: V3(12.1, 2.35, 1.25), t: V3(6.0, 0.7, 7.4), fov: 66, ap: 0.04 }; }
   else if (name === 'gameplay') { setPlayer(7.6, 7.4, Math.PI * 1.05, 'up'); yaw = -0.18; pitch = 0.16; dist = 2.4; }
-  else if (name === 'walking') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-1.5, 0.35, 1.55), ty: 1.0, fov: 50, ap: 0.25 }; }
+  else if (name === 'walking') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-1.75, 0.25, 1.95), ty: 0.95, fov: 50, ap: 0.25 }; }
   else if (name === 'using-desk') { const [x, z] = approach('hunt'); setPlayer(x, z, Math.PI, 'up'); yaw = 0.35; pitch = 0.2; dist = 2.0; }
   else if (DESK_VIEWS[name]) { setPlayer(1.6, 5.2, 0, 'down'); freeCam = { ...DESK_VIEWS[name], hidePlayer: true }; }
   if (name === 'gameplay' || name === 'using-desk') keys.shot = false;

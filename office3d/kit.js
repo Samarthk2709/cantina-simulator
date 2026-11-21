@@ -217,12 +217,12 @@ export function kanbanScreen(seed) { // Ops: incoming contracts
 export function ledgerScreen(seed) { // Vault: a ledger spreadsheet
   return canvasTex(1024, 640, (g, w, h) => {
     const r = mkR(seed);
-    g.fillStyle = '#f4f1e8'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d6b45'; g.fillRect(0, 0, w, 44);
+    g.fillStyle = '#0e1512'; g.fillRect(0, 0, w, h); g.fillStyle = '#1d6b45'; g.fillRect(0, 0, w, 44);
     g.fillStyle = '#fff'; g.font = 'bold 22px Arial'; g.fillText('LEDGER · Q1', 18, 30);
     g.font = '15px Menlo, monospace';
-    for (let i = 0; i < 24; i++) { const y = 70 + i * 23; g.fillStyle = i % 2 ? '#ece8dc' : '#f4f1e8'; g.fillRect(0, y - 16, w, 23); g.fillStyle = '#555'; g.fillText(String(i + 1).padStart(2), 10, y); g.fillStyle = '#222'; g.fillText(['bounty', 'payout', 'gpu rent', 'coffee', 'contract', 'tooling'][Math.floor(r() * 6)], 60, y); const v = Math.floor((r() - 0.3) * 4000); g.fillStyle = v < 0 ? '#b3261e' : '#1d6b45'; g.fillText((v < 0 ? '-' : '+') + '$' + Math.abs(v).toLocaleString(), 330, y); }
-    g.strokeStyle = '#1d6b45'; g.lineWidth = 3; g.beginPath(); for (let x = 0; x < 380; x += 10) { const y = 520 - x * 0.8 - r() * 60; x ? g.lineTo(600 + x, y) : g.moveTo(600, y); } g.stroke();
-    g.strokeStyle = '#bbb'; g.lineWidth = 1; g.strokeRect(590, 80, 410, 480);
+    for (let i = 0; i < 24; i++) { const y = 70 + i * 23; g.fillStyle = i % 2 ? '#131c18' : '#0e1512'; g.fillRect(0, y - 16, w, 23); g.fillStyle = '#5b6b63'; g.fillText(String(i + 1).padStart(2), 10, y); g.fillStyle = '#cfe3d6'; g.fillText(['bounty', 'payout', 'gpu rent', 'coffee', 'contract', 'tooling'][Math.floor(r() * 6)], 60, y); const v = Math.floor((r() - 0.3) * 4000); g.fillStyle = v < 0 ? '#ff6b5e' : '#4ade80'; g.fillText((v < 0 ? '-' : '+') + '$' + Math.abs(v).toLocaleString(), 330, y); }
+    g.strokeStyle = '#4ade80'; g.lineWidth = 3; g.beginPath(); for (let x = 0; x < 380; x += 10) { const y = 520 - x * 0.8 - r() * 60; x ? g.lineTo(600 + x, y) : g.moveTo(600, y); } g.stroke();
+    g.strokeStyle = '#2a3a33'; g.lineWidth = 1; g.strokeRect(590, 80, 410, 480);
   });
 }
 export function agentScreen(seed, name) { // agent terminals: a chat-like log
