@@ -186,6 +186,7 @@ function facadeTex(kind, seed) {
   }, { repeat: true });
 }
 let beaconM;
+const lr = (() => { let q = 99173; return () => ((q = (q * 16807) % 2147483647) / 2147483647); })(); // skyline-only rng
 export function buildSkyline(yaw) {
   const t = tex('sky/skyline.jpg', true); t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4;
   const R = 150, top = R * Math.tan(THREE.MathUtils.degToRad(50.4)), bot = R * Math.tan(THREE.MathUtils.degToRad(28.6));
@@ -213,11 +214,11 @@ export function buildSkyline(yaw) {
         if (abs(n.y) > 0.5) { gl_FragColor = vec4(0.012, 0.014, 0.02, 1.0); return; }
         vec3 up = vec3(0.0, 1.0, 0.0), rt = normalize(cross(up, n));
         float kind = floor(h1(vec3(vSeed, 1.0, 2.0)) * 3.0);
-        vec2 cs = kind == 1.0 ? vec2(1.8, 3.2) : kind == 2.0 ? vec2(1.5, 3.6) : vec2(2.6, 3.4);
+        vec2 cs = (kind == 1.0 ? vec2(1.8, 3.2) : kind == 2.0 ? vec2(1.5, 3.6) : vec2(2.6, 3.4)) * mix(0.7, 1.7, h1(vec3(vSeed, 4.0, 4.0)));
         vec2 uv = vec2(dot(vW, rt), vW.y) / cs; vec2 id = floor(uv), f = fract(uv);
         float rowLit = h1(vec3(id.y, vSeed, dot(n, vec3(1.0, 0.0, 3.0))));
         float r = h1(vec3(id, vSeed + dot(n, vec3(7.0, 0.0, 13.0))));
-        float lit = step(r, rowLit < 0.45 ? 0.75 : 0.08);
+        float lit = step(r, rowLit < 0.45 ? 0.75 : rowLit > 0.93 ? 0.98 : 0.08); // some floors fully lit (offices working late)
         vec2 fr = kind == 2.0 ? vec2(0.04, 0.06) : vec2(0.14, 0.2);
         bool frame = f.x < fr.x || f.x > 1.0 - fr.x || f.y < fr.y || f.y > 1.0 - fr.y;
         vec3 V = normalize(vW - cameraPosition);
@@ -235,8 +236,9 @@ export function buildSkyline(yaw) {
           if (lit > 0.5 && h1(vec3(id, 21.0)) < 0.35) { float bl = h1(vec3(id, 23.0)); if (o.y > 1.0 - bl) col *= 0.18 + 0.1 * step(0.5, fract(o.y * 18.0)); } // blinds
           float F = pow(1.0 - abs(dot(V, n)), 4.0); col += vec3(0.02, 0.025, 0.04) * (0.3 + F); // glass sheen
         }
-        float dist = length(vW - cameraPosition), k = clamp((dist - 25.0) / 190.0, 0.0, 1.0);
-        col = mix(col * gain, haze, k * 0.7);
+        float dist = length(vW - cameraPosition), k = clamp((dist - 20.0) / 170.0, 0.0, 1.0);
+        float low = 1.0 - smoothstep(-9.0, 25.0, vW.y);
+        col = mix(col * gain, haze * (1.0 + 0.6 * low), clamp(k * 0.8 + low * k * 0.3, 0.0, 0.92));
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -253,7 +255,8 @@ export function buildSkyline(yaw) {
     if (!(x < -6 || z < -6)) continue;
     const d = Math.hypot(x - cx, z - cz); if (far ? d < 120 || d > 230 : d < 28 || d > 125) continue;
     const w = rr(10, 30), dd = rr(10, 30), hgt = d < 45 ? rr(14, 45) : far ? rr(50, 190) : rr(30, 120);
-    const geo = new THREE.BoxGeometry(w, hgt, dd), sd = rnd() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
+    const shp = lr(), rad = Math.min(w, dd) / 2;
+    const geo = !far && d < 40 ? new THREE.BoxGeometry(w, hgt, dd) : shp < 0.16 ? new THREE.CylinderGeometry(rad, rad, hgt, 28) : shp < 0.28 ? new THREE.CylinderGeometry(rad * 1.15, rad * 1.25, hgt, 8) : shp < 0.36 ? new THREE.CylinderGeometry(rad * 0.75, rad * 1.2, hgt, 4) : new THREE.BoxGeometry(w, hgt, dd), sd = rnd() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
     const ry = rr(-0.2, 0.2) + (rnd() < 0.5 ? 0 : Math.PI / 2);
     const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.rotation.y = ry; b.userData.city = true; C.scene.add(b);
     // setback upper tiers and lit crowns make the silhouettes read as real towers
@@ -263,6 +266,28 @@ export function buildSkyline(yaw) {
     if (rnd() < 0.35) { const an = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 8, 6), roofM); an.position.set(x, top + 4, z); an.userData.cityDetail = true; C.scene.add(an); }
     if (hgt > 50 && rnd() < 0.7) { const bl = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconM || (beaconM = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.4, 0.15, 0.1) }))); bl.position.set(x, -9 + hgt + 1, z); C.scene.add(bl); }
     n++;
+  }
+  // open up the near view: no tall towers right across the street (they flattened the view into one facade); the
+  // low block below takes their place and the towers start a street further out
+  for (const o of C.scene.children.slice()) if ((o.userData.city || o.userData.cityDetail || o.material === beaconM) && o.geometry && !o.geometry.parameters?.radiusTop?.toString().startsWith('24')) { const d = Math.hypot(o.position.x - cx, o.position.z - cz); if (d > 20 && d < 50) C.scene.remove(o); }
+  // the block across the street: low roofs a few storeys below the office, with plant rooms, water tanks, AC units,
+  // parapets and a few lit skylights; strong parallax as the camera moves, so the view has a foreground layer
+  const roofKit = new THREE.MeshLambertMaterial({ color: 0x34373c }), roofTar = roofKit, skyLit = crownMats[0];
+  const addB = (geo, m, x, y, z, ry = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.y = ry; o.userData.cityDetail = true; C.scene.add(o); return o; };
+  const near = [[X0 - 16, 1.5, 14, 22, 5], [X0 - 19, 13, 18, 16, 3.5], [X0 - 31, -8, 16, 20, 8], [X0 - 34, 14, 14, 18, 6.5], [cx - 6, Z0 - 17, 20, 14, 4.5], [cx + 10, Z0 - 21, 16, 18, 6], [cx - 4, Z0 - 35, 18, 16, 9], [cx + 16, Z0 - 37, 14, 14, 7], [X0 - 22, Z0 - 20, 18, 18, 3]];
+  for (const [x, z, w, dd, hgt] of near) {
+    const geo = new THREE.BoxGeometry(w, hgt, dd), sd = 500 + lr() * 100; geo.setAttribute('seed', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count).fill(sd), 1));
+    const b = new THREE.Mesh(geo, cityM); b.position.set(x, -9 + hgt / 2, z); b.userData.city = true; C.scene.add(b);
+    const top = -9 + hgt;
+    addB(new THREE.BoxGeometry(w + 0.4, 0.9, 0.3), roofKit, x, top + 0.45, z - dd / 2); addB(new THREE.BoxGeometry(w + 0.4, 0.9, 0.3), roofKit, x, top + 0.45, z + dd / 2);
+    addB(new THREE.BoxGeometry(0.3, 0.9, dd), roofKit, x - w / 2, top + 0.45, z); addB(new THREE.BoxGeometry(0.3, 0.9, dd), roofKit, x + w / 2, top + 0.45, z);
+    addB(new THREE.BoxGeometry(w - 0.4, 0.05, dd - 0.4), roofTar, x, top + 0.03, z);
+    addB(new THREE.BoxGeometry(w * 0.3, 2.6, dd * 0.25), roofKit, x + w * 0.2, top + 1.3, z - dd * 0.15);                 // plant room
+    for (let i = 0; i < 4; i++) addB(new THREE.BoxGeometry(1.4, 1.0, 1.0), roofKit, x - w * 0.3 + i * 1.8, top + 0.5, z + dd * 0.25); // AC units
+    const tk = addB(new THREE.CylinderGeometry(1.3, 1.3, 2.4, 16), roofKit, x - w * 0.25, top + 3.4, z - dd * 0.25);     // water tank on legs
+    for (const [a, c] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) addB(new THREE.CylinderGeometry(0.08, 0.08, 2.2, 5), roofKit, tk.position.x + a * 0.9, top + 1.1, tk.position.z + c * 0.9);
+    addB(new THREE.ConeGeometry(1.4, 0.7, 16), roofKit, tk.position.x, top + 4.95, tk.position.z);
+    for (let i = 0; i < 3; i++) addB(new THREE.BoxGeometry(1.6, 0.25, 1.1), skyLit, x + rr(-w * 0.3, w * 0.3) * 0 + (i - 1) * 2.4, top + 0.15, z + dd * 0.05);       // lit skylights
   }
 }
 
@@ -276,6 +301,9 @@ function uplight(x, z) { // fixture + baked fill (feeds the irradiance volume; n
 }
 export function buildLightRig() {
   for (const [x, z] of [[3.5, 3.0], [3.5, 8.0], [11.5, 3.0], [11.5, 8.0]]) uplight(x, z);
+  // bounce fill for the back half (light coming off the lit floor, desks and walls there): baked into the GI volume only
+  for (const [x, y, z, c, k] of [[2.6, 1.3, 2.0, 0xffcfa0, 1.6], [7.5, 1.4, 1.6, 0xffc8a8, 1.5], [12.3, 1.3, 2.2, 0xffd2a8, 1.8], [13.4, 1.2, 5.6, 0xd8dcff, 1.5], [12.6, 1.2, 9.4, 0xffd2a8, 1.6], [8.5, 1.1, 9.8, 0xffcfa0, 1.2], [2.0, 1.2, 6.0, 0xffd6b0, 1.0]])
+    C.fakeLights.push({ x, y, z, color: new THREE.Color(c), intensity: k * 1.5 });
   C.scene.add(new THREE.HemisphereLight(0x6a78a0, 0x3a2a20, 0.42));
   // moon / city glow through the NW windows: the one big shadow caster (window mullions and blind slats)
   const moon = new THREE.DirectionalLight(0x9db2e6, 1.25);
@@ -342,7 +370,7 @@ function buildContract() { // Ops Center: contracts come in here.
   monitor(g, r.cx + 0.36, y, r.cz - 0.16, -0.12, 0.6, 0.34, dashScreen(31, '#f0883e', 'Ops · SLAs'), { id });
   keyboard(g, r.cx, y, r.cz + 0.16, 0);
   mug(g, r.cx - 0.75, y, r.cz + 0.12, 0xb3261e);
-  place('clipboard', r.cx - 0.55, y, r.cz + 0.22, 0.6, 1, g, { shadow: false });
+  place('clipboard', r.cx - 0.5, y, r.cz - 0.06, 0.6, 1, g, { shadow: false });
   place('binder_notebook', r.cx + 0.45, y, r.cz + 0.26, 0.2, 1, g, { pick: /closed/, shadow: false });
   // desk phone
   const ph = group(g, r.cx - 0.8, y, r.cz - 0.12, 0.3); rbox(0.2, 0.05, 0.18, 0.02, M.plastic, 0, 0.025, 0, ph); rbox(0.2, 0.04, 0.05, 0.02, M.plastic, 0, 0.07, -0.05, ph);
@@ -380,14 +408,14 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   rbox(0.66, 1.05, 0.62, 0.03, sm, 0, 0.525, 0, safe);
   // the door hangs on a hinge (left edge) so the robot can swing it open; the dial and wheel turn
   rbox(0.58, 0.94, 0.02, 0.01, std(0x0b0d0c, 0.6, 0.2), 0, 0.53, 0.302, safe); // dark recess behind the door
-  const door = group(safe, -0.28, 0, 0.3); door.userData.dynamic = true; door.userData.contact = 'surface'; door.userData.compact = true;
+  const door = group(safe, -0.28, 0, 0.3); door.userData.dynamic = true; door.userData.contact = 'surface'; door.userData.compact = true; door.name = 'safe_door';
   rbox(0.56, 0.92, 0.045, 0.015, std(0x34423b, 0.28, 0.8), 0.28, 0.53, 0.025, door);
   rbox(0.46, 0.8, 0.012, 0.01, std(0x2a3530, 0.35, 0.8), 0.28, 0.53, 0.052, door);  // inset panel
-  const dial = group(door, 0.38, 0.68, 0.06); dial.userData.compact = true;
+  const dial = group(door, 0.38, 0.68, 0.06); dial.userData.compact = true; dial.name = 'safe_dial';
   const dm = cyl(0.07, 0.07, 0.03, M.brass, 0, 0, 0, dial, 32); dm.rotation.x = Math.PI / 2;
   for (let i = 0; i < 24; i++) { const tk = box(0.004, 0.014, 0.004, std(0x1a1a1a, 0.5), Math.sin(i / 24 * 6.283) * 0.058, Math.cos(i / 24 * 6.283) * 0.058, 0.017, 1, dial, false); tk.rotation.z = -i / 24 * 6.283; }
   box(0.01, 0.03, 0.006, std(0xb3261e, 0.4), 0, 0.075, 0.02, 1, dial, false);
-  const wheel = group(door, 0.18, 0.55, 0.07); wheel.userData.compact = true;
+  const wheel = group(door, 0.18, 0.55, 0.07); wheel.userData.compact = true; wheel.name = 'safe_wheel';
   for (let i = 0; i < 3; i++) { const sp = cyl(0.008, 0.008, 0.16, M.alu, 0, 0, 0, wheel, 8); sp.rotation.z = (i / 3) * Math.PI; }
   cyl(0.025, 0.025, 0.05, M.alu, 0, 0, -0.01, wheel, 16).rotation.x = Math.PI / 2;
   for (const yy of [0.25, 0.85]) cyl(0.02, 0.02, 0.1, M.steelLight, 0.57, yy, 0.03, door, 12);
@@ -452,7 +480,28 @@ function buildTraining() { // Training Bench: lessons, Nib's pattern book on a w
     ['#ffe873', '#ff9ec7', '#8de3ff'].forEach((col, i) => { c.fillStyle = col; c.save(); c.translate(80 + i * 130, 420); c.rotate(rr(-0.1, 0.1)); c.fillRect(0, 0, 110, 110); c.fillStyle = '#333'; c.font = '20px "Marker Felt", cursive'; c.fillText(['retest', 'ask Nib', 'CVE?'][i], 12, 50); c.restore(); });
   });
   const wb = group(g, r.cx + 1.47, 0, r.z0 - 0.12); wb.scale.set(0.95, 0.8, 1);
-  { const wm = std(0xd8d8d8, 0.3, 0, { map: wbT }), bm = std(0x9a9c9e, 0.6); const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.03), [bm, bm, bm, bm, wm, bm]); b.position.set(0, 1.45, 0); b.castShadow = b.receiveShadow = true; b.userData.contact = 'surface'; wb.add(b); }
+  // its back (seen from the terminals): the agent fleet's sprint board, a taped network map and sticky-note columns
+  const wbB = canvasTex(1024, 640, (c, w, h) => {
+    c.fillStyle = '#eef0ec'; c.fillRect(0, 0, w, h); c.lineCap = 'round';
+    c.fillStyle = 'rgba(0,0,0,.04)'; for (let i = 0; i < 6; i++) { c.beginPath(); c.ellipse(rr(0, w), rr(0, h), rr(60, 160), rr(10, 30), rr(0, 3), 0, 7); c.fill(); }
+    c.fillStyle = '#1b1b1b'; c.font = 'bold 40px "Marker Felt", "Comic Sans MS", cursive'; c.fillText('AGENT FLEET · SPRINT 3', 36, 62);
+    // taped printout: a small network map of the six terminals
+    c.save(); c.translate(560, 110); c.rotate(-0.03); c.fillStyle = '#fbfbf8'; c.fillRect(0, 0, 420, 300); c.strokeStyle = '#d8d8d2'; c.strokeRect(0, 0, 420, 300);
+    c.fillStyle = '#3a3a3a'; c.font = 'bold 18px Menlo, monospace'; c.fillText('lab net 10.0.3.0/24', 16, 28);
+    const nodes = [['scout', 70, 90], ['fuzzer', 210, 70], ['triage', 340, 100], ['repro', 90, 220], ['writer', 220, 240], ['ledger', 350, 220]];
+    c.strokeStyle = '#2a6fb0'; c.lineWidth = 2; for (const [, x, y] of nodes) { c.beginPath(); c.moveTo(210, 160); c.lineTo(x, y); c.stroke(); }
+    c.fillStyle = '#2a6fb0'; c.beginPath(); c.arc(210, 160, 16, 0, 7); c.fill(); c.fillStyle = '#fff'; c.font = 'bold 11px Menlo, monospace'; c.fillText('GW', 201, 164);
+    for (const [n, x, y] of nodes) { c.fillStyle = '#e8f1fa'; c.fillRect(x - 38, y - 14, 76, 28); c.strokeStyle = '#2a6fb0'; c.strokeRect(x - 38, y - 14, 76, 28); c.fillStyle = '#1b3a5a'; c.font = '13px Menlo, monospace'; c.fillText(n, x - 30, y + 5); }
+    c.restore();
+    c.fillStyle = 'rgba(240,230,170,.75)'; for (const [x, y, a] of [[560, 100, -0.5], [960, 96, 0.4], [570, 400, 0.3], [968, 398, -0.4]]) { c.save(); c.translate(x, y); c.rotate(a); c.fillRect(-30, -9, 60, 18); c.restore(); }
+    // kanban columns
+    ['TODO', 'DOING', 'DONE'].forEach((t, i) => { const x = 36 + i * 170; c.fillStyle = '#333'; c.font = 'bold 24px "Marker Felt", cursive'; c.fillText(t, x + 10, 120); c.strokeStyle = '#999'; c.lineWidth = 2; c.beginPath(); c.moveTo(x + 160, 96); c.lineTo(x + 160, 600); c.stroke();
+      const notes = [['rate-limit\nfuzz', 'auth bypass\nrepro', 'write-up\n#14'], ['triage\nqueue', 'retest\nIDOR'], ['ledger\nsync', 'scope\nreview', 'SSRF\nfixed']][i];
+      notes.forEach((n, k) => { c.save(); c.translate(x + 14 + (k % 2) * 8, 140 + k * 140); c.rotate(rr(-0.08, 0.08)); c.fillStyle = ['#ffe873', '#ff9ec7', '#8de3ff', '#b9f59a'][(i + k) % 4]; c.fillRect(0, 0, 130, 118); c.fillStyle = 'rgba(0,0,0,.08)'; c.fillRect(0, 108, 130, 10);
+        c.fillStyle = '#2b2b2b'; c.font = '21px "Marker Felt", cursive'; n.split('\n').forEach((ln, j) => c.fillText(ln, 10, 40 + j * 28)); c.restore(); }); });
+    c.strokeStyle = '#b3261e'; c.lineWidth = 5; c.beginPath(); c.moveTo(600, 470); c.lineTo(960, 470); c.stroke(); c.fillStyle = '#b3261e'; c.font = 'bold 30px "Marker Felt", cursive'; c.fillText('ship Friday!', 640, 540);
+  });
+  { const wm = std(0xd8d8d8, 0.3, 0, { map: wbT }), wmB = std(0xd8d8d8, 0.32, 0, { map: wbB }), bm = std(0x9a9c9e, 0.6); const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.03), [bm, bm, bm, bm, wm, wmB]); b.position.set(0, 1.45, 0); b.castShadow = b.receiveShadow = true; b.userData.contact = 'surface'; wb.add(b); }
   box(1.64, 0.025, 0.04, M.alu, 0, 1.96, 0, 1, wb); box(1.64, 0.025, 0.04, M.alu, 0, 0.94, 0, 1, wb);
   box(1.4, 0.03, 0.07, M.alu, 0, 0.93, 0.03, 1, wb);
   for (let i = 0; i < 3; i++) { const mk = cyl(0.008, 0.008, 0.12, std([0x1f3b8f, 0xb3261e, 0x1b7a3a][i], 0.4), -0.3 + i * 0.05, 0.955, 0.04, wb, 8, false); mk.rotation.z = Math.PI / 2; }
@@ -572,7 +621,7 @@ function buildRig() { // GPU Rig: server racks with blinking LEDs.
   });
   const rackM = worn(0x17181b, { roughness: 0.6, metalness: 0.7, ns: 0.4 });
   for (let i = 0; i < 3; i++) {
-    const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 9.78, 0); rk.scale.z = 0.83;
+    const x = r.x0 + 0.38 + i * 0.72, rk = group(g, x, 0, 10.05, 0); rk.scale.z = 0.83;
     rbox(0.68, 1.95, 0.72, 0.01, rackM, 0, 0.975, 0, rk);
     const fm = new THREE.MeshStandardMaterial({ map: face, emissiveMap: face, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.5 });
     const f = plane(0.56, 1.8, fm, 0, 0.98, -0.362, rk); f.rotation.y = Math.PI;
@@ -600,8 +649,7 @@ function buildTerminals() { // six one-tile agent terminals: compact pods where 
     box(0.7, 0.42, 0.02, std(0x2e3b3a, 0.9), 0, 0.95, -0.22, 1, pod); // privacy screen between rows
     monitor(pod, 0, 0.755, -0.12, 0, 0.5, 0.29, agentScreen(100 + i, names[i]), { id, k: 1.3 });
     keyboard(pod, -0.05, 0.755, 0.1, 0);
-    if (i % 2 === 0) mug(pod, 0.26, 0.755, 0.1, pick([0xf1eee8, 0x2a4f8a, 0x2f4a33]), false);
-    if (i === 3) can(pod, -0.27, 0.755, 0.12, 0x23a455);
+    if (i % 2 === 0 && north) mug(pod, 0.26, 0.755, 0.1, pick([0xf1eee8, 0x2a4f8a, 0x2f4a33]), false);
     const label = canvasTex(128, 32, (q, w, h) => { q.fillStyle = '#0f1416'; q.fillRect(0, 0, w, h); q.fillStyle = '#5eead4'; q.font = 'bold 18px Menlo, monospace'; q.fillText(names[i].toUpperCase(), 8, 22); });
     plane(0.16, 0.04, new THREE.MeshStandardMaterial({ map: label, emissiveMap: label, emissive: 0xffffff, emissiveIntensity: 0.6 }), 0, 1.12, -0.208, pod);
   });

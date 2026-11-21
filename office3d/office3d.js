@@ -14,8 +14,10 @@ import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { C, A, K, T, X0, X1, Z0, Z1, H, makeMaterials, allTextures, gltf, hazeMats } from './kit.js';
 import { buildRoom, buildSkyline, tickRoom, getGoalTex } from './room.js';
-import { buildRobot, setSofaSeat } from './robot.js';
+import { buildRobot, setSofaSeat, chairProg } from './robot.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildCamCol, solveCam } from './camcol.js';
+import { placeDecals } from './decals.js';
 
 const Q = new URLSearchParams(location.search);
 const SKY_YAW = +(Q.get('sky') || 0.75);
@@ -47,6 +49,45 @@ vec3 bpParallax( vec3 v ) {
   float d = min( min( r.x, r.y ), r.z );
   return normalize( p + v * d - vec3(${f(ENV_POS.x)}, ${f(ENV_POS.y)}, ${f(ENV_POS.z)}) );
 }
+#endif
+`;
+  // World weathering for every standard material (robot opts out with NO_WEATHER): world-space macro variation in
+  // albedo and roughness, grime low on walls / furniture sides and along the skirting, soot under the ceiling, and
+  // lighter, rougher worn edges where rounded geometry curves hardest.
+  S.common += `
+#if defined(STANDARD) && !defined(NO_WEATHER)
+float wHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float wNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(wHash(i), wHash(i + vec3(1,0,0)), f.x), mix(wHash(i + vec3(0,1,0)), wHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(wHash(i + vec3(0,0,1)), wHash(i + vec3(1,0,1)), f.x), mix(wHash(i + vec3(0,1,1)), wHash(i + vec3(1,1,1)), f.x), f.y), f.z); }
+#endif
+`;
+  S.color_fragment += `
+float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5;
+#if defined(STANDARD) && !defined(NO_WEATHER)
+{
+  vec3 wp = vBPWorld; float n1 = wNoise(wp * 1.3); wN2 = wNoise(wp * 5.1 + 7.1); wN3 = wNoise(wp * 19.0 + 3.7);
+  vec3 gn = normalize(cross(dFdx(wp), dFdy(wp))); float up = abs(gn.y), vert = 1.0 - up;
+  float dw = min(min(wp.x - ${f(X0)}, ${f(X1)} - wp.x), min(wp.z - ${f(Z0)}, ${f(Z1)} - wp.z));
+  float low = (1.0 - smoothstep(0.0, 0.22 + 0.3 * n1, wp.y)) * vert;                                 // kick marks, dust
+  float skirt = (1.0 - smoothstep(0.0, 0.25 + 0.35 * wN2, dw)) * step(0.8, up) * step(wp.y, 0.04);   // floor along walls
+  float soot = smoothstep(${f(H - 0.6)}, ${f(H)}, wp.y) * vert * step(dw, 0.05);                       // above the windows / pipes
+  float drip = step(dw, 0.04) * vert * smoothstep(0.72, 0.95, wNoise(vec3(wp.x * 9.0 + wp.z * 9.0, wp.y * 0.6, 1.0))) * 0.5;
+  wGrime = clamp((low * 0.75 + skirt * 0.6 + soot * 0.5 + drip) * (0.55 + 0.6 * wN2), 0.0, 1.0);
+  diffuseColor.rgb *= (0.86 + 0.26 * n1) * (0.95 + 0.1 * wN3) * (1.0 - 0.42 * wGrime);
+}
+#endif
+`;
+  S.roughnessmap_fragment += `
+#if defined(STANDARD) && !defined(NO_WEATHER)
+roughnessFactor = clamp(roughnessFactor * (0.8 + 0.4 * wN2) + (wN3 - 0.5) * 0.08 + wGrime * 0.25, 0.03, 1.0);
+#endif
+`;
+  S.normal_fragment_maps += `
+#if defined(STANDARD) && !defined(NO_WEATHER) && !defined(FLAT_SHADED)
+{ float cv = length(fwidth(vNormal)) / max(length(fwidth(vBPWorld)), 1e-4);
+  float ew = smoothstep(28.0, 70.0, cv) * smoothstep(0.4, 0.7, wN3 * 0.7 + wN2 * 0.5);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + 0.025, ew * 0.7); roughnessFactor = mix(roughnessFactor, min(1.0, roughnessFactor + 0.2), ew); }
 #endif
 `;
   // Light culling in the shader: skip the BRDF for punctual lights that don't reach this pixel (out of range / outside
@@ -173,10 +214,12 @@ function buildNib() {
   const M = C.M, g = new THREE.Group(); scene.add(g); nib3d = g;
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 32, 20), new THREE.MeshPhysicalMaterial({ color: 0xb9b6ae, roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.15 })); body.castShadow = true; g.add(body);
   const face = new THREE.Mesh(new THREE.SphereGeometry(0.162, 32, 20, -0.9, 1.8, 0.95, 0.9), new THREE.MeshPhysicalMaterial({ color: 0x07090c, roughness: 0.05, clearcoat: 1 })); g.add(face);
-  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.03, 4, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 1.2, 1.5) })); e.position.set(s * 0.045, 0.02, 0.155); g.add(e); }
+  const glowM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.28, 1.2, 1.5) });
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.03, 4, 8), glowM); e.position.set(s * 0.045, 0.02, 0.155); g.add(e); }
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.012, 8, 40), M.alu); ring.rotation.x = Math.PI / 2; g.add(ring);
-  const glowRing = new THREE.Mesh(new THREE.TorusGeometry(0.172, 0.004, 6, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 1.2, 1.5) })); glowRing.rotation.x = Math.PI / 2; glowRing.position.y = -0.012; g.add(glowRing);
+  const glowRing = new THREE.Mesh(new THREE.TorusGeometry(0.172, 0.004, 6, 48), glowM); glowRing.rotation.x = Math.PI / 2; glowRing.position.y = -0.012; g.add(glowRing);
   const l = new THREE.PointLight(0x7ae8ff, 0.15, 1.2, 2); l.position.set(0, -0.1, 0.25); g.add(l);
+  g.name = 'nib'; g.userData.moving = true; g.userData.compact = true; g.traverse(o => { o.userData.dynamic = true; if (o.isMesh && !o.name) o.name = 'nib_part'; });
 }
 
 // ---------- the player: FO-1, the founder robot (robot.js) ----------
@@ -287,17 +330,17 @@ const vis = new THREE.Vector3(); let visH = Math.PI;
 // seat: 'chair' (swivel chair: sit from the side, swivel to the desk) or 'sofa' (back up and sit); side: where it sits from.
 const USE = {
   hunt: { spot: [7.175, 4.78, Math.PI], seat: 'chair', side: [6.52, 4.95], stand: [6.45, 5.45] },
-  contract: { spot: [2.725, 3.28, Math.PI], seat: 'chair', side: [2.05, 3.45], stand: [2.1, 4.05] },
-  stats: { spot: [12.2, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
+  contract: { spot: [2.725, 3.28, Math.PI], seat: 'chair', side: [2.12, 3.36], stand: [2.1, 4.05] },
+  stats: { spot: [12.165, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
   training: { spot: [11.55, 7.82, Math.PI], stand: [11.58, 8.7] },
   forge: { spot: [3.75, 8.62, Math.PI], stand: [3.75, 9.25] },
   hq: { spot: [7.25, 1.62, Math.PI], stand: [7.25, 2.45] },
-  rig: { spot: [12.38, 9.04, 0], stand: [11.5, 9.04] },
+  rig: { spot: [12.38, 9.31, 0], stand: [11.6, 9.36], step: 0.15 },
   terminals: { spot: [13.125, 7.38, 0], stand: [13.125, 6.75] },
   lounge: { spot: [3.05, 9.8, Math.PI], seat: 'sofa', side: [3.05, 9.25], stand: [2.4, 9.0] },
 };
 for (const k in USE) { const u = USE[k]; u[0] = u.spot[0]; u[1] = u.spot[1]; u[2] = u.spot[2]; } // array-style access (camera helpers)
-let act = null;
+let act = null; const STEP = 0.3; // standing stations: turn 30 cm back from the spot, then step in (and back out)
 const angDiff = (a, b) => { const d = b - a; return Math.atan2(Math.sin(d), Math.cos(d)); };
 const V2 = (a) => new THREE.Vector3(a[0], 0, a[1]);
 function startInteraction(id, fromStand) {
@@ -306,13 +349,17 @@ function startInteraction(id, fromStand) {
   let resolve; const p = new Promise(r => (resolve = r));
   const u = USE[id], spot = V2(u.spot);
   if (fromStand || vis.distanceTo(spot) > 4) { vis.copy(V2(u.stand)); }
-  const path = [V2(u.stand), u.seat ? V2(u.side) : spot]; if (vis.distanceTo(path[0]) < 0.05) path.shift();
+  const fwd = new THREE.Vector3(Math.sin(u.spot[2]), 0, Math.cos(u.spot[2])), pre = spot.clone().addScaledVector(fwd, -(u.step ?? STEP));
+  const path = [V2(u.stand), u.seat ? V2(u.side) : pre]; if (vis.distanceTo(path[0]) < 0.05) path.shift();
   act = { id, u, phase: 'path', path, after: u.seat === 'chair' ? 'swivelOut' : u.seat === 'sofa' ? 'turnSofa' : 'turn', t: 0, st: 0, spot, h: u.spot[2], resolve };
   return p;
 }
 const chairOf = id => (C.chairs && C.chairs[id] ? C.chairs[id] : null);
 // place a pull-in chair: k = 0 parked beside the desk, 1 at the desk; yaw = absolute rotation once at the desk
-function setChair(c, k, yaw) { if (!c) return; const e = k * k * (3 - 2 * k); c.g.position.set(c.park[0] + (c.sit[0] - c.park[0]) * e, 0, c.park[1] + (c.sit[1] - c.park[1]) * e); c.g.rotation.y = c.park[2] + angDiff(c.park[2], yaw) * e; }
+function setChair(c, k, yaw) { if (!c) return; const e = k * k * (3 - 2 * k);
+  // the seat stays 5 cm behind the robot's root whichever way it swivels (sit = spot + 5 cm behind, facing the desk)
+  const h = yaw + Math.PI, tx = c.sit[0] - Math.sin(h) * 0.05, tz = c.sit[1] - 0.05 - Math.cos(h) * 0.05;
+  c.g.position.set(c.park[0] + (tx - c.park[0]) * e, 0, c.park[1] + (tz - c.park[1]) * e); c.g.rotation.y = c.park[2] + angDiff(c.park[2], yaw) * e; if (c.g.userData.base) c.g.userData.base.rotation.y = c.park[2] - c.g.rotation.y; }
 function stepInteraction(dt) {
   const A = act, u = A.u; A.t += dt;
   const turnTo = (h, k = 8) => { visH += angDiff(visH, h) * Math.min(1, dt * k); };
@@ -323,16 +370,28 @@ function stepInteraction(dt) {
     if (dist <= 0.02 || A.t > 8) { A.path.shift(); A.t = 0; if (!A.path.length) { A.phase = A.after; } }
     return { speed: sp };
   }
-  const chair = chairOf(A.id), out = u.seat === 'chair' ? Math.atan2(u.side[0] - u.spot[0], 0) : Math.atan2(u.side ? u.side[0] - u.spot[0] : 0, u.side ? u.side[1] - u.spot[1] : 1);
+  const chair = chairOf(A.id), out = u.seat === 'chair' ? Math.atan2(u.side[0] - u.spot[0], 0) - Math.sign(u.side[0] - u.spot[0]) * 0.5 /* swivel a little away from the desk too */ : Math.atan2(u.side ? u.side[0] - u.spot[0] : 0, u.side ? u.side[1] - u.spot[1] : 1);
   // --- swivel chair: turn the chair to the robot, back up onto the seat, swivel to the desk ---
-  if (A.phase === 'swivelOut') { turnTo(out, 7); setChair(chair, Math.min(1, A.t / 0.9), out - Math.PI); if (A.t > 1.0) { A.phase = 'sitDown'; A.t = 0; } return { speed: 0 }; }
-  if (A.phase === 'sitDown') { const k = ease(Math.min(1, A.t / 0.9)); vis.copy(V2(u.side)).lerp(A.spot, k); turnTo(out, 9); if (A.t > 1.0) { A.phase = 'swivelIn'; A.t = 0; } return { station: 'sit', stationT: A.t, rate: 5 }; }
+  const fwdOut = new THREE.Vector3(Math.sin(out), 0, Math.cos(out)), pre = A.spot.clone().addScaledVector(fwdOut, 0.4);
+  if (A.phase === 'swivelOut') { turnTo(out, 7); setChair(chair, Math.min(1, A.t / 0.9), out - Math.PI); if (A.t > 1.0) { A.phase = 'backUp'; A.t = 0; A.from = vis.clone(); } return { speed: 0 }; }
+  if (A.phase === 'backUp') { // two short steps backwards to the front of the seat
+    turnTo(out, 9); const D = 0.7, k = Math.min(1, A.t / D), e = ease(k), d = A.from.distanceTo(pre); vis.copy(A.from).lerp(pre, e);
+    if (k >= 1) { A.phase = 'sitDown'; A.t = 0; } return { speed: Math.max(0.15, d / D * 6 * k * (1 - k)), back: true };
+  }
+  if (A.phase === 'sitDown') { const q = 1 - Math.min(1, A.t / 1.1); vis.copy(A.spot).addScaledVector(fwdOut, 0.4 * chairProg(q).h); turnTo(out, 9); if (A.t > 1.15) { A.phase = 'swivelIn'; A.t = 0; } return { station: 'chairMove', stationT: q, rate: 14 }; }
   if (A.phase === 'swivelIn') { const k = ease(Math.min(1, A.t / 0.8)); visH = out + angDiff(out, A.h) * k; setChair(chair, 1, visH - Math.PI); if (A.t > 0.8) { A.phase = 'loop'; A.t = 0; A.resolve && A.resolve(A.id); A.resolve = null; } return { station: 'sit', stationT: A.t, rate: 5 }; }
   // --- sofa: turn your back to it, back up and sit ---
   if (A.phase === 'turnSofa') { turnTo(A.h, 8); if (A.t > 0.45) { A.phase = 'sitSofa'; A.t = 0; } return { speed: 0 }; }
   if (A.phase === 'sitSofa') { const k = ease(Math.min(1, A.t / 0.9)); vis.copy(V2(u.side)).lerp(A.spot, k); turnTo(A.h, 9); if (A.t > 1.0) { A.phase = 'loop'; A.t = 0; A.resolve && A.resolve(A.id); A.resolve = null; } return { station: 'sitSofa', stationT: A.t, rate: 5 }; }
   // --- standing stations ---
-  if (A.phase === 'turn') { turnTo(A.h, 8); if (A.t > 0.4) { A.phase = 'enter'; A.t = 0; } return { speed: 0 }; }
+  if (A.phase === 'turn') { turnTo(A.h, 8); if (A.t > 0.45 && Math.abs(angDiff(visH, A.h)) < 0.05) { A.phase = 'stepIn'; A.t = 0; A.from = vis.clone(); } return { speed: 0 }; }
+  if (A.phase === 'stepIn' || A.phase === 'stepOut') { // a short straight step (forward in, backward out), facing the desk
+    turnTo(A.h, 10); const D = 0.55, k = Math.min(1, A.t / D), e = k * k * (3 - 2 * k), fwd = new THREE.Vector3(Math.sin(A.h), 0, Math.cos(A.h));
+    const st = u.step ?? STEP, a = A.phase === 'stepIn' ? A.from : A.spot, b = A.phase === 'stepIn' ? A.spot : A.spot.clone().addScaledVector(fwd, -st);
+    vis.copy(a).lerp(b, e); const sp = st / D * 6 * k * (1 - k);
+    if (k >= 1) { if (A.phase === 'stepIn') { A.phase = 'enter'; A.t = 0; } else { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; } }
+    return { speed: Math.max(0.15, sp), back: A.phase === 'stepOut' };
+  }
   if (A.phase === 'enter' || A.phase === 'loop') {
     if (!u.seat || A.phase === 'enter') turnTo(A.h, 8); A.st += dt;
     if (u.seat === 'chair') setChair(chair, 1, visH - Math.PI);
@@ -344,19 +403,22 @@ function stepInteraction(dt) {
     if (u.seat === 'chair') { // swivel out, stand up stepping to the side, chair swivels back
       if (A.t < 0.5) return { station: 'sit', stationT: A.t, rate: 5 };
       if (A.t < 1.3) { const k = ease((A.t - 0.5) / 0.8); visH = A.h + angDiff(A.h, out) * k; setChair(chair, 1, visH - Math.PI); return { station: 'sit', stationT: A.t, rate: 5 }; }
-      const k = ease(Math.min(1, (A.t - 1.3) / 0.9)); vis.copy(A.spot).lerp(V2(u.side), k);
-      if (A.t > 2.3) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; A.chairT = 0; }
-      return { speed: 0, rate: 4 };
+      // rise straight up over the planted feet, then walk off (the walk cycle does the stepping)
+      const q = Math.min(1, (A.t - 1.3) / 1.1);
+      vis.copy(A.spot).addScaledVector(fwdOut, 0.4 * chairProg(q).h);
+      if (A.t > 2.5) { A.phase = 'home'; A.t = 0; A.path = [V2(u.side), V2(u.stand)]; A.chairT = 0; }
+      return { station: 'chairMove', stationT: q, rate: 14 };
     }
     if (u.seat === 'sofa') { const k = Math.min(1, A.t / 1.1); vis.copy(A.spot).lerp(V2(u.side), k); if (A.t > 1.25) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; } return { station: 'rise', stationT: k, rate: 12 }; }
-    if (A.t < 0.55) return { station: 'retract', stationT: A.t, rate: 6 };
-    if (A.t > 1.1) { A.phase = 'home'; A.t = 0; A.path = [V2(u.stand)]; }
+    if (A.t < 0.7) return { station: 'retract', stationT: A.t, rate: 6 };
+    if (A.t > 0.95) { A.phase = 'stepOut'; A.t = 0; }
     return { speed: 0, rate: 4 };
   }
   if (A.phase === 'home') {
     if (chair && u.seat === 'chair') { A.chairT = Math.min(1, (A.chairT || 0) + dt / 0.9); setChair(chair, 1 - A.chairT, out - Math.PI); }
     const goal = A.path[0], d = goal.clone().sub(vis).setY(0), dist = d.length(), sp = Math.min(1.3, 0.25 + dist * 3);
     if (dist > 0.02 && A.t < 6) { turnTo(Math.atan2(d.x, d.z), 9); vis.addScaledVector(d.normalize(), Math.min(dist, sp * dt)); return { speed: sp }; }
+    if (A.path.length > 1) { A.path.shift(); return { speed: sp }; }
     // hand control back: the founder now stands at this clear spot
     if (chair && u.seat === 'chair') setChair(chair, 0, 0);
     pos.copy(vis); heading = visH; if (world.walkable(pos.x / K, pos.z / K)) world.setPose(pos.x / K, pos.z / K, 'down', false);
@@ -399,7 +461,8 @@ function stationFX(dt) {
 function leaveInteraction() {
   if (!act) return Promise.resolve();
   if (act.resolve) { act.resolve(act.id); act.resolve = null; }
-  act.phase = 'exit'; act.t = 0;
+  if (/^(path|turn|stepIn|swivelOut|backUp|turnSofa)$/.test(act.phase)) { act.phase = 'home'; act.t = 0; act.path = [V2(act.u.stand)]; act.chairT = 0; }
+  else if (act.phase !== 'exit' && act.phase !== 'stepOut' && act.phase !== 'home') { act.phase = 'exit'; act.t = 0; }
   const dlg = document.getElementById('panel-dialog'); if (dlg?.open) { suppressClose = true; dlg.close(); suppressClose = false; }
   return new Promise(r => { const chk = () => (!act || act.phase === 'home' ? r() : setTimeout(chk, 50)); chk(); });
 }
@@ -436,12 +499,50 @@ function stationCam(id) {
   const sp = USE[id].spot, c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95], f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x);
   return { p: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]), t: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]) };
 }
+// Camera collision (camcol.js): the wanted camera position is pulled in along the line from the robot's head until it
+// sits >= CAM_R clear of every surface and nothing blocks the head or chest. Pulling in is immediate, letting out eases.
+const CAM_R = 0.36; let camCol = null; const camAct = new THREE.Vector3(); let camActOk = false, camVar = 0;
+const _hd = new THREE.Vector3(), _ch = new THREE.Vector3(), _cw = new THREE.Vector3(), _cs = new THREE.Vector3(), _ce = new THREE.Vector3();
+const inRoomCam = p => p.x > X0 + CAM_R && p.x < X1 - CAM_R && p.z > Z0 + CAM_R && p.z < Z1 - CAM_R && p.y > 0.25 && p.y < H - CAM_R;
+function robotPivot() {
+  const hb = player.getObjectByName('head'), cb = player.getObjectByName('chest');
+  if (hb) hb.getWorldPosition(_hd); else _hd.set(vis.x, 1.45, vis.z);
+  if (cb) cb.getWorldPosition(_ch); else _ch.set(vis.x, 1.1, vis.z);
+  _hd.y += 0.06; return _hd;
+}
+const CAM_VARS = [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.45, -1.45, 1.9, -1.9, 2.5, -2.5];
+function solveAround(pivot, want, out) {
+  if (!camCol) return out.copy(want);
+  const o = { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: 0.62 };
+  const rel = _cw.subVectors(want, pivot); const d = Math.hypot(rel.x, rel.z), a0 = Math.atan2(rel.x, rel.z);
+  const tryVar = (i, lift) => { const a = a0 + CAM_VARS[i]; _ce.set(pivot.x + Math.sin(a) * d, want.y + lift, pivot.z + Math.cos(a) * d); return solveCam(camCol, pivot, _ce, out, o); };
+  // the variant that worked last frame first (no flicker between equal options), then the plain line, then around
+  if (camVar && tryVar(camVar, 0) && out.distanceTo(pivot) > 0.9) return out;
+  if (tryVar(0, 0) && out.distanceTo(pivot) > 0.9) { camVar = 0; return out; }
+  let best = null, bd = 0;
+  for (let i = 1; i < CAM_VARS.length; i++) for (const lift of [0, 0.35]) if (tryVar(i, lift)) { const dd = out.distanceTo(pivot) - Math.abs(CAM_VARS[i]) * 0.35 - lift * 0.5; if (!best || dd > bd) { best = out.clone(); bd = dd; camVar = i; } }
+  if (best) return out.copy(best);
+  if (tryVar(0, 0)) return out;
+  return out.copy(want);
+}
+function placeCamera(dt, want) {
+  const pivot = robotPivot();
+  solveAround(pivot, want, _cs);
+  if (!camActOk) { camAct.copy(_cs); camActOk = true; }
+  else {
+    // let out gently; pull in at once (never through a wall, never with a prop in front of the lens)
+    const dOut = _cs.distanceTo(pivot) > camAct.distanceTo(pivot) + 0.01;
+    if (dOut) { _ce.copy(camAct).lerp(_cs, Math.min(1, dt * 4)); if (camCol && solveCam(camCol, pivot, _ce, _cw, { r: CAM_R, chest: _ch, inRoom: inRoomCam, minDist: 0.62 }) && _cw.distanceTo(_ce) < 0.02) camAct.copy(_ce); else camAct.copy(_cs); }
+    else camAct.copy(_cs);
+  }
+  camera.position.copy(camAct);
+}
 function updateCamera(dt) {
-  const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'path' && act.phase !== 'home' ? 1.15 : 1.5, vis.z);
   if (freeCam) {
     let p = freeCam.p, t = freeCam.t;
-    if (freeCam.follow) { t = vis.clone().add(new THREE.Vector3(0, freeCam.ty ?? 1.05, 0)); p = t.clone().add(freeCam.follow); }
-    camPos.copy(p); camera.position.copy(p); camera.lookAt(t);
+    if (freeCam.follow) { t = vis.clone().add(new THREE.Vector3(0, freeCam.ty ?? 1.05, 0)); p = t.clone().add(freeCam.follow); camPos.copy(p); placeCamera(1, p); p = camera.position.clone(); }
+    else { camPos.copy(p); camera.position.copy(p); camActOk = false; }
+    camera.lookAt(t);
     if (camera.fov !== (freeCam.fov || 50)) { camera.fov = freeCam.fov || 50; camera.updateProjectionMatrix(); }
     DOF.focus = freeCam.focus ?? p.distanceTo(t); DOF.ap = freeCam.ap ?? 0.35;
     player.visible = !freeCam.hidePlayer; if (nib3d) nib3d.visible = !freeCam.hidePlayer;
@@ -450,36 +551,36 @@ function updateCamera(dt) {
     return;
   }
   if (nib3d) nib3d.visible = true;
+  const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'path' && act.phase !== 'home' ? 1.15 : 1.5, vis.z);
   // station interactions get a framed shot of the robot at work (until the player drags the camera)
   if (act && !userOrbit && act.phase !== 'path' && act.phase !== 'home') {
-    yaw = Math.atan2(camPos.x - vis.x, camPos.z - vis.z); // so the orbit camera resumes from here, not from behind the robot's old spot
-    const { p, t } = stationCam(act.id), k = Math.min(1, dt * 3);
-    camPos.lerp(p, k); camTgt.lerp(t, k); keepOff(camPos); camera.position.copy(camPos); camera.lookAt(camTgt);
+    const { p, t } = stationCam(act.id), k = Math.min(1, dt * 2.5);
+    camPos.lerp(p, k); camTgt.lerp(t, k); keepOff(camPos);
+    placeCamera(dt, camPos); camera.lookAt(camTgt);
+    yaw = Math.atan2(camera.position.x - vis.x, camera.position.z - vis.z); // so the orbit camera resumes from here
     if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
-    DOF.focus = camPos.distanceTo(vis) + 0.2; DOF.ap = 0.1; player.visible = true;
-    if (charLight) { const hd = new THREE.Vector3(vis.x, 1.3, vis.z), toCam = camPos.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
+    DOF.focus = camera.position.distanceTo(vis) + 0.2; DOF.ap = 0.1; player.visible = true;
+    if (charLight) { const hd = new THREE.Vector3(vis.x, 1.3, vis.z), toCam = camera.position.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
       charLight.position.copy(hd).addScaledVector(toCam, 0.9).addScaledVector(side, 0.6).add(new THREE.Vector3(0, 0.3, 0)); rimLight.position.copy(hd).addScaledVector(toCam, -0.8).addScaledVector(side, -0.4).add(new THREE.Vector3(0, 0.3, 0)); }
     return;
   }
   if (!act) userOrbit = false;
-  camTgt.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()));
   if (camera.fov !== 52) { camera.fov = 52; camera.updateProjectionMatrix(); }
   const shoulder = 0.38;
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const target = head.clone().addScaledVector(right, shoulder * Math.min(1, dist / 2.6));
   const off = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
-  let want = target.clone().add(off);
-  ray.set(target, off.clone().normalize()); ray.far = dist + 0.2;
-  const hit = ray.intersectObjects(C.occluders, false)[0];
-  if (hit) want = target.clone().addScaledVector(off.clone().normalize(), Math.max(0.35, hit.distance - 0.22));
-  want.x = THREE.MathUtils.clamp(want.x, X0 + 0.15, X1 - 0.15); want.z = THREE.MathUtils.clamp(want.z, Z0 + 0.15, Z1 - 0.15); want.y = THREE.MathUtils.clamp(want.y, 0.25, H - 0.15);
-  if (!camInit) { camPos.copy(want); camInit = true; }
-  camPos.lerp(want, Math.min(1, dt * (act ? 3 : 12))); keepOff(camPos);
-  camera.position.copy(camPos); camera.lookAt(target);
-  player.visible = camPos.distanceTo(head) > 0.45;
-  if (rimLight) { const away = head.clone().sub(camPos).setY(0).normalize(); rimLight.position.copy(head).addScaledVector(away, 0.75).add(new THREE.Vector3(0, 0.35, 0)); }
-  if (charLight) { const back = camPos.clone().sub(head).setY(0).normalize(); charLight.position.copy(head).addScaledVector(back, 0.9).add(new THREE.Vector3(0, 0.45, 0)).addScaledVector(right, -0.5); }
-  DOF.focus += (camPos.distanceTo(head) - DOF.focus) * Math.min(1, dt * 6); DOF.ap = 0.1;
+  const want = target.clone().add(off);
+  want.x = THREE.MathUtils.clamp(want.x, X0 + 0.4, X1 - 0.4); want.z = THREE.MathUtils.clamp(want.z, Z0 + 0.4, Z1 - 0.4); want.y = THREE.MathUtils.clamp(want.y, 0.3, H - 0.4);
+  if (!camInit) { camPos.copy(want); camInit = true; camActOk = false; }
+  camPos.lerp(want, Math.min(1, dt * (act ? (act.phase === 'home' ? 7 : 3) : 12))); keepOff(camPos);
+  placeCamera(dt, camPos);
+  camTgt.lerp(target, camInit ? Math.min(1, dt * 12) : 1); camera.lookAt(target);
+  const cp = camera.position;
+  player.visible = cp.distanceTo(head) > 0.45;
+  if (rimLight) { const away = head.clone().sub(cp).setY(0).normalize(); rimLight.position.copy(head).addScaledVector(away, 0.75).add(new THREE.Vector3(0, 0.35, 0)); }
+  if (charLight) { const back = cp.clone().sub(head).setY(0).normalize(); charLight.position.copy(head).addScaledVector(back, 0.9).add(new THREE.Vector3(0, 0.45, 0)).addScaledVector(right, -0.5); }
+  DOF.focus += (cp.distanceTo(head) - DOF.focus) * Math.min(1, dt * 6); DOF.ap = 0.1;
 }
 
 // ---------- prompt "E · Desk" ----------
@@ -691,6 +792,12 @@ function compactGroups() {
   for (const g of groups) {
     g.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(), by = new Map(), victims = [];
+    // collision parts in the group's own frame (Office3D.colliders follows the group live)
+    const parts = []; g.traverse(o => { if (!o.isMesh || o.userData.noCollider) return; let owner = o.parent; while (owner && !owner.userData.compact) owner = owner.parent; if (owner !== g) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); const lb = o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+      let contact = o.userData.contact; for (let p = o.parent; !contact && p; p = p.parent) contact = p.userData.contact;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material; parts.push({ local: lb, contact, kind: o.name || (m && m.name) || o.geometry.type.replace('Geometry', '').toLowerCase() }); });
+    g.userData.parts = parts;
     g.traverse(o => {
       if (!o.isMesh || Array.isArray(o.material)) return;
       let owner = o.parent; while (owner && !owner.userData.compact) owner = owner.parent; if (owner !== g) return;
@@ -712,30 +819,78 @@ function compactGroups() {
 // world AABBs, scanned models (Poly Haven) as their meshes. Surfaces the robot is meant to touch carry `contact`.
 const COLLIDERS = [];
 const STATION_IDS = new Set(['hunt', 'contract', 'stats', 'training', 'forge', 'hq', 'rig', 'terminals']);
+const MOVING = [];
+function colName(o, station, m) {
+  let nm = o.name && !/^(mesh|prop|part_mat)$/.test(o.name) ? o.name : '';
+  for (let p = o.parent; !nm && p && p !== scene; p = p.parent) if (p.name && !STATION_IDS.has(p.name)) nm = p.name;
+  if (!nm) nm = (m && m.name) || o.geometry.type.replace('Geometry', '').toLowerCase() || 'part';
+  return (station ? station + '/' : 'room/') + nm;
+}
+// A curved or spindly object (arc lamp, plant, chair frame) gets several boxes that hug it instead of one mostly-empty
+// box: split the triangles along the longest axis while that cuts the boxed volume substantially.
+function tightBoxes(o, box) {
+  const sz = box.getSize(new THREE.Vector3()); if (Math.max(sz.x, sz.y, sz.z) < 0.35) return [box];
+  const g = o.geometry, pos = g.attributes.position, idx = g.index, n = idx ? idx.count : pos.count; if (n < 24) return [box];
+  const P = new Float32Array(n * 3), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(o.matrixWorld); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; }
+  const tb = ts => { const b = new THREE.Box3(); for (const t of ts) for (let k = 0; k < 3; k++) b.expandByPoint(v.set(P[(t * 3 + k) * 3], P[(t * 3 + k) * 3 + 1], P[(t * 3 + k) * 3 + 2])); return b; };
+  const vol = b => { const s = b.getSize(v); return Math.max(s.x, 0.01) * Math.max(s.y, 0.01) * Math.max(s.z, 0.01); };
+  const out = [];
+  const rec = (ts, b, depth) => {
+    const s = b.getSize(new THREE.Vector3()); if (depth > 5 || ts.length < 8 || Math.max(s.x, s.y, s.z) < 0.25) { out.push(b); return; }
+    const ax = s.x >= s.y && s.x >= s.z ? 0 : s.y >= s.z ? 1 : 2;
+    const c = t => (P[(t * 3) * 3 + ax] + P[(t * 3 + 1) * 3 + ax] + P[(t * 3 + 2) * 3 + ax]) / 3;
+    const sorted = ts.slice().sort((a, b2) => c(a) - c(b2)), h = sorted.length >> 1, A1 = sorted.slice(0, h), B1 = sorted.slice(h);
+    const ba = tb(A1), bb = tb(B1);
+    if (vol(ba) + vol(bb) > 0.7 * vol(b)) { out.push(b); return; }
+    rec(A1, ba, depth + 1); rec(B1, bb, depth + 1);
+  };
+  const all = Array.from({ length: n / 3 | 0 }, (_, i) => i); rec(all, box, 0);
+  return out.length > 24 ? [box] : out;
+}
 function collectColliders() {
   scene.updateMatrixWorld(true);
   const skip = o => { for (let p = o; p; p = p.parent) if (p === player || p === nib3d || p.userData.city || p.userData.cityDetail) return true; return false; };
+  const movingGroup = o => { for (let p = o; p; p = p.parent) if (p.userData.compact) return p; return null; };
+  const seen = new Map(); const uniq = n => { const k = (seen.get(n) || 0) + 1; seen.set(n, k); return k > 1 ? n + '#' + k : n; };
+  const groups = new Set();
   scene.traverse(o => {
     if (!o.isMesh || o.isPoints || skip(o) || o.userData.proxy || o.userData.noCollider || !o.visible) return;
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     if (o.userData.noAO && !(m && m === C.M.glass)) return; // haze / decals / contact shadows
     if (o.layers.mask === 2) return;                          // reflection-only silhouettes
-    let station, name = o.name, contact = o.userData.contact;
-    for (let p = o.parent; p && p !== scene; p = p.parent) { if (!name && p.name) name = p.name; if (STATION_IDS.has(p.name)) station = p.name; if (!contact && p.userData.contact) contact = p.userData.contact; }
+    const mg = movingGroup(o); if (mg) { groups.add(mg); return; } // moving furniture: live part boxes below
+    let station, contact = o.userData.contact;
+    for (let p = o.parent; p && p !== scene; p = p.parent) { if (STATION_IDS.has(p.name)) station = p.name; if (!contact && p.userData.contact) contact = p.userData.contact; }
     if (o === C.floorMesh) { COLLIDERS.push({ name: 'floor', box: new THREE.Box3(new THREE.Vector3(X0, -0.1, Z0), new THREE.Vector3(X1, 0, Z1)), contact: 'surface' }); return; }
     const box = new THREE.Box3().setFromObject(o); const sz = box.getSize(new THREE.Vector3());
     if (!contact && sz.y < 0.03 && box.max.y < 1.3) contact = 'surface'; // papers, pads, mats lying on something
-    const gltfModel = !!(o.geometry.attributes.uv && o.geometry.index && o.geometry.attributes.position.count > 300 && /_|\d/.test(o.name || '') && !o.geometry.parameters);
-    const e = { name: name || (m && m.name) || 'prop', box };
-    if (station) e.station = station; if (contact) e.contact = contact;
-    let moving = false; for (let p = o; p; p = p.parent) if (p.userData.compact) moving = true;
-    if (gltfModel || moving) e.mesh = o;
-    COLLIDERS.push(e);
+    const nm = colName(o, station, m);
+    for (const bx of tightBoxes(o, box)) { const e = { name: uniq(nm), box: bx }; if (station) e.station = station; if (contact) e.contact = contact; COLLIDERS.push(e); }
   });
-  for (const pb of C.proxyBoxes || []) { const b = pb.box; COLLIDERS.push({ name: pb.name, box: new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5])), ...(pb.contact ? { contact: pb.contact } : {}) }); }
+  // the room shell: walls just outside the floor, and the ceiling
+  const T_ = 0.3;
+  COLLIDERS.push({ name: 'wall_north', box: new THREE.Box3(new THREE.Vector3(X0 - T_, 0, Z0 - T_), new THREE.Vector3(X1 + T_, H, Z0)) });
+  COLLIDERS.push({ name: 'wall_south', box: new THREE.Box3(new THREE.Vector3(X0 - T_, 0, Z1), new THREE.Vector3(X1 + T_, H, Z1 + T_)) });
+  COLLIDERS.push({ name: 'wall_west', box: new THREE.Box3(new THREE.Vector3(X0 - T_, 0, Z0 - T_), new THREE.Vector3(X0, H, Z1 + T_)) });
+  COLLIDERS.push({ name: 'wall_east', box: new THREE.Box3(new THREE.Vector3(X1, 0, Z0 - T_), new THREE.Vector3(X1 + T_, H, Z1 + T_)) });
+  COLLIDERS.push({ name: 'ceiling', box: new THREE.Box3(new THREE.Vector3(X0 - T_, H, Z0 - T_), new THREE.Vector3(X1 + T_, H + T_, Z1 + T_)) });
+  // moving furniture (swivel chairs, safe door / dial / wheel): one box per part, re-placed every frame
+  for (const g of groups) {
+    let station; for (let p = g.parent; p && p !== scene; p = p.parent) if (STATION_IDS.has(p.name)) station = p.name;
+    const base = g.name || 'moving'; let i = 0;
+    const mesh = g.children.find(c => c.isMesh);
+    for (const pt of g.userData.parts || []) {
+      const e = { name: uniq((station ? station + '/' : 'room/') + base + '_' + pt.kind + '_' + (i++)), box: pt.local.clone().applyMatrix4(g.matrixWorld), moving: true, group: g, local: pt.local };
+      if (mesh) e.mesh = mesh; if (station) e.station = station; if (pt.contact) e.contact = pt.contact;
+      COLLIDERS.push(e); MOVING.push(e);
+    }
+  }
+  for (const pb of C.proxyBoxes || []) { const b = pb.box; COLLIDERS.push({ name: uniq(pb.name), box: new THREE.Box3(new THREE.Vector3(b[0], b[1], b[2]), new THREE.Vector3(b[3], b[4], b[5])), ...(pb.contact ? { contact: pb.contact } : {}) }); }
   // anything standing on the floor blocks walking (the 2D grid only knows desks and walls)
   for (const c of COLLIDERS) { const b = c.box; if (c.name === 'floor' || /wall|ceil/i.test(c.name) || b.min.y > 1.2 || b.max.y < 0.025 || (b.max.y - b.min.y < 0.02 && b.min.y > 0.03)) continue; const sx = b.max.x - b.min.x, sz = b.max.z - b.min.z; if (sx * sz > 4 || sx > 3.2 || sz > 3.2) continue; C.colliders.push({ x0: b.min.x, x1: b.max.x, z0: b.min.z, z1: b.max.z, high: b.min.y > 0.6 }); }
 }
+function updateMovingColliders() { for (const e of MOVING) { e.group.updateWorldMatrix(true, false); e.box.copy(e.local).applyMatrix4(e.group.matrixWorld); } }
 
 // ---------- frame stats / GPU memory estimate ----------
 const STATS = { calls: 0, tris: 0, frameMs: 16, gpuMB: 0 };
@@ -824,7 +979,7 @@ function shot(name) {
   else if (name === 'wide-west') { setPlayer(6.4, 6.2, Math.PI * 1.25, 'left'); freeCam = { p: V3(1.2, 2.25, 4.3), t: V3(9.5, 0.7, 6.6), fov: 54, ap: 0.04 }; }
   else if (name === 'wide-ne') { setPlayer(9.0, 6.6, Math.PI * 0.5, 'right'); freeCam = { p: V3(12.1, 2.35, 1.25), t: V3(6.0, 0.7, 7.4), fov: 54, ap: 0.04 }; }
   else if (name === 'portrait') { setPlayer(8.6, 6.5, -Math.PI / 2 + 0.35, 'left'); freeCam = { p: V3(6.95, 1.45, 7.25), t: V3(8.6, 1.2, 6.5), fov: 40, ap: 0.12 }; }
-  else if (name === 'walk-side') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-0.3, 0.1, 2.6), ty: 0.95, fov: 45, ap: 0.15 }; }
+  else if (name === 'walk-side') { setPlayer(10.2, 6.0, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-0.5, 0.2, 2.3), ty: 0.95, fov: 45, ap: 0.15 }; }
   else if (name === 'gameplay') { setPlayer(7.6, 7.4, Math.PI * 1.05, 'up'); yaw = -0.18; pitch = 0.16; dist = 2.4; }
   else if (name === 'walking') { setPlayer(10.9, 6.15, -Math.PI / 2, 'left'); yaw = Math.PI / 2; keys.shot = true; keys.f = true; freeCam = { follow: V3(-1.75, 0.25, 1.95), ty: 0.95, fov: 50, ap: 0.25 }; }
   else if (name === 'using-desk') { const [x, z] = approach('hunt'); setPlayer(x, z, Math.PI, 'up'); yaw = 0.35; pitch = 0.2; dist = 2.0; }
@@ -887,13 +1042,16 @@ async function start() {
   await Promise.all(C.pending);
   await Promise.all(allTextures().map(t => t.image ? null : new Promise(r => { const t1 = performance.now() + 8000; const chk = () => (t.image && (t.image.complete ?? true)) || performance.now() > t1 ? r() : setTimeout(chk, 50); chk(); })));
   setLoading(0.72, 'building the room');
+  scene.updateMatrixWorld(true); C.decals = placeDecals(scene, USE, C.chairs);
   scene.traverse(o => { if (o.isMesh && o.material && (o.material.transparent || o.material.isShaderMaterial)) o.userData.noAO = true; });
   t0 = performance.now() / 1000;
   const s0 = world.getState(); pos.set(s0.x * K, 0, s0.y * K); vis.copy(pos); heading = visH = Math.PI; yaw = 0;
   buildPost(); applyQuality(); setupReflection(C.M.floor);
-  syncStations(true); compactGroups(); collectColliders();
+  syncStations(true); for (const id in C.chairs || {}) { C.chairs[id].g.name = 'chair_' + id; if (C.chairs[id].g.userData.base) C.chairs[id].g.userData.base.name = 'chair_' + id + '_base'; }
+  compactGroups(); collectColliders();
   setSofaSeat(0.455 - 0.04); Office3D_SOFA = 0.455; // the lounge sofa's seat proxy top
   mergeStatic(); prepass.collect();
+  { const tc = performance.now(); camCol = buildCamCol(scene, { x0: X0, x1: X1, z0: Z0, z1: Z1, y1: H + 0.3, skip: o => { for (let p = o; p; p = p.parent) if (p === player || p.userData.city || p.userData.cityDetail || p.userData.proxy) return true; return false; } }); camCol.ms = performance.now() - tc; }
   for (const l of C.lights) if (l.castShadow && l !== C.moon) { l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }
   bakeIrradiance();
   setLoading(0.8, 'compiling shaders');
@@ -932,8 +1090,8 @@ async function start() {
     stations: () => Object.keys(USE), interact, leave: leaveInteraction,
     stats: () => ({ fps: Math.round(fpsNow * 10) / 10, frameMs: Math.round(STATS.frameMs * 10) / 10, calls: STATS.calls, triangles: STATS.tris, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, gpuMB: Math.round(STATS.gpuMB), quality, pixelRatio: renderer.getPixelRatio() }),
     prepass: on => (prepassOn = on), passes: { gtao: () => gtao, bloom: () => bloom, smaa: () => smaa, grade: () => grade, cine: () => cine },
-    blocked: (x, z) => blockedAt(x, z), walkCols: () => C.colliders.length, lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, robot: player, robotRig: robot, colliders: () => COLLIDERS, sofaSeat: () => Office3D_SOFA,
-    dbg: () => ({ pos: pos.toArray(), vis: vis.toArray(), act: act && { id: act.id, phase: act.phase }, keys: { ...keys }, speedNow, yaw, heading, active: world.active(), st: world.getState() }),
+    blocked: (x, z) => blockedAt(x, z), walkCols: () => C.colliders.length, lights: () => C.lights, rebake: bakeEnvironment, irr: IRR, refl: REFL, robot: player, robotRig: robot, colliders: () => COLLIDERS, camCol: () => camCol, sofaSeat: () => Office3D_SOFA,
+    dbg: () => ({ pos: pos.toArray(), vis: vis.toArray(), act: act && { id: act.id, phase: act.phase, t: +act.t.toFixed(2) }, keys: { ...keys }, speedNow, yaw, heading, active: world.active(), st: world.getState() }),
   };
   renderer.setAnimationLoop(loop);
 }
@@ -949,7 +1107,7 @@ function loop() {
   if (rebakeAt && now > rebakeAt) { rebakeAt = 0; for (const l of C.lights) if (l.castShadow) l.shadow.needsUpdate = true; bakeIrradiance(); bakeEnvironment(); }
   const np = G.nib?.pos?.();
   if (np && nib3d) { const tx = np.x * K, tz = np.y * K; nib3d.position.x += (tx - nib3d.position.x) * Math.min(1, dt * 4); nib3d.position.z += (tz - nib3d.position.z) * Math.min(1, dt * 4); { let top = 1.45; for (const c of COLLIDERS) { const b = c.box; if (b.max.y < 2.6 && b.max.y > 1.2 && nib3d.position.x > b.min.x - 0.25 && nib3d.position.x < b.max.x + 0.25 && nib3d.position.z > b.min.z - 0.25 && nib3d.position.z < b.max.z + 0.25) top = Math.max(top, b.max.y + 0.3); } nibY += (top - nibY) * Math.min(1, dt * 3); nib3d.position.y = nibY + Math.sin(t * 2.2) * 0.04; } const look = Math.atan2(pos.x - nib3d.position.x, pos.z - nib3d.position.z); nib3d.rotation.y += (((look - nib3d.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3); }
-  tickRoom(t);
+  tickRoom(t); updateMovingColliders();
   for (const m of hazeMats) m.uniforms.time.value = t;
   const gt = getGoalTex(); if (gt && (Math.floor(t * 60) % 120) === 0) gt.userData.redraw();
   grade.uniforms.time.value = t;

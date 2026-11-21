@@ -196,6 +196,7 @@ export function makeMaterials() {
     screenOff: new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.08, metalness: 0.0, envMapIntensity: 1.2 }),
   };
   const sc = scuffs(); sc.repeat.set(1, 1); M.floor.clearcoatRoughnessMap = sc; M.floor.clearcoatRoughness = 0.45;
+  for (const k in M) if (M[k] && M[k].isMaterial && !M[k].name) M[k].name = k;
   return (C.M = M);
 }
 
@@ -391,6 +392,7 @@ export function place(id, x, y, z, rotY = 0, s = 1, parent, opts = {}) {
     if (opts.contact) o.traverse(m => { if (m.isMesh) m.userData.contact = opts.contact; });
     if (opts.noCollider) o.traverse(m => { if (m.isMesh) m.userData.noCollider = true; });
     if (opts.shadow === false || opts.tint) o.traverse(m => { if (!m.isMesh) return; if (opts.shadow === false) m.castShadow = false; if (opts.tint) { m.material = m.material.clone(); m.material.color.multiply(new THREE.Color(opts.tint)); } });
+    if (!o.name || o.name === 'Scene') o.name = id; o.userData.model = id;
     (parent || C.scene).add(o); return o;
   }).catch(e => console.warn('office3d model', id, e));
   C.pending.push(p); return p;
@@ -540,9 +542,11 @@ export function binders(parent, x, y, z, n, rotY = 0) { // office ring binders w
 export function officeChair(parent, x, z, rotY, o = {}) {
   const M = C.M, g = group(parent, x, 0, z, rotY + (o.exact ? 0 : (rnd() - 0.5) * 0.5));
   if (o.exact) { g.userData.dynamic = true; g.userData.compact = true; } // chairs the robot pulls in and sits on
+  // the star base keeps its heading while the seat swivels (as on a real chair), so its legs never sweep into feet
+  const bg = group(g, 0, 0, 0, 0); g.userData.base = bg; if (o.exact) bg.userData.compact = true;
   for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2, leg = box(0.24, 0.035, 0.05, M.alu, Math.cos(a) * 0.12, 0.075, Math.sin(a) * 0.12, 1, g); leg.rotation.y = -a;
-    const w = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 6), M.plastic); w.position.set(Math.cos(a) * 0.24, 0.03, Math.sin(a) * 0.24); g.add(w);
+    const a = (i / 5) * Math.PI * 2, leg = box(0.24, 0.035, 0.05, o.exact ? M.plastic : M.alu, Math.cos(a) * 0.12, 0.075, Math.sin(a) * 0.12, 1, bg); leg.rotation.y = -a;
+    const w = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 6), M.plastic); w.position.set(Math.cos(a) * 0.24, 0.03, Math.sin(a) * 0.24); bg.add(w);
   }
   cyl(0.025, 0.025, 0.3, M.steelLight, 0, 0.25, 0, g);
   const seat = o.mat || M.leather;
@@ -559,7 +563,6 @@ export function jacket(chair, color = 0x2f3a4a) {
   const g = group(chair, 0, 0, 0.27);
   const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.54, 12, 1, false, 0, Math.PI), m); sh.rotation.z = Math.PI / 2; sh.rotation.y = 0; sh.position.set(0, 1.17, 0.02); sh.castShadow = true; g.add(sh);
   const back = box(0.5, 0.5, 0.02, m, 0, 0.93, 0.08, 1, g); back.rotation.x = -0.18;
-  const front = box(0.44, 0.38, 0.02, m, 0, 0.98, -0.07, 1, g); front.rotation.x = 0.08;
   for (const s of [-1, 1]) { const sl = cyl(0.045, 0.04, 0.5, m, s * 0.24, 0.9, 0.1, g, 10); sl.rotation.x = -0.15; }
 }
 export function desk(parent, cx, cz, w, d, rotY, top, h = 0.74, o = {}) {

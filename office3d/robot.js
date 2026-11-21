@@ -26,7 +26,7 @@ function palette() {
   set(PAL.visor, 0x07090c, 0.06, 0.2);
   set(PAL.chrome, 0xb8bcc2, 0.22, 1.0);
   set(PAL.eye, 0x0a1214, 0.3, 0.0, 0x9ff6ff);
-  set(PAL.seam, 0x15171a, 0.7, 0.3);
+  set(PAL.seam, 0x26292e, 0.6, 0.4);
   set(PAL.led, 0x0a0a0a, 0.4, 0.0, 0xffa040);
   set(PAL.sole, 0x101112, 0.9, 0.0);
   const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.NearestFilter; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
@@ -56,6 +56,7 @@ float rn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7); roughnessFactor = mix(roughnessFactor, 0.45, wear);
     vec3 bump = vec3(rn(vRP * 140.0) - 0.5, rn(vRP * 140.0 + 7.0) - 0.5, 0.0) * 0.06 * painted; normal = normalize(normal + bump); }`);
   };
+  m.defines = { ...(m.defines || {}), NO_WEATHER: '' };
   m.customProgramCacheKey = () => 'fo-robot';
   m.name = 'robot-palette';
   return m;
@@ -99,10 +100,16 @@ export function buildRobot() {
   const sph = (r, ws = 20, hs = 14) => new THREE.SphereGeometry(r, ws, hs);
   const cyl = (rt, rbt, h, seg = 20) => new THREE.CylinderGeometry(rt, rbt, h, seg);
   const tor = (r, t, seg = 24) => new THREE.TorusGeometry(r, t, 8, seg);
+  // shape language helpers: keystone tapers and lathed limbs (bulge then taper), instead of plain capsules
+  const taper = (g, bot, top, zToo = true) => { g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { const t = (p.getY(i) - y0) / (y1 - y0), k = bot + (top - bot) * t; p.setX(i, p.getX(i) * k); if (zToo) p.setZ(i, p.getZ(i) * (1 - (1 - k) * 0.5)); } return g; };
+  const lathe = (pts, seg = 22) => new THREE.LatheGeometry(pts.slice().sort((a, b) => a[1] - b[1]).map(([r, y]) => new THREE.Vector2(r, y)), seg);
+  const hub = (bone, r, w, x, y, z) => { part(bone, cyl(r, r, w, 22), P.graphite, x, y, z, 0, 0, Math.PI / 2); part(bone, cyl(r * 0.55, r * 0.55, w + 0.012, 16), P.chrome, x, y, z, 0, 0, Math.PI / 2); };
   const screw = (bone, x, y, z, rx = 0, ry = 0) => part(bone, cyl(0.006, 0.006, 0.004, 8), P.chrome, x, y, z, rx + Math.PI / 2, ry, 0);
 
   // --- head ---
-  part('head', rb(0.3, 0.26, 0.28, 0.095, 4), P.ivory, 0, 0.12, 0);
+  part('head', taper(rb(0.3, 0.26, 0.28, 0.06, 4), 1.0, 0.88), P.ivory, 0, 0.12, 0);
+  part('head', rb(0.15, 0.01, 0.17, 0.004), P.ivoryDark, 0, 0.2505, -0.01);           // crown hatch (flat top panel)
   part('head', rb(0.312, 0.018, 0.29, 0.009), P.seam, 0, 0.055, 0);           // seam band around the head
   part('head', rb(0.06, 0.03, 0.2, 0.012), P.orange, 0, 0.255, -0.02);         // crest ridge
   part('head', rb(0.258, 0.135, 0.05, 0.035, 4), P.visor, 0, 0.13, 0.125);     // glass visor
@@ -115,7 +122,7 @@ export function buildRobot() {
   part('head', cyl(0.004, 0.004, 0.12, 6), P.graphite, 0.17, 0.22, -0.03, 0, 0, -0.25); // antenna
   part('head', sph(0.012, 10, 8), P.led, 0.185, 0.28, -0.03);
   for (const [x, y] of [[-0.11, 0.21], [0.11, 0.21]]) screw('head', x, y, 0.13);
-  part('head', rb(0.006, 0.2, 0.296, 0.003), P.seam, 0, 0.12, 0.0, 0, 0, 0);        // vertical crown seam
+  for (const s of [-1, 1]) screw('head', s * 0.06, 0.256, 0.06);
   for (const s of [-1, 1]) { part('head', rb(0.012, 0.09, 0.06, 0.005), P.ivoryDark, s * 0.152, 0.2, -0.07); part('head', rb(0.004, 0.06, 0.004, 0.002), P.seam, s * 0.152, 0.07, 0.1); }
   part('head', rb(0.12, 0.03, 0.02, 0.01), P.graphite, 0, 0.03, 0.128);             // chin vent
   for (let i = 0; i < 3; i++) part('head', rb(0.09, 0.004, 0.022, 0.002), P.seam, 0, 0.022 + i * 0.008, 0.13);
@@ -128,8 +135,9 @@ export function buildRobot() {
   part('neck', cyl(0.035, 0.035, 0.08, 14), P.graphite, 0, 0.03, 0);
 
   // --- chest / torso ---
-  part('chest', rb(0.38, 0.3, 0.25, 0.085, 4), P.ivory, 0, 0.15, 0);
-  part('chest', rb(0.26, 0.17, 0.03, 0.03), P.ivoryDark, 0, 0.17, 0.118);           // chest plate
+  part('chest', taper(rb(0.4, 0.3, 0.25, 0.05, 4), 0.78, 1.0), P.ivory, 0, 0.15, 0);
+  part('chest', taper(rb(0.28, 0.18, 0.03, 0.01), 0.7, 1.0, false), P.ivoryDark, 0, 0.17, 0.118); // keystone chest plate
+  for (const s of [-1, 1]) part('chest', rb(0.11, 0.022, 0.03, 0.008), P.orange, s * 0.085, 0.27, 0.108, 0, 0, s * 0.12); // collar plates
   part('chest', rb(0.27, 0.006, 0.032, 0.003), P.seam, 0, 0.262, 0.118);             // plate seams
   part('chest', rb(0.006, 0.16, 0.034, 0.003), P.seam, 0, 0.17, 0.12);
   part('chest', rb(0.08, 0.02, 0.02, 0.008), P.led, 0.07, 0.11, 0.135);              // status light bar
@@ -151,14 +159,14 @@ export function buildRobot() {
   // --- arms ---
   for (const [sd, s] of [['l', 1], ['r', -1]]) {
     const sh = sd + 'Sh', el = sd + 'El', wr = sd + 'Wr', fi = sd + 'Fi';
-    part(sh, sph(0.068), P.graphite, 0, 0, 0);
-    part(sh, new THREE.SphereGeometry(0.088, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), P.ivory, s * 0.01, 0.0, 0, 0, 0, -s * 0.35); // shoulder pad
-    part(sh, tor(0.072, 0.008), P.orange, s * 0.02, -0.02, 0, Math.PI / 2, 0, -s * 0.35);
-    part(sh, cap(0.047, 0.15), P.ivory, 0, -0.145, 0);
+    hub(sh, 0.056, 0.06, 0, 0, 0);                                               // shoulder joint
+    part(sh, taper(rb(0.12, 0.075, 0.16, 0.025), 0.82, 1.0), P.ivory, s * 0.03, 0.04, 0, 0, 0, -s * 0.32);   // pauldron
+    part(sh, rb(0.122, 0.014, 0.162, 0.006), P.orange, s * 0.022, 0.012, 0, 0, 0, -s * 0.32);
+    part(sh, lathe([[0, -0.03], [0.04, -0.036], [0.05, -0.06], [0.053, -0.1], [0.049, -0.16], [0.042, -0.205], [0.03, -0.228], [0, -0.234]]), P.ivory, 0, 0, 0);
     part(sh, tor(0.05, 0.006), P.seam, 0, -0.07, 0, Math.PI / 2, 0, 0);
     part(el, sph(0.047, 16, 12), P.rubber, 0, 0, 0);
     part(el, new THREE.SphereGeometry(0.05, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.45), P.graphite, 0, 0, -0.008, -Math.PI / 2 - 0.3, 0, 0); // elbow cap (back)
-    part(el, cap(0.05, 0.13), P.ivory, 0, -0.125, 0, 0, 0, 0, 1, 1, 0.95);
+    part(el, lathe([[0, -0.028], [0.043, -0.034], [0.054, -0.068], [0.055, -0.098], [0.047, -0.16], [0.04, -0.196], [0, -0.2]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
     part(el, cyl(0.054, 0.05, 0.045, 20), P.orange, 0, -0.2, 0);                 // cuff
     part(el, rb(0.035, 0.07, 0.012, 0.006), P.graphite, s * 0.0, -0.11, 0.05);    // forearm panel
     part(el, cyl(0.007, 0.007, 0.14, 8), P.chrome, s * 0.045, -0.1, -0.03, 0, 0, s * 0.08);  // hydraulic rod
@@ -184,13 +192,14 @@ export function buildRobot() {
   // --- legs ---
   for (const [sd, s] of [['l', 1], ['r', -1]]) {
     const hp = sd + 'Hip', kn = sd + 'Kn', an = sd + 'An';
-    part(hp, sph(0.064), P.graphite, 0, 0, 0);
-    part(hp, cap(0.064, 0.2), P.ivory, 0, -0.19, 0);
+    part(hp, sph(0.06), P.graphite, 0, 0, 0); hub(hp, 0.05, 0.03, s * 0.062, 0, 0);   // hip joint
+    part(hp, tor(0.05, 0.007), P.orange, s * 0.078, 0, 0, 0, Math.PI / 2, 0);
+    part(hp, lathe([[0, -0.035], [0.056, -0.045], [0.066, -0.09], [0.065, -0.16], [0.058, -0.25], [0.05, -0.305], [0.035, -0.326], [0, -0.332]]), P.ivory, 0, 0, 0);
     part(hp, tor(0.066, 0.006), P.seam, 0, -0.11, 0, Math.PI / 2, 0, 0);
     part(hp, rb(0.05, 0.12, 0.02, 0.008), P.orange, s * 0.06, -0.19, 0.0, 0, Math.PI / 2, 0);
     part(kn, sph(0.056, 16, 12), P.rubber, 0, 0, 0);
     part(kn, rb(0.08, 0.075, 0.04, 0.018), P.orange, 0, 0.0, 0.05);             // kneecap
-    part(kn, cap(0.058, 0.22), P.ivory, 0, -0.19, 0, 0, 0, 0, 1, 1, 0.95);
+    part(kn, lathe([[0, -0.035], [0.048, -0.045], [0.06, -0.1], [0.059, -0.16], [0.05, -0.25], [0.042, -0.305], [0.03, -0.33], [0, -0.336]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
     part(kn, rb(0.07, 0.2, 0.035, 0.015), P.graphite, 0, -0.18, 0.052);         // shin guard
     part(kn, tor(0.06, 0.006), P.seam, 0, -0.3, 0, Math.PI / 2, 0, 0);
     part(kn, cyl(0.008, 0.008, 0.2, 8), P.chrome, s * 0.05, -0.2, -0.04);           // calf piston
@@ -221,11 +230,19 @@ export function buildRobot() {
   })());
   decal.colorSpace = THREE.SRGBColorSpace; decal.anisotropy = 4;
   const dm = new THREE.MeshStandardMaterial({ map: decal, transparent: true, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
-  const dec = (bone, w, h, u0, v0, u1, v1, x, y, z, ry = 0) => { const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * (u1 - u0), v0 + uv.getY(i) * (v1 - v0)); const m = new THREE.Mesh(geo, dm); m.position.set(x, y, z); m.rotation.y = ry; m.userData.noAO = true; m.renderOrder = 1; bones[bone].add(m); };
+  // all printed decals ride in one skinned mesh on the same skeleton (one draw call instead of one per decal)
+  const decGeos = [];
+  const dec = (bone, w, h, u0, v0, u1, v1, x, y, z, ry = 0) => { const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * (u1 - u0), v0 + uv.getY(i) * (v1 - v0));
+    const lm = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(1, 1, 1));
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(bones[bone].matrixWorld, lm));
+    const n = geo.attributes.position.count, bi = list.indexOf(bones[bone]), si = new Uint16Array(n * 4), sw = new Float32Array(n * 4); for (let i = 0; i < n; i++) { si[i * 4] = bi; sw[i * 4] = 1; }
+    geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4)); geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4)); decGeos.push(geo); };
   dec('chest', 0.11, 0.05, 0.0, 0.4, 0.55, 1.0, -0.035, 0.205, 0.1345);       // FO-1 text on the chest plate
   dec('chest', 0.06, 0.03, 0.53, 0.0, 0.98, 0.3, 0.075, 0.07, 0.126);           // chevrons
   dec('chest', 0.07, 0.07, 0.72, 0.5, 1.0, 1.0, 0, 0.17, -0.2055, Math.PI);    // emblem on the back pack
   for (const [sd, s] of [['lSh', 1], ['rSh', -1]]) dec(sd, 0.045, 0.04, 0.0, 0.0, 0.18, 0.3, s * 0.05, -0.12, 0.045);  // unit number on the upper arms
+  { const dg = mergeGeometries(decGeos, false); const dmesh = new THREE.SkinnedMesh(dg, dm); dmesh.name = 'robot-decals'; dmesh.frustumCulled = false; dmesh.renderOrder = 1; dmesh.userData.noAO = true;
+    mesh.add(dmesh); dmesh.bind(mesh.skeleton, mesh.bindMatrix); }
   // named collision proxies (invisible boxes riding on the bones) for the reviewer's interpenetration test
   const proxyMat = new THREE.MeshBasicMaterial({ visible: false });
   const proxy = (name, bone, w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), proxyMat); m.name = name; m.position.set(x, y, z); m.userData.proxy = true; m.castShadow = false; bones[bone].add(m); return m; };
@@ -293,10 +310,13 @@ function locomotion(ph, a, run) {
 }
 // --- station poses ---
 // Seated: pelvis rests on a seat whose top is at `seatTop` (thigh undersides touch it), feet planted on the floor.
-function seated(p, seatTop = 0.42, footZ = 0.45) {
-  p.root[1] -= 0.86 - (seatTop + 0.09);
+function seated(p, seatTop = 0.42, footZ = 0.4) {
+  p.root[1] -= 0.86 - (seatTop + 0.102);
   p.feet = [[0.12, 0.08, footZ], [-0.12, 0.08, footZ]];
 }
+// sitting on / rising from a swivel chair: height leads when rising and lags when sitting (same curve both ways)
+const sm = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+export function chairProg(q) { return { h: sm((q - 0.15) / 0.85), v: sm(q * 1.5) }; }
 export let SOFA_SEAT = 0.44; export function setSofaSeat(v) { SOFA_SEAT = v; }
 function sitIdle(t, seatTop, footZ) { // seated, hands resting on the thighs (used while sitting down / swivelling)
   const p = blank(); seated(p, seatTop, footZ);
@@ -309,12 +329,20 @@ const STATION = {
   // exit helpers: hands drawn back off the work surface; standing up from the sofa with the feet staying planted
   retract(t) { const p = idle(t); p.hands = { l: [0.2, 1.0, 0.12], r: [-0.2, 1.0, 0.12] }; return p; },
   rise(k) { // k: 0 seated on the sofa -> 1 standing (root moves forward by `side - spot`, feet stay put)
-    const p = blank(), seatTop = SOFA_SEAT + 0.05, drop = 0.86 - (seatTop + 0.09), e = k * k * (3 - 2 * k);
+    const p = blank(), seatTop = SOFA_SEAT + 0.05, drop = 0.86 - (seatTop + 0.102), e = k * k * (3 - 2 * k);
     p.root[1] -= drop * (1 - e); const fz = Math.max(0, 0.45 - 0.55 * k); p.feet = [[0.12, 0.08, fz], [-0.12, 0.08, fz]];
     addTo(p, 'chest', 0.25 * Math.sin(Math.PI * k)); addTo(p, 'lSh', -0.5 * (1 - e), 0, 0.1); addTo(p, 'rSh', -0.5 * (1 - e), 0, -0.1); addTo(p, 'lEl', -0.7 * (1 - e)); addTo(p, 'rEl', -0.7 * (1 - e));
     return p;
   },
-  sit(t) { return sitIdle(t, 0.42, 0.3); },
+  chairMove(q) { // q: 0 seated on a swivel chair .. 1 standing 0.4 m in front of it; feet stay planted throughout
+    const p = blank(), { h, v } = chairProg(q), drop = 0.86 - (0.42 + 0.102);
+    p.root[1] -= drop * (1 - v); const fz = 0.4 * (1 - h); p.feet = [[0.12, 0.08, fz], [-0.12, 0.08, fz]];
+    const lean = Math.sin(Math.PI * Math.min(1, q * 1.3)) * 0.32; addTo(p, 'chest', lean); addTo(p, 'spine', lean * 0.4);
+    addTo(p, 'lSh', -0.5 * (1 - v), 0, 0.1); addTo(p, 'rSh', -0.5 * (1 - v), 0, -0.1); addTo(p, 'lEl', -0.7 * (1 - v)); addTo(p, 'rEl', -0.7 * (1 - v));
+    if (v < 0.9) p.hands = { l: [0.17, 0.6 + 0.2 * v, 0.02 + 0.08 * v], r: [-0.17, 0.6 + 0.2 * v, 0.02 + 0.08 * v] };
+    return p;
+  },
+  sit(t) { return sitIdle(t, 0.42, 0.4); },
   sitSofa(t) { return sitIdle(t, SOFA_SEAT + 0.05, 0.45); },
   hunt(t) { // sit, type, glance between the three monitors
     const p = blank(); seated(p);
@@ -333,7 +361,7 @@ const STATION = {
     addTo(p, 'rSh', -0.55, 0, -1.15); addTo(p, 'rEl', -2.25, 0.4); addTo(p, 'rWr', 0.2, 0, 0.3); addTo(p, 'rFi', -0.9);
     addTo(p, 'lSh', -0.95 - gest * 0.45, 0, 0.22 + gest * 0.25); addTo(p, 'lEl', -0.62 - gest * 0.7 + Math.sin(t * 6) * 0.15 * gest, -0.3); addTo(p, 'lWr', 0.2 + Math.sin(t * 5) * 0.35, Math.sin(t * 3) * 0.4 * gest); addTo(p, 'lFi', -0.4 + Math.sin(t * 5) * 0.4);
     addTo(p, 'head', 0.06 + Math.sin(t * 3.1) * 0.14 * talk, 0.25 + Math.sin(t * 0.6) * 0.45, -0.14 + Math.sin(t * 1.3) * 0.08);
-    p.hands = { l: [0.1 + Math.sin(t * 0.9) * 0.05 * gest, 0.85 + gest * 0.15 + Math.max(0, Math.sin(t * 5)) * 0.02, 0.5 - gest * 0.1], r: [-0.17, 1.3, 0.04] }; p.handDir = { r: 'up' };
+    p.hands = { l: [0.1 + Math.sin(t * 0.9) * 0.05 * gest, 0.82 + gest * 0.06 + Math.max(0, Math.sin(t * 5)) * 0.02, 0.5 - gest * 0.08], r: [-0.17, 1.3, 0.04] }; p.handDir = { r: 'up' };
     return p;
   },
   stats(t) { // crouch at the safe, turn the dial, flip the ledger
@@ -354,7 +382,7 @@ const STATION = {
     addTo(p, 'hips', 0, -0.1, 0); addTo(p, 'chest', 0.06 + Math.sin(t * 0.9) * 0.04, -0.15 + sweep * 0.4);
     addTo(p, 'rSh', -1.6 + wy * 1.6 * (1 - pointing), 0, -0.25 + sweep + wx * 1.6 * (1 - pointing)); addTo(p, 'rEl', -1.25 + pointing * 0.85); addTo(p, 'rWr', 0.3, 0, 0); addTo(p, 'rFi', -1.0);
     addTo(p, 'lSh', 0.05 - pointing * 0.5, 0, 0.12); addTo(p, 'lEl', -0.35 - pointing * 0.9, -0.3 * pointing); addTo(p, 'lFi', -0.3 - pointing * 0.6);
-    p.hands = { r: [-0.06 + sweep * 0.6 + wx, 1.22 + wy * 1.2, 0.375] }; p.handDir = { r: 'up' };
+    p.hands = { r: [-0.06 + sweep * 0.6 + wx, 1.22 + wy * 1.2, 0.36] }; p.handDir = { r: 'up' };
     addTo(p, 'head', -0.1, -0.15 + sweep * 0.6 + pointing * 0.5, 0);
     addTo(p, 'lKn', 0.05); addTo(p, 'rKn', 0.12);
     return p;
@@ -446,12 +474,13 @@ function makeAnimator(bones, rest) {
     el.rotation.set(mix(el.rotation.x, -beta), mix(el.rotation.y, 0), mix(el.rotation.z, 0));
     // hand orientation: 'fwd' = level, pointing forward (keys, bench); 'up' = flat against a vertical surface
     const torso = bones.hips.rotation.x + bones.spine.rotation.x + bones.chest.rotation.x;
-    const want = (dir === 'up' ? -Math.PI : -Math.PI / 2) - (alpha - beta) - torso;
+    const want = (-Math.PI / 2 - dir * Math.PI / 2) - (alpha - beta) - torso; // dir: 0 = 'fwd' .. 1 = 'up' (blended)
     bones[side + 'Wr'].rotation.set(mix(bones[side + 'Wr'].rotation.x, want), mix(bones[side + 'Wr'].rotation.y, 0), mix(bones[side + 'Wr'].rotation.z, -gam));
   }
-  function apply(target, dt, rate) {
+  function apply(target, dt, rate, calm = false) {
     const k = 1 - Math.exp(-dt * rate);
-    for (const j of J) for (let i = 0; i < 3; i++) cur[j][i] += (target[j][i] - cur[j][i]) * k;
+    // eased approach with a joint speed limit: a new pose never snaps in, however far away it is
+    for (const j of J) { const wm = (/Fi$/.test(j) ? 9 : /Wr$/.test(j) ? 6 : calm && /Sh$|El$/.test(j) ? 2.8 : 4.5) * dt; for (let i = 0; i < 3; i++) { const d = (target[j][i] - cur[j][i]) * k; cur[j][i] += d > wm ? wm : d < -wm ? -wm : d; } }
     for (let i = 0; i < 3; i++) cur.root[i] += (target.root[i] - cur.root[i]) * k;
     cur.ikW += ((target.feet ? 1 : 0) - cur.ikW) * Math.min(1, dt * 10);
     if (target.feet) for (let f = 0; f < 2; f++) for (let i = 0; i < 3; i++) cur.feet[f][i] += (target.feet[f][i] - cur.feet[f][i]) * k;
@@ -462,15 +491,17 @@ function makeAnimator(bones, rest) {
     if (cur.ikW > 0.001) { const fl = [cur.feet[0][0], cur.feet[0][1] + gY + 0.004, cur.feet[0][2]], fr = [cur.feet[1][0], cur.feet[1][1] + gY + 0.004, cur.feet[1][2]]; solveLeg('l', fl, cur.ikW); solveLeg('r', fr, cur.ikW); }
     for (const sd of ['l', 'r']) {
       const tg = target.hands && target.hands[sd];
-      cur.hw[sd] += ((tg ? 1 : 0) - cur.hw[sd]) * Math.min(1, dt * 5);
+      { const dw = (tg ? 1 : 0) - cur.hw[sd], st = dt * 2.2; cur.hw[sd] += dw > st ? st : dw < -st ? -st : dw; } // linear IK blend: no fast swing when a hand target appears or goes
       if (tg) {
         if (!cur.hand[sd] || cur.hw[sd] < 0.05) { const wp = bones[sd + 'Wr'].getWorldPosition(new THREE.Vector3()).applyMatrix4(new THREE.Matrix4().copy(bones.root.parent.matrixWorld).invert()); cur.hand[sd] = wp.toArray(); }
         // retracting: pull back before lowering; reaching: rise before going forward (clears desk edges)
         const h = cur.hand[sd], back = tg[2] < h[2], dy = Math.abs(tg[1] - h[1]), dz = Math.abs(tg[2] - h[2]);
         const ky = back ? (dz > 0.06 ? 1.2 : 9) : 14, kz = back ? 14 : (dy > 0.06 ? 1.2 : 9);
-        h[0] += (tg[0] - h[0]) * Math.min(1, dt * 10); h[1] += (tg[1] - h[1]) * Math.min(1, dt * ky); h[2] += (tg[2] - h[2]) * Math.min(1, dt * kz);
+        const sx = (tg[0] - h[0]) * Math.min(1, dt * 10), sy = (tg[1] - h[1]) * Math.min(1, dt * ky), sz = (tg[2] - h[2]) * Math.min(1, dt * kz), sl = Math.hypot(sx, sy, sz), vm = 1.3 * dt, sc = sl > vm ? vm / sl : 1;
+        h[0] += sx * sc; h[1] += sy * sc; h[2] += sz * sc;
       }
-      if (cur.hw[sd] > 0.001 && cur.hand[sd]) { bones.root.parent.updateMatrixWorld(true); solveArm(sd, cur.hand[sd], cur.hw[sd], (target.handDir && target.handDir[sd]) || 'fwd'); }
+      const hdT = target.handDir && target.handDir[sd] === 'up' ? 1 : 0; cur.hd = cur.hd || { l: 0, r: 0 }; cur.hd[sd] += Math.max(-dt * 3, Math.min(dt * 3, hdT - cur.hd[sd]));
+      if (cur.hw[sd] > 0.001 && cur.hand[sd]) { bones.root.parent.updateMatrixWorld(true); solveArm(sd, cur.hand[sd], cur.hw[sd], cur.hd[sd]); }
     }
     // free legs (walking): keep the lower foot on the floor by adjusting the pelvis height
     if (cur.ikW < 0.999 || true) {
@@ -481,19 +512,19 @@ function makeAnimator(bones, rest) {
   }
   return {
     cur,
-    update(dt, t, { speed = 0, station = null, stationT = 0, rate = 9, groundY = 0 } = {}) {
+    update(dt, t, { speed = 0, station = null, stationT = 0, rate = 9, groundY = 0, back = false } = {}) {
       gY += (groundY - gY) * Math.min(1, dt * 8);
       let target;
       if (station && STATION[station]) target = STATION[station](stationT);
       else {
         const run = speed > 2.4, a = Math.min(1, speed / (run ? 4.2 : 1.55));
-        state.ph += dt * speed * Math.PI / (run ? 1.15 : 0.66);
+        state.ph += (back ? -1 : 1) * dt * speed * Math.PI / (run ? 1.15 : 0.66);
         const idl = idle(t), loc = locomotion(state.ph, a, run), w = Math.min(1, speed / 0.5);
         target = blank();
         for (const j of [...J, 'root']) for (let i = 0; i < 3; i++) target[j][i] = idl[j][i] * (1 - w) + loc[j][i] * w;
         target.feet = w > 0.5 ? null : idl.feet;
       }
-      apply(target, dt, station ? Math.min(rate, 6) : rate);
+      apply(target, dt, station ? Math.min(rate, 6) : rate, !!station || speed < 0.3);
       // blink
       state.nextBlink -= dt; if (state.nextBlink < 0) { state.blink = 0.14; state.nextBlink = 2 + Math.random() * 3.5; }
       state.blink = Math.max(0, state.blink - dt); const b = state.blink > 0 ? 0.12 : 1;
