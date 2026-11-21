@@ -163,6 +163,25 @@ export function buildRobot() {
   const mesh = new THREE.SkinnedMesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.name = 'founder-robot';
   mesh.add(bones.root); mesh.updateMatrixWorld(true);
   mesh.bind(new THREE.Skeleton(list));
+  // glass visor shell over the eyes (reflects the room), and printed decals (emblem, unit number, warning chevrons)
+  const visor = new THREE.Mesh(new RoundedBoxGeometry(0.262, 0.139, 0.012, 3, 0.006), new THREE.MeshPhysicalMaterial({ color: 0x0b1014, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.02, transparent: true, opacity: 0.38, envMapIntensity: 2.2, depthWrite: false }));
+  visor.position.set(0, 0.13, 0.166); visor.renderOrder = 2; visor.userData.noAO = true; bones.head.add(visor);
+  const decal = new THREE.CanvasTexture((() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+    g.clearRect(0, 0, 256, 128);
+    g.fillStyle = '#1b1d21'; g.font = 'bold 44px Arial, sans-serif'; g.fillText('FO-1', 10, 52); g.font = 'bold 13px Arial'; g.fillText('FIRST OFFICE · UNIT 01', 12, 74);
+    g.fillStyle = '#d4561f'; for (let i = 0; i < 5; i++) { g.beginPath(); g.moveTo(150 + i * 18, 92); g.lineTo(160 + i * 18, 92); g.lineTo(150 + i * 18, 118); g.lineTo(140 + i * 18, 118); g.fill(); }
+    g.strokeStyle = '#1b1d21'; g.lineWidth = 3; g.beginPath(); g.arc(214, 40, 26, 0, 7); g.stroke(); g.beginPath(); g.arc(214, 40, 10, 0, 7); g.fill();
+    g.fillStyle = '#1b1d21'; g.font = 'bold 22px Arial'; g.fillText('01', 18, 112);
+    return c;
+  })());
+  decal.colorSpace = THREE.SRGBColorSpace; decal.anisotropy = 4;
+  const dm = new THREE.MeshStandardMaterial({ map: decal, transparent: true, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+  const dec = (bone, w, h, u0, v0, u1, v1, x, y, z, ry = 0) => { const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * (u1 - u0), v0 + uv.getY(i) * (v1 - v0)); const m = new THREE.Mesh(geo, dm); m.position.set(x, y, z); m.rotation.y = ry; m.userData.noAO = true; m.renderOrder = 1; bones[bone].add(m); };
+  dec('chest', 0.11, 0.05, 0.0, 0.4, 0.55, 1.0, -0.035, 0.205, 0.1345);       // FO-1 text on the chest plate
+  dec('chest', 0.06, 0.03, 0.53, 0.0, 0.98, 0.3, 0.075, 0.07, 0.126);           // chevrons
+  dec('chest', 0.07, 0.07, 0.72, 0.5, 1.0, 1.0, 0, 0.17, -0.2055, Math.PI);    // emblem on the back pack
+  for (const [sd, s] of [['lSh', 1], ['rSh', -1]]) dec(sd, 0.045, 0.04, 0.0, 0.0, 0.18, 0.3, s * 0.05, -0.12, 0.045);  // unit number on the upper arms
   const rest = {}; for (const n in bones) rest[n] = bones[n].position.clone();
   return { mesh, bones, rest, material: mat, anim: makeAnimator(bones, rest) };
 }

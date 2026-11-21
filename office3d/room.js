@@ -375,7 +375,7 @@ function buildStats() { // Ledger Vault: a floor safe, ledgers, a banker's lamp,
   shade.rotation.z = Math.PI / 2; shade.position.set(0.18, 1.36, 0.14); safe.add(shade);
   const lb = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.02), emissive(0xffd29a, 3)); lb.position.set(0.18, 1.33, 0.14); safe.add(lb);
   onPower(id, on => { shade.material.emissiveIntensity = on ? 0.9 : 0; lb.material.emissiveIntensity = on ? 3 : 0; });
-  lampPoint(r.cx - 0.25, 1.28, r.z0 + 0.3, 0xffc27a, 1.8, 2.6, id);
+  lampPoint(r.cx - 0.05, 1.3, r.z0 + 0.36, 0xffc27a, 1.0, 2.2, id);
   // filing cabinet
   const fc = group(g, r.cx + 0.05, 0, r.z1 - 0.32, -Math.PI / 2);
   rbox(0.46, 1.32, 0.6, 0.012, worn(0x5d6466, { ns: 0.12 }), 0, 0.66, 0, fc);

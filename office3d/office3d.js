@@ -124,7 +124,7 @@ function setupReflection(floorMat) {
     if (!o.isMesh || !o.material || Array.isArray(o.material)) return; const m = o.material;
     const glow = (m.emissive && (m.emissiveIntensity > 0.3) && (m.emissiveMap || m.emissive.getHex() !== 0)) || (m.isMeshBasicMaterial && Math.max(m.color.r, m.color.g, m.color.b) > 1.0);
     if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
-    if (glow && o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 0.12 && o.getWorldPosition(new THREE.Vector3()).y > 0.05) o.layers.enable(1);
+    if (glow && o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis() > 0.3 && o.getWorldPosition(new THREE.Vector3()).y > 0.05) o.layers.enable(1);
     if (o.userData.city) o.layers.enable(1); // the night city shows through the reflected windows
   });
   // walls and ceiling block the mirror view as black silhouettes, so the city only shows through the window openings
@@ -209,7 +209,7 @@ function bindInput(canvas) {
   addEventListener('keyup', e => { if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.run = false; const m = MOVE[e.code]; if (m) keys[m] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
   let drag = null;
-  canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.focus({ preventScroll: true }); freeCam = null; });
+  canvas.addEventListener('pointerdown', e => { if (act) { userOrbit = true; camInit = false; } drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.focus({ preventScroll: true }); freeCam = null; });
   canvas.addEventListener('pointermove', e => {
     if (document.pointerLockElement === canvas) { yaw -= e.movementX * 0.0035; pitch = THREE.MathUtils.clamp(pitch + e.movementY * 0.003, -0.5, 1.1); return; }
     if (!drag) return; yaw -= (e.clientX - drag.x) * 0.006; pitch = THREE.MathUtils.clamp(pitch + (e.clientY - drag.y) * 0.004, -0.5, 1.1); drag = { x: e.clientX, y: e.clientY };
@@ -255,6 +255,25 @@ function updatePlayer(dt) {
   else { vis.copy(pos); visH = heading; }
   player.position.copy(vis); player.rotation.y = visH;
   robot.anim.update(dt, performance.now() / 1000, anim);
+  sparks(dt, !!(act && act.id === 'forge' && act.phase === 'loop'));
+}
+
+// small solder sparks from the robot's tool hand while it tinkers at the forge
+const SPK = { n: 40, pts: null, life: new Float32Array(40), vel: new Float32Array(120), t: 0 };
+function sparks(dt, on) {
+  if (!SPK.pts) {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SPK.n * 3), 3));
+    SPK.pts = new THREE.Points(g, new THREE.PointsMaterial({ color: new THREE.Color(2.2, 1.1, 0.35), size: 0.012, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    SPK.pts.frustumCulled = false; SPK.pts.userData.dynamic = true; scene.add(SPK.pts);
+  }
+  const P = SPK.pts.geometry.attributes.position, hand = robot.bones.rFi.getWorldPosition(new THREE.Vector3());
+  SPK.t += dt;
+  for (let i = 0; i < SPK.n; i++) {
+    if (SPK.life[i] <= 0) { if (on && Math.random() < dt * 30 && Math.sin(SPK.t * 3) > 0.2) { SPK.life[i] = 0.25 + Math.random() * 0.35; P.setXYZ(i, hand.x, hand.y - 0.03, hand.z); SPK.vel.set([(Math.random() - 0.5) * 1.4, Math.random() * 1.2, (Math.random() - 0.5) * 1.4], i * 3); } else { P.setXYZ(i, 0, -50, 0); continue; } }
+    SPK.life[i] -= dt; SPK.vel[i * 3 + 1] -= 6 * dt;
+    P.setXYZ(i, P.getX(i) + SPK.vel[i * 3] * dt, Math.max(0.92, P.getY(i) + SPK.vel[i * 3 + 1] * dt), P.getZ(i) + SPK.vel[i * 3 + 2] * dt);
+  }
+  P.needsUpdate = true;
 }
 
 // ---------- station interactions ----------
@@ -326,6 +345,11 @@ function interact(id) {
 }
 
 const DOF = { focus: 2.6, ap: 0.12 };
+let userOrbit = false; const camTgt = new THREE.Vector3();
+function stationCam(id) {
+  const sp = USE[id], c = USE_CAM[id] || [-1.55, 1.25, 1.55, 0.45, 0.95], f = new THREE.Vector3(Math.sin(sp[2]), 0, Math.cos(sp[2])), side = new THREE.Vector3(f.z, 0, -f.x);
+  return { p: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[0]).addScaledVector(side, c[2]).setY(c[1]), t: new THREE.Vector3(sp[0], 0, sp[1]).addScaledVector(f, c[3]).setY(c[4]) };
+}
 function updateCamera(dt) {
   const head = new THREE.Vector3(vis.x, act && /hunt|contract|lounge|stats/.test(act.id) && act.phase !== 'walk' ? 1.15 : 1.5, vis.z);
   if (freeCam) {
@@ -340,6 +364,18 @@ function updateCamera(dt) {
     return;
   }
   if (nib3d) nib3d.visible = true;
+  // station interactions get a framed shot of the robot at work (until the player drags the camera)
+  if (act && !userOrbit && act.phase !== 'walk' && act.phase !== 'return') {
+    const { p, t } = stationCam(act.id), k = Math.min(1, dt * 3);
+    camPos.lerp(p, k); camTgt.lerp(t, k); camera.position.copy(camPos); camera.lookAt(camTgt);
+    if (camera.fov !== 50) { camera.fov = 50; camera.updateProjectionMatrix(); }
+    DOF.focus = camPos.distanceTo(vis) + 0.2; DOF.ap = 0.1; player.visible = true;
+    if (charLight) { const hd = new THREE.Vector3(vis.x, 1.3, vis.z), toCam = camPos.clone().sub(hd).setY(0).normalize(), side = new THREE.Vector3(-toCam.z, 0, toCam.x);
+      charLight.position.copy(hd).addScaledVector(toCam, 0.9).addScaledVector(side, 0.6).add(new THREE.Vector3(0, 0.3, 0)); rimLight.position.copy(hd).addScaledVector(toCam, -0.8).addScaledVector(side, -0.4).add(new THREE.Vector3(0, 0.3, 0)); }
+    return;
+  }
+  if (!act) userOrbit = false;
+  camTgt.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()));
   if (camera.fov !== 52) { camera.fov = 52; camera.updateProjectionMatrix(); }
   const shoulder = 0.38;
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -619,8 +655,8 @@ function syncStations(force) {
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 // camera for station shots, in the robot's frame: [forward, height, side, target forward, target height]
 const USE_CAM = {
-  hunt: [-1.3, 1.55, 1.25, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.5, 1.6, -1.2, 0.6, 1.3],
-  forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.6, 1.6, 1.4, 0.8, 1.35], rig: [-1.4, 1.5, -0.25, 0.6, 1.1], terminals: [-1.5, 1.7, 1.0, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
+  hunt: [-1.0, 1.45, 1.1, 0.5, 0.95], contract: [-1.2, 1.5, -1.3, 0.45, 0.95], stats: [0.2, 1.35, 1.7, 0.45, 0.75], training: [-1.5, 1.6, -1.2, 0.6, 1.3],
+  forge: [-1.4, 1.65, 1.2, 0.45, 1.0], hq: [-1.6, 1.6, 1.4, 0.8, 1.35], rig: [-0.95, 1.55, -1.2, 0.5, 1.05], terminals: [-1.3, 1.65, -1.1, 0.5, 1.0], lounge: [2.3, 1.5, 0.9, 0.0, 0.8],
 };
 const DESK_VIEWS = {
   'desk-hunt': { p: V3(8.15, 1.18, 5.05), t: V3(7.0, 0.92, 3.95), fov: 48, ap: 0.16 },
@@ -704,7 +740,6 @@ async function start() {
   renderer.toneMapping = Q.get('tm') === 'aces' ? THREE.ACESFilmicToneMapping : THREE.AgXToneMapping; renderer.toneMappingExposure = +(Q.get('exp') || 0.82);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.info.autoReset = false;
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x05070b); C.scene = scene;
   camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.05, 400);
   makeMaterials();
@@ -763,7 +798,9 @@ async function start() {
 let ctxLost = false, firstFrame = true;
 let rebakeAt = 0;
 function loop() {
-  renderer.info.reset();
+  // per-frame draw stats; if an external tool is accumulating renderer.info (autoReset off), measure by difference
+  const I = renderer.info, ext = I.autoReset === false; let c0 = 0, t0r = 0;
+  if (ext) { c0 = I.render.calls; t0r = I.render.triangles; } else { I.autoReset = false; I.reset(); }
   const now = performance.now() / 1000, dt = tPrev ? Math.min(0.05, now - tPrev) : 0.016; tPrev = now; const t = now - t0;
   const _p0 = performance.now(); updatePlayer(dt); const _p1 = performance.now(); updateCamera(dt); updatePrompt(); const _p2 = performance.now();
   if ((frames & 15) === 0 && syncStations()) rebakeAt = now + 0.5;
@@ -778,7 +815,7 @@ function loop() {
   const _p3 = performance.now(); renderReflection(); const _p4 = performance.now();
   composer.render(dt); const _p5 = performance.now();
   if (_p5 - _p0 > 45 && (window.__slow || []).length < 50) (window.__slow || (window.__slow = [])).push({ player: _p1 - _p0, cam: _p2 - _p1, mid: _p3 - _p2, refl: _p4 - _p3, comp: _p5 - _p4, act: act && act.id + ':' + act.phase });
-  STATS.calls = renderer.info.render.calls; STATS.tris = renderer.info.render.triangles; STATS.frameMs += (dt * 1000 - STATS.frameMs) * 0.1;
+  STATS.calls = I.render.calls - c0; STATS.tris = I.render.triangles - t0r; if (!ext) I.autoReset = true; STATS.frameMs += (dt * 1000 - STATS.frameMs) * 0.1;
   if (firstFrame) { firstFrame = false; hideLoading(); window.Office3D.ready = true; window.Office3D.firstFrameAt = performance.now(); }
   frames++; fpsT += dt;
   if (fpsT >= 1) {
