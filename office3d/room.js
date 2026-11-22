@@ -691,22 +691,62 @@ function sconce(x, y, z, ry, color = 0xffb878) {
   const l = new THREE.SpotLight(color, 7, 4, 0.75, 0.85, 2); l.position.set(x + dx, y - 0.08, z + dz); l.target.position.set(x + dx * 2.2, 0, z + dz * 2.2); addLight(l);
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), emissive(color, 4)); b.position.set(x + dx, y - 0.1, z + dz); C.scene.add(b);
 }
+// Filling the empty wall runs the wide views see: a printer station and floating shelves on the north wall, a low
+// storage credenza with framed prints on the south wall, crates between the west windows, plants, cable runs along
+// the skirting. Reuses already-loaded models and shared plain materials, so it all folds into existing draw batches.
+function dressWalls() {
+  const M = C.M, W = M.walnut, dark = std(0x26282b, 0.5, 0.3), white = std(0xe8e6df, 0.5), kraft = std(0xb08a5c, 0.5);
+  const frameArt = (x, y, z, ry, w, h, c1, c2) => { const g = group(null, x, y, z, ry); box(w, h, 0.025, dark, 0, 0, 0, 1, g, false); box(w - 0.06, h - 0.06, 0.004, white, 0, 0, 0.014, 1, g, false); box(w - 0.14, (h - 0.14) * 0.55, 0.004, std(c1, 0.5), 0, (h - 0.14) * 0.2, 0.017, 1, g, false); box(w - 0.14, (h - 0.14) * 0.3, 0.004, std(c2, 0.5), 0, -(h - 0.14) * 0.3, 0.017, 1, g, false); };
+  // north wall, east of the HQ credenza: printer station + floating shelves above
+  { const x = 9.75, z = Z0 + 0.28; rbox(0.9, 0.74, 0.5, 0.01, dark, x, 0.37, z, null); for (let i = 0; i < 2; i++) box(0.84, 0.005, 0.005, std(0x111111, 0.6), x, 0.25 + i * 0.25, z + 0.252, 1, null, false);
+    rbox(0.56, 0.26, 0.44, 0.02, white, x - 0.1, 0.87, z, null); box(0.4, 0.02, 0.2, dark, x - 0.1, 1.0, z + 0.05, 1, null, false); box(0.3, 0.012, 0.24, std(0xf1eee6, 0.6), x - 0.1, 0.92, z + 0.25, 1, null, false);
+    box(0.22, 0.12, 0.3, white, x + 0.3, 0.8, z - 0.02, 1, null, false); box(0.21, 0.004, 0.29, std(0x7aa0c8, 0.5), x + 0.3, 0.862, z - 0.02, 1, null, false);
+    for (const y of [1.45, 1.85]) { box(1.1, 0.03, 0.24, W, x, y, Z0 + 0.13, 1, null, false); }
+    binders(C.scene, x - 0.35, 1.465, Z0 + 0.13, 5, 0); place('potted_plant_04', x + 0.32, 1.465, Z0 + 0.13, 0.2, 0.9);
+    books(C.scene, x - 0.3, 1.865, Z0 + 0.13, 6, 0, true); box(0.2, 0.14, 0.18, kraft, x + 0.3, 1.935, Z0 + 0.13, 1, null, false); }
+  place('pachira_aquatica_01', 5.1, 0, 1.15, 2.1, 0.75, null, { pick: /_c$/ });
+  // south wall, west of the coffee cart: low storage credenza, plant, boxes, framed prints
+  { const x = 6.7, z = Z1 - 0.24; rbox(2.2, 0.6, 0.42, 0.01, W, x, 0.3, z, null); for (let i = 0; i < 3; i++) { box(0.7, 0.5, 0.01, W, x - 0.73 + i * 0.73, 0.3, z - 0.215, 0.6, null); box(0.16, 0.012, 0.02, M.brass, x - 0.73 + i * 0.73, 0.44, z - 0.225, 1, null, false); }
+    books(C.scene, x - 0.85, 0.6, z, 7, Math.PI); place('ceramic_vase_01', x - 0.3, 0.6, z, 0, 0.9); box(0.32, 0.2, 0.26, kraft, x + 0.25, 0.7, z, 1, null, false); box(0.26, 0.14, 0.2, kraft, x + 0.27, 0.87, z, 1, null, false).rotation.y = 0.25;
+    place('potted_plant_04', x + 0.8, 0.6, z, 1.0, 1.1);
+    frameArt(x - 0.55, 1.45, Z1 - 0.015, Math.PI, 0.5, 0.65, 0xd4561f, 0x22313f); frameArt(x + 0.1, 1.5, Z1 - 0.015, Math.PI, 0.42, 0.42, 0x2aa198, 0xe8c547); frameArt(x + 0.62, 1.42, Z1 - 0.015, Math.PI, 0.38, 0.5, 0x6b4fa0, 0xe8e6df); }
+  place('calathea_orbifolia_01', 9.25, 0, Z1 - 0.3, 1.4, 1.0, null, { pick: /_b$/ });
+  // west wall, between the windows: a stack of storage crates with a box on top
+  place('plastic_crate_02', X0 + 0.3, 0, 4.95, Math.PI / 2, 0.9); place('plastic_crate_02', X0 + 0.3, 0.3, 4.98, Math.PI / 2 + 0.1, 0.9); place('cardboard_box_01', X0 + 0.3, 0.6, 5.0, 0.3, 0.6);
+  // cable runs along the skirting
+  for (const [x0, x1, z] of [[1.4, 4.4, Z0 + 0.03], [10.6, 13.6, Z0 + 0.03], [5.2, 9.2, Z1 - 0.03]]) { const c = cyl(0.007, 0.007, x1 - x0, dark, (x0 + x1) / 2, 0.012, z, null, 6, false); c.rotation.z = Math.PI / 2; const c2 = cyl(0.005, 0.005, x1 - x0, dark, (x0 + x1) / 2, 0.025, z + 0.004, null, 6, false); c2.rotation.z = Math.PI / 2; }
+  for (const [z0, z1] of [[1.6, 4.4], [5.6, 9.4]]) { const c = cyl(0.007, 0.007, z1 - z0, dark, X1 - 0.03, 0.012, (z0 + z1) / 2, null, 6, false); c.rotation.x = Math.PI / 2; }
+}
 function buildDecor() {
   const M = C.M;
   sconce(X1 - 0.01, 2.15, 4.45, -Math.PI / 2); sconce(X1 - 0.01, 2.15, 6.7, -Math.PI / 2); sconce(X1 - 0.01, 2.15, 8.05, -Math.PI / 2);
   sconce(6.1, 2.1, Z1 - 0.01, Math.PI); sconce(8.3, 2.1, Z1 - 0.01, Math.PI);
+  dressWalls();
   // corner plants (solid tiles in the 2D office)
   place('pachira_aquatica_01', 1.15, 0, 1.15, 0.3, 0.9, null, { pick: /_b$/ });
   place('pachira_aquatica_01', 13.9, 0, 1.15, 1.2, 0.85, null, { pick: /_c$/ });
   place('calathea_orbifolia_01', 1.15, 0, 10.1, 0.2, 1.1, null, { pick: /_b$/ });
   place('calathea_orbifolia_01', 13.85, 0, 10.1, 2.0, 1.1, null, { pick: /_d$/ });
   // ---- lounge on the south wall, west side ----
-  place('sofa_03', 3.4, 0, Z1 - 0.48, Math.PI, 1, null, { contact: 'seat', noCollider: true, sy: 0.6 }); // a low lounge sofa
+  // a low-slung modern leather sofa built to natural proportions (seat 0.33 m, back 0.67 m, arms 0.44 m): plump seat and
+  // back cushions with piping, rolled arm pads, a plinth and dark legs; matches the collision proxies below exactly
+  { const sf = group(null, 0, 0, 0); sf.name = 'sofa'; const L = M.leatherBrown, D = std(0x1d1b19, 0.5, 0.3);
+    sf.userData.noCollider = true;
+    rbox(2.74, 0.16, 0.92, 0.04, L, 3.4, 0.12, 10.03, sf);                                   // plinth / frame
+    for (const x of [2.12, 4.68]) for (const z of [9.62, 10.42]) box(0.05, 0.05, 0.05, D, x, 0.025, z, 1, sf, false); // legs
+    for (let i = 0; i < 3; i++) { const cx = 2.4 + 0.713 * i + 0.356; const c = rbox(0.70, 0.13, 0.5, 0.055, L, cx, 0.268, 9.81, sf); c.userData.contact = 'seat';
+      box(0.66, 0.006, 0.006, D, cx, 0.333, 9.565, 1, sf, false);                               // piping along the front
+      const b = rbox(0.70, 0.34, 0.2, 0.07, L, cx, 0.47, 10.19, sf); b.rotation.x = -0.12; }
+    rbox(2.74, 0.48, 0.2, 0.05, L, 3.4, 0.38, 10.38, sf);                                     // back frame (top 0.62)
+    rbox(2.6, 0.04, 0.24, 0.02, L, 3.4, 0.625, 10.3, sf);                                     // back rail the forearms rest on (top 0.645)
+    for (const x of [2.18, 4.62]) { rbox(0.28, 0.3, 0.92, 0.06, L, x, 0.24, 10.03, sf); const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.9, 20), L); roll.rotation.x = Math.PI / 2; roll.position.set(x, 0.36, 10.03); roll.castShadow = roll.receiveShadow = true; sf.add(roll); }
+    sf.traverse(o => { if (o.isMesh) o.userData.noCollider = true; }); // the sofa_* proxies below describe it exactly
+  }
   (C.proxyBoxes || (C.proxyBoxes = [])).push(
     { name: 'sofa_seat', box: [2.33, 0, 9.58, 4.47, 0.333, 10.04], contact: 'seat' }, { name: 'sofa_back', box: [2.05, 0, 10.04, 4.75, 0.666, 10.48], contact: 'seat' },
     { name: 'sofa_arm_left', box: [2.03, 0, 9.56, 2.33, 0.439, 10.48] }, { name: 'sofa_arm_right', box: [4.47, 0, 9.56, 4.77, 0.439, 10.48] });
   C.colliders.push({ x0: 2.05, x1: 4.75, z0: Z1 - 0.95, z1: Z1 });
-  place('throw_pillows_01', 4.4, 0.271, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
+  place('throw_pillows_01', 4.3, 0.33, Z1 - 0.5, Math.PI, 0.9, null, { contact: 'seat' });
   place('side_table_01', 1.65, 0, Z1 - 0.4, 0, 1); C.colliders.push({ x0: 1.4, x1: 1.9, z0: Z1 - 0.65, z1: Z1 - 0.15 });
   
   rugSlab(C.scene, 3.0, 1.8, pbr('dirty_carpet', { color: 0x6b4e40 }), 3.4, Z1 - 1.1);

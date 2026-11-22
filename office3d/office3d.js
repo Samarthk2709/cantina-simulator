@@ -64,7 +64,7 @@ float wNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
 #endif
 `;
   S.color_fragment += `
-float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5;
+float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5, wLane = 0.0;
 #if defined(STANDARD) && !defined(NO_WEATHER)
 {
   vec3 wp = vBPWorld; float n1 = wNoise(wp * 1.3); wN2 = wNoise(wp * 5.1 + 7.1); wN3 = wNoise(wp * 19.0 + 3.7);
@@ -76,7 +76,18 @@ float wGrime = 0.0, wN2 = 0.5, wN3 = 0.5;
   float drip = step(dw, 0.04) * vert * smoothstep(0.72, 0.95, wNoise(vec3(wp.x * 9.0 + wp.z * 9.0, wp.y * 0.6, 1.0))) * 0.5;
   wGrime = clamp((low * 0.75 + skirt * 0.6 + soot * 0.5 + drip) * (0.55 + 0.6 * wN2), 0.0, 1.0);
   diffuseColor.rgb *= (0.78 + 0.42 * n1) * (0.9 + 0.2 * wN3) * (1.0 - 0.72 * wGrime);
+  if (up > 0.8 && wp.y < 0.03) { // floor: broad wax patches and a duller, lighter worn lane where people walk
+    float lane = smoothstep(0.5, 0.85, wNoise(vec3(wp.x * 0.32, 3.0, wp.z * 0.9))) * smoothstep(3.6, 4.6, wp.z) * (1.0 - smoothstep(7.4, 8.4, wp.z));
+    float wax = smoothstep(0.55, 0.9, wNoise(wp * 0.9 + 11.0));
+    wLane = lane * 0.22 + wax * 0.1 - smoothstep(0.6, 0.95, wNoise(wp * 0.6 + 23.0)) * 0.05;
+    diffuseColor.rgb *= 1.0 + lane * 0.08 - wax * 0.06;
+  }
 }
+#endif
+`;
+  S.lights_physical_fragment += `
+#if defined(USE_CLEARCOAT) && defined(STANDARD) && !defined(NO_WEATHER)
+material.clearcoatRoughness = clamp(material.clearcoatRoughness + wLane, 0.0, 1.0);
 #endif
 `;
   S.roughnessmap_fragment += `
@@ -334,7 +345,7 @@ const USE = {
   contract: { spot: [2.725, 3.28, Math.PI], seat: 'chair', side: [2.12, 3.36], stand: [2.1, 4.05] },
   stats: { spot: [12.165, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
   training: { spot: [11.55, 7.82, Math.PI], stand: [11.58, 8.7] },
-  forge: { spot: [3.75, 8.62, Math.PI], stand: [3.75, 9.25] },
+  forge: { spot: [3.75, 8.71, Math.PI], stand: [3.75, 9.3] },
   hq: { spot: [7.25, 1.53, Math.PI], stand: [7.25, 2.45] },
   rig: { spot: [12.38, 9.4, 0], stand: [11.6, 9.4], step: 0.15 },
   terminals: { spot: [13.125, 7.38, 0], stand: [13.125, 6.75] },

@@ -31,37 +31,69 @@ function palette() {
   set(PAL.sole, 0x101112, 0.9, 0.0);
   const tex = (data, srgb) => { const t = new THREE.DataTexture(data, N, 1, THREE.RGBAFormat); t.magFilter = t.minFilter = THREE.NearestFilter; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t; };
   const cc = new Uint8Array(N * 4); for (let i = 0; i < N; i++) { const painted = i === PAL.ivory || i === PAL.orange || i === PAL.ivoryDark; cc.set([painted ? 255 : 20, 0, 0, 255], i * 4); }
+  const sh = new Uint8Array(N * 4); for (let i = 0; i < N; i++) { const rub = i === PAL.rubber || i === PAL.sole; sh.set(rub ? [120, 124, 130, 255] : [0, 0, 0, 255], i * 4); }
   const m = new THREE.MeshPhysicalMaterial({
     map: tex(col, true), roughnessMap: tex(orm), metalnessMap: tex(orm), emissiveMap: tex(em, true), emissive: 0xffffff, emissiveIntensity: 2.2,
-    roughness: 1, metalness: 1, clearcoat: 0.6, clearcoatMap: tex(cc), clearcoatRoughness: 0.38, envMapIntensity: 1.0, sheen: 0.0,
+    roughness: 1, metalness: 1, clearcoat: 0.6, clearcoatMap: tex(cc), clearcoatRoughness: 0.38, envMapIntensity: 1.0, sheen: 1.0, sheenColor: 0xffffff, sheenColorMap: tex(sh, true), sheenRoughness: 0.45,
   });
   // micro detail: fine noise in roughness, a faint orange-peel bump on the paint, and worn edges (bevels show bare
   // metal where the surface curves hardest), all computed from bind-pose position so it sticks to the parts.
   const base = THREE.MeshStandardMaterial.prototype.onBeforeCompile;
   m.onBeforeCompile = function (sh) {
     base.call(this, sh);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvRP = position;');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRP; attribute float ao; varying float vAO;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvRP = position; vAO = ao;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-varying vec3 vRP;
+varying vec3 vRP; varying float vAO;
 float rh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float rn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(mix(rh(i), rh(i + vec3(1,0,0)), f.x), mix(rh(i + vec3(0,1,0)), rh(i + vec3(1,1,0)), f.x), f.y), mix(mix(rh(i + vec3(0,0,1)), rh(i + vec3(1,0,1)), f.x), mix(rh(i + vec3(0,1,1)), rh(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
   float nA = rn(vRP * 60.0), nB = rn(vRP * 9.0);
-  roughnessFactor = clamp(roughnessFactor * (0.85 + 0.3 * nA) + 0.06 * nB, 0.04, 1.0);`)
+  roughnessFactor = clamp(roughnessFactor * (0.85 + 0.3 * nA) + 0.06 * nB, 0.04, 1.0);
+  // micro-scratches: thin anti-aliased streaks in two directions, only in sparse patches
+  { float sp = smoothstep(0.55, 0.8, rn(vRP * 7.0 + 3.0));
+    float u1 = dot(vRP, vec3(41.0, 13.0, 29.0)) + rn(vRP * 15.0) * 1.5, u2 = dot(vRP, vec3(-17.0, 37.0, 23.0)) + rn(vRP * 13.0 + 5.0) * 1.5;
+    float l1 = 1.0 - smoothstep(0.0, fwidth(u1) * 1.2 + 0.01, abs(fract(u1) - 0.5) - 0.46), l2 = 1.0 - smoothstep(0.0, fwidth(u2) * 1.2 + 0.01, abs(fract(u2) - 0.5) - 0.47);
+    float scr = max(l1, l2) * sp * 0.6; roughnessFactor = clamp(roughnessFactor + scr * 0.25, 0.04, 1.0); diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.12 + 0.02, scr * 0.5); }
+  // cavities (baked per vertex): darker and less shiny where parts tuck into each other
+  diffuseColor.rgb *= mix(0.42, 1.0, vAO); roughnessFactor = mix(min(1.0, roughnessFactor + 0.25), roughnessFactor, vAO);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   { float curv = clamp(length(fwidth(normal)) * 9.0, 0.0, 1.0); float painted = step(0.55, dot(diffuseColor.rgb, vec3(0.33)));
-    float wear = smoothstep(0.55, 0.95, curv * 0.8 + rn(vRP * 38.0) * 0.6) * painted;
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.42, 0.44), wear * 0.55);
+    float wear = smoothstep(0.62, 0.9, curv * 0.85 + rn(vRP * 55.0) * 0.45 + rn(vRP * 9.0) * 0.25) * painted;
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.31, 0.33), wear * 0.75);
     metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7); roughnessFactor = mix(roughnessFactor, 0.45, wear);
     vec3 bump = vec3(rn(vRP * 140.0) - 0.5, rn(vRP * 140.0 + 7.0) - 0.5, 0.0) * 0.06 * painted; normal = normalize(normal + bump); }`);
   };
   { const prev = m.onBeforeCompile; m.onBeforeCompile = function (sh) { prev.call(this, sh);
-      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', '{ vec3 refl = outgoingLight - totalEmissiveRadiance; refl = refl / (1.0 + max(0.0, max(refl.r, max(refl.g, refl.b)) - 0.9) * 1.2); outgoingLight = refl + totalEmissiveRadiance; }\n#include <opaque_fragment>'); }; } // soft-clamp highlights below the bloom threshold
+      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', '{ vec3 refl = (outgoingLight - totalEmissiveRadiance) * mix(0.7, 1.0, vAO); refl = refl / (1.0 + max(0.0, max(refl.r, max(refl.g, refl.b)) - 0.9) * 1.2); outgoingLight = refl + totalEmissiveRadiance; }\n#include <opaque_fragment>'); }; } // soft-clamp highlights below the bloom threshold
   m.defines = { ...(m.defines || {}), NO_WEATHER: '' };
   m.customProgramCacheKey = () => 'fo-robot';
   m.name = 'robot-palette';
   return m;
+}
+
+// Ambient occlusion baked per vertex in the bind pose: short rays over the hemisphere against the robot itself, so
+// seams, joints and tucked-in parts get darker cavities (one attribute, no extra draw).
+function bakeAO(geo) {
+  // voxel version: mark the cells the surface passes through (1.5 cm), then probe a few points off each vertex
+  const t0 = performance.now(); geo.computeBoundingBox(); const b = geo.boundingBox, c = 0.015;
+  const ox = b.min.x - 0.05, oy = b.min.y - 0.05, oz = b.min.z - 0.05, nx = Math.ceil((b.max.x - ox + 0.05) / c), ny = Math.ceil((b.max.y - oy + 0.05) / c), nz = Math.ceil((b.max.z - oz + 0.05) / c);
+  const occ = new Uint8Array(nx * ny * nz), pos = geo.attributes.position, nor = geo.attributes.normal, idx = geo.index, n = pos.count;
+  const mark = (x, y, z) => { const i = Math.floor((x - ox) / c), j = Math.floor((y - oy) / c), k = Math.floor((z - oz) / c); if (i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz) occ[(k * ny + j) * nx + i] = 1; };
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), Cc = new THREE.Vector3();
+  for (let t = 0; t < idx.count; t += 3) { A.fromBufferAttribute(pos, idx.getX(t)); B.fromBufferAttribute(pos, idx.getX(t + 1)); Cc.fromBufferAttribute(pos, idx.getX(t + 2));
+    const e = Math.max(A.distanceTo(B), B.distanceTo(Cc), Cc.distanceTo(A)), st = Math.min(8, Math.ceil(e / c));
+    for (let u = 0; u <= st; u++) for (let v = 0; v <= st - u; v++) { const w = st - u - v; mark((A.x * u + B.x * v + Cc.x * w) / st, (A.y * u + B.y * v + Cc.y * w) / st, (A.z * u + B.z * v + Cc.z * w) / st); } }
+  const at = (x, y, z) => { const i = Math.floor((x - ox) / c), j = Math.floor((y - oy) / c), k = Math.floor((z - oz) / c); return i >= 0 && j >= 0 && k >= 0 && i < nx && j < ny && k < nz ? occ[(k * ny + j) * nx + i] : 0; };
+  const ao = new Float32Array(n), P = new THREE.Vector3(), N = new THREE.Vector3(), T1 = new THREE.Vector3(), T2 = new THREE.Vector3();
+  const dirs = [[0, 1, 0], [0.7, 0.7, 0], [-0.7, 0.7, 0], [0, 0.7, 0.7], [0, 0.7, -0.7]], dists = [0.025, 0.045];
+  for (let i = 0; i < n; i++) {
+    P.fromBufferAttribute(pos, i); N.fromBufferAttribute(nor, i).normalize();
+    T1.set(Math.abs(N.y) < 0.9 ? 0 : 1, Math.abs(N.y) < 0.9 ? 1 : 0, 0).cross(N).normalize(); T2.crossVectors(N, T1);
+    let o = 0, cnt = 0; for (const d of dirs) for (const r of dists) { cnt++; o += at(P.x + (T1.x * d[0] + N.x * d[1] + T2.x * d[2]) * r, P.y + (T1.y * d[0] + N.y * d[1] + T2.y * d[2]) * r, P.z + (T1.z * d[0] + N.z * d[1] + T2.z * d[2]) * r) * (r < 0.03 ? 1.2 : 0.8); }
+    ao[i] = Math.max(0, 1 - o / cnt * 1.5);
+  }
+  geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1)); geo.userData.aoMs = performance.now() - t0;
 }
 
 // ---------- skeleton (rest pose: standing, arms hanging) ----------
@@ -115,6 +147,9 @@ export function buildRobot() {
   // --- head ---
   part('head', pillow(taper(rb(0.3, 0.26, 0.27, 0.085, 5), 1.0, 0.84), 0.08, 0.3), P.ivory, 0, 0.12, 0); // helmet: rounded crown, wide jaw
   part('head', rb(0.15, 0.01, 0.17, 0.004), P.ivoryDark, 0, 0.2505, -0.01);           // crown hatch (flat top panel)
+  part('head', pillow(taper(rb(0.30, 0.045, 0.085, 0.02, 4), 0.92, 1.0), 0.25), P.ivory, 0, 0.212, 0.118, -0.32, 0, 0); // brow hood over the visor
+  part('head', rb(0.2, 0.05, 0.075, 0.022), P.graphite, 0, 0.012, 0.098);                // jaw block
+  for (let i = -1; i <= 1; i++) part('head', rb(0.012, 0.11, 0.07, 0.005), P.graphite, i * 0.035, 0.15, -0.14); // rear cooling fins
   part('head', rb(0.312, 0.018, 0.29, 0.009), P.seam, 0, 0.055, 0);           // seam band around the head
   part('head', rb(0.06, 0.03, 0.2, 0.012), P.orange, 0, 0.255, -0.02);         // crest ridge
   part('head', rb(0.258, 0.135, 0.05, 0.035, 4), P.visor, 0, 0.13, 0.125);     // glass visor
@@ -172,6 +207,8 @@ export function buildRobot() {
     part(sh, pillow(taper(rb(0.022, 0.13, 0.07, 0.008), 0.8, 1.0), 0.3), P.ivoryDark, s * 0.046, -0.135, 0);   // outer armour plate
     for (let i = 0; i < 3; i++) part(sh, rb(0.004, 0.006, 0.05, 0.002), P.seam, s * 0.058, -0.105 - i * 0.022, 0); // vent slits
     part(sh, tor(0.046, 0.005), P.seam, 0, -0.2, 0, Math.PI / 2, 0, 0);
+    part(sh, cyl(0.034, 0.034, 0.26, 16), P.graphite, 0, -0.13, 0);                     // inner core (shows at the shell ends)
+    part(sh, tor(0.041, 0.006), P.ivoryDark, 0, -0.04, 0, Math.PI / 2, 0, 0);            // shell rim lip
     part(el, sph(0.047, 16, 12), P.rubber, 0, 0, 0);
     part(el, new THREE.SphereGeometry(0.05, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.45), P.graphite, 0, 0, -0.008, -Math.PI / 2 - 0.3, 0, 0); // elbow cap (back)
     part(el, lathe([[0, -0.028], [0.043, -0.034], [0.054, -0.068], [0.055, -0.098], [0.047, -0.16], [0.04, -0.196], [0, -0.2]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
@@ -179,6 +216,7 @@ export function buildRobot() {
     part(el, rb(0.035, 0.07, 0.012, 0.006), P.graphite, s * 0.0, -0.11, 0.05);    // forearm panel
     part(el, pillow(taper(rb(0.062, 0.12, 0.02, 0.008), 0.75, 1.0), 0.5), P.ivoryDark, 0, -0.105, -0.046);  // dorsal shell plate
     part(el, rb(0.012, 0.1, 0.03, 0.005), P.orange, s * 0.05, -0.11, -0.01);        // outer stripe
+    part(el, tor(0.044, 0.006), P.ivoryDark, 0, -0.037, 0, Math.PI / 2, 0, 0);           // shell rim lip
     part(el, cyl(0.007, 0.007, 0.14, 8), P.chrome, s * 0.045, -0.1, -0.03, 0, 0, s * 0.08);  // hydraulic rod
     part(el, tor(0.051, 0.005), P.seam, 0, -0.06, 0, Math.PI / 2, 0, 0);
     part(wr, sph(0.03, 12, 10), P.graphite, 0, 0, 0);
@@ -212,6 +250,8 @@ export function buildRobot() {
     part(hp, rb(0.05, 0.12, 0.02, 0.008), P.orange, s * 0.06, -0.19, 0.0, 0, Math.PI / 2, 0);
     part(hp, pillow(taper(rb(0.09, 0.17, 0.022, 0.01), 0.75, 1.0), 0.5), P.ivoryDark, 0, -0.17, 0.058);  // front thigh plate
     part(hp, tor(0.06, 0.005), P.seam, 0, -0.27, 0, Math.PI / 2, 0, 0);
+    part(hp, tor(0.057, 0.007), P.ivoryDark, 0, -0.048, 0, Math.PI / 2, 0, 0);           // shell rim lip
+    part(hp, cyl(0.038, 0.038, 0.36, 16), P.graphite, 0, -0.19, 0);                     // inner core
     part(kn, sph(0.056, 16, 12), P.rubber, 0, 0, 0);
     part(kn, rb(0.08, 0.075, 0.04, 0.018), P.orange, 0, 0.0, 0.05);             // kneecap
     part(kn, lathe([[0, -0.035], [0.048, -0.045], [0.06, -0.1], [0.059, -0.16], [0.05, -0.25], [0.042, -0.305], [0.03, -0.33], [0, -0.336]]), P.ivory, 0, 0, 0, 0, 0, 0, 1, 1, 0.95);
@@ -229,6 +269,7 @@ export function buildRobot() {
   }
 
   const geo = mergeGeometries(parts, false); geo.computeBoundingSphere();
+  bakeAO(geo);
   const mat = palette();
   const mesh = new THREE.SkinnedMesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.name = 'founder-robot';
   mesh.add(bones.root); mesh.updateMatrixWorld(true);
@@ -263,7 +304,7 @@ export function buildRobot() {
   // named collision proxies (invisible boxes riding on the bones) for the reviewer's interpenetration test
   const proxyMat = new THREE.MeshBasicMaterial({ visible: false });
   const proxy = (name, bone, w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), proxyMat); m.name = name; m.position.set(x, y, z); m.userData.proxy = true; m.castShadow = false; bones[bone].add(m); return m; };
-  proxy('pelvis', 'hips', 0.3, 0.12, 0.19, 0, 0, 0);
+  proxy('pelvis', 'hips', 0.3, 0.17, 0.19, 0, -0.016, 0); // down to the seat plates
   proxy('chest', 'chest', 0.36, 0.28, 0.23, 0, 0.15, 0);
   proxy('backpack', 'chest', 0.26, 0.24, 0.1, 0, 0.16, -0.15);
   proxy('head', 'head', 0.29, 0.25, 0.27, 0, 0.12, 0.005);
@@ -368,7 +409,7 @@ const STATION = {
     addTo(p, 'chest', 0.16, 0, 0); addTo(p, 'spine', 0.05);
     const ty = (side, ph) => { addTo(p, side + 'Sh', -0.98 + Math.sin(t * 9 + ph) * 0.04, 0, (side === 'l' ? 1 : -1) * 0.2); addTo(p, side + 'El', -0.62 + Math.sin(t * 11 + ph) * 0.05, side === 'l' ? -0.3 : 0.3); addTo(p, side + 'Wr', 0.35 + Math.sin(t * 13 + ph) * 0.1); addTo(p, side + 'Fi', -0.6 + Math.sin(t * 17 + ph) * 0.35); };
     ty('l', 0); ty('r', 1.7);
-    p.hands = { l: [0.21, 0.8 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.55 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.8 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.55 + Math.sin(t * 1.1) * 0.02] };
+    p.hands = { l: [0.21, 0.805 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.55 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.805 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.55 + Math.sin(t * 1.1) * 0.02] };
     const g = Math.sin(t * 0.55), glance = g > 0.35 ? 0.42 : g < -0.35 ? -0.42 : 0;
     addTo(p, 'head', 0.06, glance, 0); addTo(p, 'neck', 0, glance * 0.3, 0);
     return p;
@@ -411,7 +452,7 @@ const STATION = {
     addTo(p, 'chest', 0.32); addTo(p, 'spine', 0.1); addTo(p, 'lKn', 0.12); addTo(p, 'rKn', 0.12); addTo(p, 'lHip', -0.08); addTo(p, 'rHip', -0.08);
     addTo(p, 'lSh', -1.05 + Math.sin(t * 6.1) * 0.06, 0, 0.12); addTo(p, 'lEl', -0.65, -0.4); addTo(p, 'lWr', Math.sin(t * 7.3) * 0.35, 0, 0); addTo(p, 'lFi', -0.9);
     addTo(p, 'rSh', -1.05 + Math.sin(t * 4.3 + 1) * 0.08, 0, -0.08 + Math.sin(t * 3.1) * 0.08); addTo(p, 'rEl', -0.65 + Math.sin(t * 8.5) * 0.1, 0.35); addTo(p, 'rWr', 0, Math.sin(t * 9) * 0.5, 0); addTo(p, 'rFi', -1.1);
-    p.hands = { l: [0.15 + Math.sin(t * 6.1) * 0.03, 0.97 + Math.max(0, Math.sin(t * 7.3)) * 0.012, 0.47], r: [-0.14 + Math.sin(t * 3.1) * 0.04, 0.965 + Math.max(0, Math.sin(t * 8.5)) * 0.012, 0.47 + Math.sin(t * 4.3) * 0.03] };
+    p.hands = { l: [0.15 + Math.sin(t * 6.1) * 0.03, 0.97 + Math.max(0, Math.sin(t * 7.3)) * 0.012, 0.56], r: [-0.14 + Math.sin(t * 3.1) * 0.04, 0.985 + Math.max(0, Math.sin(t * 8.5)) * 0.012, 0.56 + Math.sin(t * 4.3) * 0.03] };
     addTo(p, 'head', 0.38, Math.sin(t * 0.7) * 0.15, 0);
     return p;
   },
@@ -525,7 +566,9 @@ function makeAnimator(bones, rest) {
         // retracting: pull back before lowering; reaching: rise before going forward (clears desk edges)
         const h = cur.hand[sd], back = tg[2] < h[2], dy = Math.abs(tg[1] - h[1]), dz = Math.abs(tg[2] - h[2]);
         const ky = back ? (dz > 0.06 ? 1.2 : 9) : 14, kz = back ? 14 : (dy > 0.06 ? 1.2 : 9);
-        const sx = (tg[0] - h[0]) * Math.min(1, dt * 10), sy = (tg[1] - h[1]) * Math.min(1, dt * ky), sz = (tg[2] - h[2]) * Math.min(1, dt * kz), sl = Math.hypot(sx, sy, sz), vm = 1.3 * dt, sc = sl > vm ? vm / sl : 1;
+        // reaching up and over an edge: tuck the hand in toward the body while it rises, then go forward
+        const tz = !back && dy > 0.06 && tg[1] > h[1] ? Math.min(h[2], -0.06) : tg[2], kz2 = !back && dy > 0.06 && tg[1] > h[1] ? 6 : kz;
+        const sx = (tg[0] - h[0]) * Math.min(1, dt * 10), sy = (tg[1] - h[1]) * Math.min(1, dt * ky), sz = (tz - h[2]) * Math.min(1, dt * kz2), sl = Math.hypot(sx, sy, sz), vm = 1.3 * dt, sc = sl > vm ? vm / sl : 1;
         h[0] += sx * sc; h[1] += sy * sc; h[2] += sz * sc;
       }
       const hdT = target.handDir && target.handDir[sd] === 'up' ? 1 : 0; cur.hd = cur.hd || { l: 0, r: 0 }; cur.hd[sd] += Math.max(-dt * 3, Math.min(dt * 3, hdT - cur.hd[sd]));
