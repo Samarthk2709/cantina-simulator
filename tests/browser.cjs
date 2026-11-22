@@ -1,0 +1,158 @@
+// Stage 2 headless playthrough through the real UI. Needs the game server and Playwright:
+//   node outputs/first-office/server.cjs
+//   NODE_PATH=<dir containing playwright> node outputs/first-office/tests/browser.cjs
+// Screenshots go to evidence/. Uses fresh browser contexts, never your own save. Stage 1 is marked done
+// up front (Stage 1 has its own test, tests/flow.cjs), so the office opens directly.
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const URL = process.env.FIRST_OFFICE_URL || 'http://localhost:55188/';
+const OUT = path.join(__dirname, '..', 'evidence');
+const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+(async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
+  const errors = [];
+  async function page(w, h, mobile) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: !!mobile, isMobile: !!mobile });
+    await ctx.addInitScript(() => localStorage.setItem('first-office-guest', '1')); // play without an account, so the sign-in gate (auth.js) doesn't open
+    await ctx.route(/\/api\/(leaderboard|lag)/, r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"rows":[]}' })); // keep test runs off the real board
+    await ctx.addInitScript(() => { if (!localStorage.getItem('first-office-nib-v1')) localStorage.setItem('first-office-nib-v1', JSON.stringify({ playerName: 'friend', facts: [], completedAt: '2026-10-25T00:00:00Z' })); });
+    await ctx.addInitScript(() => { if (!localStorage.getItem('first-office-look-v1')) localStorage.setItem('first-office-look-v1', '{"look":{}}'); }); // a look is picked, so the editor (customize.js) doesn't open
+    const p = await ctx.newPage();
+    p.on('pageerror', e => errors.push(e.message));
+    p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await p.goto(URL); await p.waitForTimeout(900);
+    return { p, ctx };
+  }
+  const st = p => p.evaluate(() => JSON.parse(JSON.stringify(Stage2.state())));
+  const shot = (p, n) => p.screenshot({ path: path.join(OUT, n + '.png') });
+  const badLine = (p, fid) => p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.CLASSES[f.cls].variants[f.variant].findIndex(l => l.bad); }, fid);
+  const okLine = (p, fid) => p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.CLASSES[f.cls].variants[f.variant].findIndex(l => !l.bad && l.t.includes('const')); }, fid);
+  // Nib's lines type out (#11) and Next shows once a line is said: wait for it, then answer with Enter like a player.
+  const next = async p => { await p.waitForSelector('.nib-next', { timeout: 8000 }); await p.keyboard.press('Enter'); };
+  async function teachSharp(p, fid) {
+    await p.waitForSelector('.nib-choice', { timeout: 8000 }); await p.waitForTimeout(250);
+    const sharp = await p.evaluate(fid => { const f = Stage2Engine.FINDINGS[fid]; return Stage2Data.fill(Stage2Data.CLASSES[f.cls].teach.sharp, f.nouns); }, fid);
+    const labels = await p.$$eval('.nib-choice', bs => bs.map(b => b.textContent));
+    await p.keyboard.press(String(labels.findIndex(t => t.includes(sharp.slice(0, 30))) + 1));
+  }
+
+  // ---- 1. A new player's first day, through real controls ----
+  {
+    const { p, ctx } = await page(1440, 900);
+    await shot(p, '01-intro');
+    let s = await st(p);
+    assert.equal(s.seen.training, undefined, 'only the desk exists at first');
+    assert.equal(await p.$$eval('[data-station]', b => b.length), 1);
+    await next(p); await p.waitForTimeout(300); await next(p); await p.waitForTimeout(300);
+    await p.evaluate(() => Stage2.world.goTo('hunt')); await p.waitForTimeout(1500);
+    await p.keyboard.press('e'); await p.waitForSelector('[data-act=take]');
+    await shot(p, '02-bounty-board');
+    assert.equal(await p.$('[data-act=take][data-id=bank]'), null, 'private program is locked');
+    await p.click('[data-act=take][data-id=chat]'); await p.waitForSelector('.target-map');
+    await shot(p, '03-target-map');
+    await p.click('[data-act=hunt]'); await p.waitForSelector('.code-line');
+    const fid = await p.evaluate(() => Stage2.ui().fid);
+    await shot(p, '04-hunt');
+    await p.click(`[data-act=line][data-id="${await okLine(p, fid)}"]`); await p.waitForSelector('.feedback.miss');
+    s = await st(p); assert.equal(s.focus, 100 - 8, 'a wrong line costs focus');
+    await p.click(`[data-act=line][data-id="${await badLine(p, fid)}"]`);
+    await p.waitForSelector('.nib-choice'); await p.waitForTimeout(300);
+    await shot(p, '05-teach-nib');
+    await p.keyboard.press('Enter'); await p.keyboard.press(' '); await p.waitForTimeout(200);
+    assert.equal((await st(p)).pendingTeach, fid, 'Enter/Space must not pick an answer');
+    await p.reload(); await p.waitForSelector('.nib-choice', { timeout: 6000 });
+    assert.equal((await st(p)).pendingTeach, fid, 'reloading mid-lesson brings the question back');
+    assert.equal(await p.$eval('.code-line.hit', b => +b.dataset.id), await badLine(p, fid), 'the question comes back with the found line on screen');
+    await shot(p, '05b-teach-resumed');
+    await teachSharp(p, fid);
+    // No report to write: the explanation files the bug, and you're back on the map.
+    await p.waitForSelector('.target-map'); await p.waitForTimeout(400);
+    await shot(p, '06-filed');
+    s = await st(p);
+    assert.equal(await p.$('[data-act=pick]'), null, 'no report-writing step');
+    assert.equal(s.bugs, 1); assert.ok(s.cash > 0); assert.equal(Math.round(s.lessons[Stage2Engine_cls(fid)].clean), 1);
+    assert.ok(s.seen.training && !s.seen.forge && s.seen.stats, 'Nib\'s desk and ledger appear; the Shop waits for the second bug');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(5000);
+    await shot(p, '08-office-grows');
+
+    // ---- 2. Night shift and Nib's finds ----
+    await p.evaluate(() => Stage2.sleepMs(1500)); await p.click('#sleep'); await p.waitForTimeout(1500); await shot(p, '09-night');
+    await p.waitForSelector('.nib-next', { timeout: 15000 }); await p.waitForTimeout(300);
+    await shot(p, '10-morning');
+    s = await st(p); assert.equal(s.day, 2); assert.equal(s.focus, 100);
+    // A morning has 1-3 lines; an answered line's Next stays in the hidden bubble, so only an open bubble means another one.
+    for (let i = 0; i < 3 && await p.$('#nib-bubble:not([hidden]) .nib-next'); i++) { await next(p); await p.waitForTimeout(350); }
+    if (s.tray.length) {
+      await p.evaluate(() => Stage2.open('contract')); await p.waitForSelector('[data-act=prove]');
+      await shot(p, '11-ops');
+      await p.click('[data-act=prove]'); await p.waitForSelector('.feedback'); await shot(p, '12-proved');
+      assert.equal((await st(p)).focus, 85, 'proof costs 15 focus');
+    }
+    for (const [id, name] of [['training', '13-pattern-book'], ['rig', '14-rig'], ['forge', '15-tools'], ['stats', '16-ledger']]) {
+      await p.evaluate(id => Stage2.open(id), id); await p.waitForTimeout(250); await shot(p, name);
+    }
+    const bugsBefore = (await st(p)).bugs; // 1, or 2 if the proven Ops find was real (proving files it)
+    await p.reload(); await p.waitForTimeout(900);
+    assert.equal((await st(p)).bugs, bugsBefore, 'progress survives a reload');
+    await ctx.close();
+  }
+
+  // ---- 3. Late game: chain a critical, finish the job ----
+  {
+    const { p, ctx } = await page(1440, 900);
+    await p.evaluate(() => {
+      const E = Stage2Engine, D = Stage2Data, s = E.create({ playerName: 'Sam' }, 3); s.seen.intro = true;
+      const bad = fid => { const f = E.FINDINGS[fid]; return D.CLASSES[f.cls].variants[f.variant].findIndex(l => l.bad); };
+      const bank = fid => { const [t, r] = fid.split(':'); if (s.target !== t) E.takeJob(s, t); if (!E.isLit(s, t, r)) s.lit[t].push(r); s.focus = 100; s.rng = 1; E.guess(s, fid, bad(fid)); if (s.pendingTeach) E.teach(s, 'sharp'); D.SECTIONS.forEach(x => E.setSection(s, fid, x.id, 0)); E.submit(s, fid); };
+      // One bug short of the goal, including both halves of ChatterBox's chain.
+      const ch = E.targetById.chat.chain, halves = ['chat:' + ch.a, 'chat:' + ch.b];
+      halves.concat(Object.keys(E.FINDINGS).filter(id => id.startsWith('chat:') && !halves.includes(id))).slice(0, E.GOAL.bugs - 1).forEach(bank);
+      Object.values(s.found).forEach(f => { f.crit = false; }); s.crits = 0; s.chains = {};
+      E.takeJob(s, 'vault'); E.sleep(s); s.tray = []; s.cash = 3000; E.buyTool(s, 'dbg'); E.buyTool(s, 'trace');
+      localStorage.setItem('first-office-game-v1', JSON.stringify(s));
+    });
+    await p.reload(); await p.waitForTimeout(1000);
+    assert.equal((await st(p)).bugs, await p.evaluate(() => Stage2Engine.GOAL.bugs - 1));
+    await p.evaluate(() => Stage2.open('hq')); await p.waitForSelector('[data-act=trace]');
+    await shot(p, '17-hq-chain');
+    await p.click('[data-act=trace][data-tid=chat]:not([data-id="0"])'); await p.waitForTimeout(200);
+    assert.equal((await st(p)).crits, 0, 'a wrong explanation does not chain');
+    await p.click('[data-act=trace][data-tid=chat][data-id="0"]'); await p.waitForTimeout(500);
+    assert.equal((await st(p)).crits, 1); await shot(p, '18-chained');
+    await p.evaluate(() => Stage2.open('hunt')); await p.waitForTimeout(300);
+    if (await p.$('[data-act=to-map]')) await p.click('[data-act=to-map]');
+    const fid = await p.evaluate(() => { const s = Stage2.state(), E = Stage2Engine; return s.lit.vault.flatMap(r => E.roomFindings('vault', r)).find(f => E.slotState(s, f) === 'open'); });
+    await p.click(`[data-act=room][data-id=${fid.split(':')[1]}]`); await p.waitForTimeout(150);
+    await p.click(`[data-act=hunt][data-id="${fid}"]`); await p.waitForSelector('.code-line');
+    await p.click(`[data-act=line][data-id="${await badLine(p, fid)}"]`);
+    if (await p.waitForSelector('.nib-choice', { timeout: 6000 }).catch(() => null)) await teachSharp(p, fid);
+    await p.waitForSelector('#modal[open] .ending', { timeout: 6000 }); await p.waitForTimeout(400);
+    await shot(p, '19-ending');
+    const s = await st(p); assert.ok(s.won && s.bugs >= 5 && s.crits >= 1);
+    // The ending leads into chapter 3 with this same save: same money, same bugs, two agents.
+    await p.click('#to-stage3'); await p.waitForFunction(() => window.Stage3Agents, null, { timeout: 8000 });
+    const s3 = await st(p); assert.equal(s3.stage, 3); assert.equal(s3.bugs, s.bugs); assert.equal(s3.cash, s.cash);
+    assert.deepEqual(await p.evaluate(() => Stage3Agents.list().map(a => a.id)), ['nib', 'pip', 'moss']);
+    await ctx.close();
+  }
+
+  // ---- 4. Phone layout ----
+  {
+    const { p, ctx } = await page(390, 844, true);
+    await next(p); await p.waitForTimeout(250); await next(p); await p.waitForTimeout(250);
+    await shot(p, '20-phone-office');
+    await p.evaluate(() => Stage2.open('hunt')); await p.click('[data-act=take][data-id=chat]'); await p.waitForSelector('.target-map');
+    await shot(p, '21-phone-map');
+    const over = await p.evaluate(() => [...document.querySelectorAll('#panel-dialog *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1).length);
+    assert.equal(over, 0, 'nothing in the window overflows a phone screen');
+    await ctx.close();
+  }
+
+  await browser.close();
+  assert.deepEqual(errors, [], 'no page errors');
+  console.log('browser playthrough passed; screenshots in', OUT);
+})().catch(e => { console.error(e); process.exit(1); });
+
+function Stage2Engine_cls(fid) { return require('../engine.js').FINDINGS[fid].cls; }

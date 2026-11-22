@@ -1,0 +1,14 @@
+<!doctype html><html><body style="background:#08131a;color:#a7bcc4;font:12px monospace;padding:20px">
+<script src="../avatars.js"></script>
+<div id="o"></div>
+<script>
+const moods=['idle','blink','talk','think','happy','sad','ask','sleep'];
+let h='';
+for(const id of Object.keys(Avatars.CAST)){
+  h+=`<div style="display:flex;gap:18px;align-items:end;margin:10px 0"><b style="width:50px">${id}</b>`;
+  h+=`<span style="background:#11222a;padding:6px">${Avatars.svg(id,{mood:'idle'}).replace('width="16" height="21"','width="128" height="168"')}</span>`;
+  for(const m of moods) h+=`<span title="${m}">${Avatars.svg(id,{mood:m}).replace('width="16" height="21"','width="48" height="63"')}<br>${m}</span>`;
+  h+=`<span>${Avatars.svg(id,{mood:'idle'})}<br>1x</span><span>${Avatars.svg(id,{mood:'idle'}).replace('width="16" height="21"','width="22" height="29"')}<br>roster</span></div>`;
+}
+document.getElementById('o').innerHTML=h;
+</script></body></html>

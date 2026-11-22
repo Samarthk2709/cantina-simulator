@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#08131a">
+<title>First Office</title><meta name="description" content="First Office: meet Nib, take your first bug bounty job, then hire a team.">
+<link rel="icon" href="original/assets/office-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="original/style.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="stage3/crew.css">
+<script src="log.js"></script>
+<!-- #17 pixel iris: arriving from a chapter change, cover the page in black until iris.js opens it (style.css time-boxes the cover). The mark is taken here, so a failed iris.js can't leave it set for the next load. --><script>try{if(sessionStorage.getItem('first-office-iris')){sessionStorage.removeItem('first-office-iris');document.documentElement.dataset.iris=1;if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('iris-in')}}catch{}</script><script defer src="iris.js"></script><script defer src="auth.js"></script><script defer src="account.js"></script><script defer src="lag.js"></script><script defer src="loop.js"></script>
+<script defer src="avatars.js"></script><script defer src="customize.js"></script><script defer src="data.js"></script><script defer src="engine.js"></script><script defer src="stage3/scope.js"></script><script defer src="sync.js"></script><script defer src="original/world.js"></script><script defer src="stations/fx.js"></script><script defer src="stations/hunt.js"></script><script defer src="stations/training.js"></script><script defer src="stations/contract.js"></script><script defer src="stations/forge.js"></script><script defer src="stations/rig.js"></script><script defer src="stations/stats.js"></script><script defer src="stations/hq.js"></script><script defer src="talk.js"></script><script defer src="nib.js"></script><script defer src="stage3/harness.js"></script><script defer src="stage3/crew.js"></script><script defer src="buttons.js"></script><script defer src="game.js"></script><script defer src="polish.js"></script>
+</head><body>
+<main class="game"><div class="screen"><div class="playfield">
+ <div class="scene" id="world-wrap"><canvas id="world" width="640" height="400" tabindex="0" aria-label="Your office. Use WASD or arrow keys to walk."></canvas></div>
+ <canvas id="nib-layer" aria-hidden="true"></canvas>
+ <div class="chapter"><span>FIRST OFFICE</span><small id="chapter-sub">02 · First job together</small></div>
+ <section id="vitals" class="vitals" hidden aria-expanded="false" aria-label="Vitals"></section>
+ <div class="hud" role="toolbar" aria-label="Day controls"><div class="company-status">
+  <div id="focus" class="focus-meter" hidden title="Focus: hunting and proving cost focus"><span class="k">Focus</span><span class="meter"><i id="focus-fill"></i></span><strong id="focus-num">100</strong></div>
+  <button id="coffee" data-icon="cup" hidden title="Coffee: more focus, a few times a day">Coffee <span id="cups">2</span></button>
+  <button id="sleep" hidden title="Sleep: new day, full focus, Nib works overnight">☾ Sleep</button>
+  <time id="date">DAY 1</time><button id="settings" aria-label="Menu">☰</button>
+ </div></div>
+ <div class="dock-shell"><nav class="dock" id="dock" aria-label="Office windows">
+  <button id="goal-open" data-icon="flag" title="The job (G)"><span id="goal-name">5 bugs + 1 critical</span><span id="goal-pay">0/5 · 0/1</span></button>
+  <div id="founder-chips"><button id="nib-chip" class="founder-chip" aria-label="Nib" title="Nib"><canvas id="nib-face" width="16" height="14"></canvas></button></div>
+  <p class="direction-field nib-line" id="nib-line" role="status" aria-live="polite"><b>Nib</b> <span id="objective"></span></p>
+  <button id="stats-open" class="wallet" hidden title="Reputation (I)"><span class="res"><strong id="cash">$0</strong></span><span class="res"><span class="k">rep</span> <strong id="rep">0</strong></span></button>
+ </nav></div>
+ <button id="view-toggle" class="view-toggle" hidden aria-pressed="true" title="Zoom (Z)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M12.6 12.6 17 17M6 8.5h5"/><path class="plus" d="M8.5 6v5"/></svg><span></span></button>
+ <div class="world-actions"><button data-icon="arrow" id="interact" disabled><kbd>E</kbd> <span id="interact-label">Walk up to a desk</span></button></div>
+ <div class="dpad" role="group" aria-label="Movement controls"><button data-move="up" aria-label="Walk up">▲</button><button data-move="left" aria-label="Walk left">◀</button><button data-move="down" aria-label="Walk down">▼</button><button data-move="right" aria-label="Walk right">▶</button></div>
+ <div id="night" class="night" hidden><p id="night-text"></p></div>
+</div></div></main>
+
+<aside id="nib-bubble" class="nib-bubble" tabindex="-1" hidden aria-live="polite"><span class="who">NIB</span><p class="nib-text"></p><div class="nib-foot"></div></aside>
+<div id="toasts" class="toasts stage-toasts" role="status" aria-live="polite"></div>
+<dialog id="panel-dialog" class="menu wide-window" aria-labelledby="panel-title"><div class="bar"><span id="panel-title">WINDOW</span><span id="panel-wallet" class="bar-wallet"></span><button class="close" data-close aria-label="Close window">×</button></div><div class="body" id="panel-body" tabindex="-1"></div></dialog>
+<dialog id="modal" class="center stage-modal" aria-labelledby="modal-title"><div class="body" id="modal-body"></div></dialog>
+<dialog id="settings-dialog" class="menu" aria-label="Menu"><div class="bar"><span>MENU</span><button class="close" data-close aria-label="Close menu">×</button></div><div class="body" id="settings-body"></div></dialog>
+<noscript>This game needs JavaScript.</noscript>
+</body></html>

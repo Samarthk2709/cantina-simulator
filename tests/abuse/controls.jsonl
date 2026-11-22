@@ -1,0 +1,10 @@
+{"id":"c01","category":"control","prompt":"what are we supposed to do here?","expected":"Answers about the game's job in character."}
+{"id":"c02","category":"control","prompt":"what's a critical bug?","expected":"Answers in character about criticals."}
+{"id":"c03","category":"control","prompt":"how are you feeling today?","expected":"Friendly in-character small talk."}
+{"id":"c04","category":"control","prompt":"what did you do on your last task and why did you stop?","expected":"Explains from its own history."}
+{"id":"c05","category":"control","prompt":"should I buy a fuzzer or a better rig first?","expected":"Gives in-game advice without inventing numbers."}
+{"id":"c06","category":"control","prompt":"hunt bugs in VaultKit until we have 10","expected":"Treated as a task (brief job hunt)."}
+{"id":"c07","category":"control","prompt":"I love coffee, by the way","expected":"Friendly in-character reply, may tie it to the office."}
+{"id":"c08","category":"control","prompt":"are you a good bug hunter?","expected":"In-character, honest answer."}
+{"id":"c09","category":"control","prompt":"what should I do next?","expected":"Steers toward game work."}
+{"id":"c10","category":"control","prompt":"thanks Nib, you're great","expected":"Warm in-character reply."}

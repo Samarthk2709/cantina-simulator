@@ -1,0 +1,170 @@
+/* Stage 3: the team. Quiet by default, after Grok Bot: a roster, one timeline, cards only for decisions.
+   Uses the office palette from original/style.css. */
+
+/* One way in (a HUD button) and one way out (top of the roster) */
+.s3-toggle{font-weight:600}
+.s3-toggle span{color:var(--muted);font-weight:400;margin-left:4px}
+.s3-toggle .need{color:var(--amber);margin-left:4px}.s3-toggle small{font-size:inherit}
+/* Phone: the 40 px Team button can't hold "1 needs you" or "2 working"; the count becomes a chip under "Team"
+   (amber when someone needs you; the nudge pops it in place). */
+@media (max-width:650px){
+  .s3-toggle:has(.need,span){display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;line-height:1}
+  .s3-toggle :is(.need,span){margin:0;min-width:16px;padding:1px 4px;border-radius:999px;font-size:11px;line-height:12px;text-align:center}
+  .s3-toggle span{background:var(--line-2)}.s3-toggle .need{background:var(--amber);color:#1a1205}
+  .s3-toggle small{display:none}
+}
+.s3-back{align-self:flex-start;background:none;border:0;color:var(--muted)!important;padding:4px 10px 0;font-size:13px!important}
+.s3-back:hover{color:var(--ink)!important}
+body.stage3 #founder-chips{display:none}
+
+/* Avatars: state is motion, not lights */
+.s3-av{display:inline-block;flex:none;width:24px;height:32px}
+.s3-av svg{width:100%;height:100%;image-rendering:pixelated;overflow:visible}
+/* Idle life (motion #8) swaps frames inside the svg, so a click must land on the button, never on a rect being replaced. */
+.s3-av svg{pointer-events:none}
+/* Offset: each agent's loop runs 3 frames behind the one above it, so the team never moves as one block. */
+.s3-av.st-working svg{animation:s3-bob .5s steps(2) calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
+.s3-av.st-thinking svg{animation:s3-sway 1.6s ease-in-out calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite}
+.s3-av.st-waiting svg{animation:s3-hop 1.6s step-end calc(var(--i,0) * -1 * var(--stagger,50ms)) infinite;transform-origin:50% 100%}
+.s3-av.st-sad svg{animation:s3-shake .3s steps(2) 6}
+.s3-av.st-idle svg,.s3-av.st-done svg{animation:none}
+@keyframes s3-bob{50%{transform:translateY(-1.5px)}}
+@keyframes s3-sway{50%{transform:rotate(-4deg)}}
+/* Squash & stretch hop (the frames of Avatars.hop): squash 200 ms (the anticipation), stretch up, hang, stretch down,
+   squash on landing, overshoot, rest. Held frames; sizes land on whole art pixels (16×21) and lifts are whole art
+   pixels (100%/21 of the sprite). Facing lives on the .s3-av around the svg (.flip), so no state loop can undo it. */
+@keyframes s3-hop{0%{translate:0;scale:1}3.125%{scale:1.0625 .9524}6.25%{scale:1.125 .8571}9.375%{scale:1.1875 .8095}
+  12.5%{translate:0 -14.29%;scale:.875 1.1429}15.625%{translate:0 -23.81%}18.75%{translate:0 -28.57%;scale:.9375 1.0952}21.875%{translate:0 -33.33%;scale:.9375 1.0476}
+  25%{translate:0 -38.1%;scale:1 1.0476}28.125%{translate:0 -42.86%;scale:1}34.375%{translate:0 -38.1%;scale:1 1.0476}37.5%{translate:0 -28.57%;scale:.9375 1.0952}
+  40%{translate:0 -14.29%}41.875%{translate:0 -4.76%}43.75%{translate:0;scale:1.1875 .8095}50%{scale:1.0625 .9524}53.125%{scale:.9375 1.0476}59.375%{translate:0;scale:1}}
+@keyframes s3-shake{50%{transform:translateX(1.5px)}}
+.s3-av.plus{display:grid;place-items:center;height:22px;border:1px dashed var(--line);border-radius:6px;color:var(--muted);font:14px var(--mono)}
+@media (prefers-reduced-motion:reduce){.s3-av svg{animation:none!important}}
+
+/* On the office floor */
+#s3-layer{position:fixed;inset:0;z-index:2;pointer-events:none;contain:strict;clip-path:inset(0 0 var(--dock-top,0px) 0)} /* viewport-sized: sprite moves never re-lay out the page. Clipped at the dock's top edge (--dock-top, game.js layout): nobody is drawn over the bottom bar */
+/* Under the (opaque) team view the floor can't be seen: drop it at once so its bob/sway/hop loops stop, even before crew.js hides it. */
+body.s3-agents-open #s3-layer{display:none}
+.s3-agent{position:absolute;pointer-events:auto;border:0;background:none;padding:0;cursor:pointer}
+.s3-agent .s3-av{width:100%;height:100%}
+/* The flip sits on the wrapper, the state loops (bob, sway, shake, hop) on the svg, so a left-facing agent stays left. */
+.s3-agent.flip .s3-av{transform:scaleX(-1)}
+.s3-agent.nib{min-width:24px;min-height:30px} /* invisible hit box over the game's own Nib */
+/* --lift (crew.js): a waiting agent's hop rises 9 art px, so its tag and bubble sit that much higher and the head never goes behind them. */
+.s3-tag{position:absolute;left:50%;top:calc(-14px - var(--lift,0px));transform:translateX(-50%);font:600 10px var(--mono);color:var(--ink);background:#18303acc;padding:0 5px;border-radius:3px;white-space:nowrap}
+.s3-bubble{position:absolute;left:50%;bottom:calc(100% + 15px + var(--lift,0px));transform:translateX(-50%);font:11px var(--sans);color:#08131a;background:#f5fbff;padding:2px 8px;border-radius:8px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+.s3-bubble.need{background:var(--amber)}
+/* Floating finds (motion #16): the box sits on the spot above the head (crew.js floatPlace), the label pops and drifts inside it. */
+.s3-float{position:absolute;left:0;top:0;z-index:1;width:0;height:0;pointer-events:none}
+.s3-float span{position:absolute;left:0;bottom:0;translate:-50% 0;transform-origin:50% 100%;font:600 12px var(--mono);white-space:nowrap;color:var(--good);text-shadow:0 1px 0 #000,0 0 3px #000,0 0 6px #000}
+.s3-float .crit{color:var(--amber)}.s3-float .pen{color:var(--danger-ink)}
+/* Night (crew.js toggles #s3-layer.s3-night with #night.on): agents dim with the office like Nib, bubbles and labels go,
+   on the night's own timing (style.css .night.fall/.rise). */
+.s3-agent,.s3-bubble,.s3-float{transition:filter .5s ease-in,opacity .5s ease-in}
+#s3-layer.s3-night .s3-agent{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}
+#s3-layer.s3-night :is(.s3-bubble,.s3-float){opacity:0;transition:opacity .9s linear .2s}
+@media (prefers-reduced-motion:reduce){#s3-layer :is(.s3-agent,.s3-bubble,.s3-float){transition:none!important}}
+.s3-oos{border-color:var(--danger-ink)!important;opacity:.85}
+.s3-oos-tag{display:block;font:600 9px var(--mono);letter-spacing:.08em;color:var(--danger-ink);margin-top:2px}
+
+/* Team view */
+#s3-view{position:fixed;inset:0;z-index:25;background:var(--ground);display:grid;grid-template-columns:280px minmax(0,1fr);padding-top:18px;font:14px/1.5 var(--sans);color:var(--ink)}
+#s3-view[hidden]{display:none}
+#s3-view{contain:strict}#s3-side,#s3-main{contain:layout paint style} /* timeline and roster updates stay inside their pane */
+#s3-view button{font:inherit;color:inherit;cursor:pointer}
+#s3-view button:disabled{opacity:.45;cursor:not-allowed}
+#s3-view .muted{color:var(--muted)}#s3-view .small{font-size:12px}
+body.s3-agents-open .nib-bubble{display:none}
+
+#s3-side{border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column;min-height:0;padding:0 8px}
+.s3-h{font:600 10px var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--muted);padding:10px 10px 8px}
+.s3-row{display:flex;gap:12px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:10px}
+.s3-row:hover{background:var(--paper)}.s3-row.sel{background:var(--sage-soft)}
+.s3-row .txt{flex:1;min-width:0}.s3-row .nm{display:block;font-weight:600}
+.s3-row .sub{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s3-row.need .sub{color:var(--amber)}
+.s3-row.ghost .nm{font-weight:400;color:var(--muted)}
+.s3-row.ghost:first-of-type{margin-top:6px}
+.s3-foot{margin-top:auto;padding:12px 10px;font-size:12px;color:var(--muted)}
+
+#s3-main{min-height:0;display:flex;flex-direction:column}
+.s3-pane{flex:1;display:flex;flex-direction:column;min-height:0}
+.s3-pane header{display:flex;align-items:center;gap:12px;padding:10px max(20px,calc((100% - 720px)/2)) 12px;border-bottom:1px solid var(--line)}
+.s3-pane header .who{flex:1;min-width:0;display:flex;flex-direction:column}
+.s3-pane header .who span{font-size:12.5px;color:var(--muted)}
+.s3-link{background:none;border:0;padding:0;color:var(--muted)!important;font-size:12.5px!important;text-decoration:underline;text-underline-offset:3px}
+.s3-link:hover{color:var(--ink)!important}
+.s3-msgs{flex:1;overflow-y:auto;padding:18px max(20px,calc((100% - 720px)/2));display:flex;flex-direction:column;gap:10px;min-height:0}
+.m-user{align-self:flex-end;background:var(--sage-soft);border-radius:14px;padding:7px 13px;max-width:80%}
+.m-say{max-width:92%}.m-say.pending{opacity:.55}.m-say.muted{color:var(--muted)}
+.m-say .s3-link{display:block;margin-top:4px;text-align:left}
+.m-note-plain{color:var(--muted);font-size:13px}
+.m-steps .s3-link{font:12px var(--mono)!important;text-decoration:none}
+.m-steps .list{margin-top:6px;padding-left:12px;border-left:1px solid var(--line);font:12px/1.6 var(--mono);color:var(--muted)}
+.m-task{font-size:12.5px;color:var(--muted);padding-top:6px;border-top:1px solid var(--line)}
+.m-task.done{border-top:0;padding-top:0}
+.m-win{font-size:13px;color:var(--good)}
+.m-now{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.m-now::before{content:"";width:6px;height:6px;background:#7ff0d8;animation:s3-blink 1s steps(2) infinite}
+@keyframes s3-blink{50%{opacity:.2}}
+.m-card{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px}
+.m-card b{display:block;margin-bottom:2px}
+.m-card.pen{border-color:#5a2a27}.m-card.pen b{color:var(--danger-ink)}
+.m-card.ask{border-color:var(--amber)}
+.m-card .s3-link{display:block;margin-top:6px;text-align:left}
+.m-card .opts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.m-card .opts button{background:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px}
+.m-card .opts button.primary{background:var(--amber);border-color:var(--amber);color:#08131a!important;font-weight:600}
+/* #7 Staging: while a decision card (.s3-decide, set in crew.js) waits, the pane around it dims (250 ms in, 200 ms out).
+   The layer only shows while such a card exists, so it can't outlive it; it never takes clicks or focus, and the card
+   and composer sit above it. The roster stays lit, so "needs you" rows still read. A plain tint, pixel-matched to the old
+   tint + backdrop saturate(.45): a backdrop filter re-filters the whole pane on every repaint under it. */
+.s3-pane{position:relative}
+.s3-dim{position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(12,19,23,.57);opacity:0;transition:opacity .2s ease-out}
+.s3-pane:has(.s3-decide) .s3-dim{opacity:1;transition-duration:.25s}
+.s3-decide,.s3-composer{position:relative;z-index:2}
+/* The card rises with anticipation (dips 3px, then settles) and its buttons follow 3 frames apart. It travels
+   6px, not the mockup's 16, so it never overlaps the next line of the timeline (10px gap). decide-btn: style.css. */
+.s3-enter{animation:s3-decide-in .42s backwards}
+.s3-enter :is(.opts button,[data-fix]){animation:decide-btn .24s var(--settle) backwards;animation-delay:calc(220ms + var(--j,0) * var(--stagger))}
+@keyframes s3-decide-in{0%{opacity:0;transform:translateY(6px) scale(.97);animation-timing-function:var(--wind)}25%{opacity:1;transform:translateY(9px) scale(.97);animation-timing-function:var(--settle)}100%{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.s3-dim{transition:none!important}.s3-enter,.s3-enter :is(.opts button,[data-fix]){animation:none!important}}
+.s3-composer{padding:12px max(20px,calc((100% - 720px)/2)) 18px}
+.s3-composer input{width:100%;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px 16px;color:var(--ink);font:inherit}
+.s3-composer input:focus{outline:none;border-color:var(--muted)}
+.s3-hint{font-size:12px;color:var(--muted);margin:6px 4px 0;min-height:18px}
+.s3-hint .warn{display:block;color:var(--amber)}
+
+.s3-doc{flex:1;overflow-y:auto;padding:12px max(20px,calc((100% - 720px)/2)) 30px}
+.s3-doc h2{font:600 18px var(--mono);margin:0 0 4px}
+.s3-doc p{font-size:13px}
+.rule{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px;cursor:pointer}
+.rule input{margin-top:3px;accent-color:var(--amber);width:15px;height:15px}
+.rule small{display:block;font-size:12px;color:var(--muted)}.rule small.without{color:var(--danger-ink)}
+@media (max-width:800px){#s3-view{grid-template-columns:1fr;grid-template-rows:auto 1fr}#s3-side{max-height:34vh;border-right:0;border-bottom:1px solid var(--line)}}
+
+/* Queued briefs, just above the message bar. */
+.s3-queue{padding:0 max(20px,calc((100% - 720px)/2));display:grid;gap:4px}
+.s3-queue:empty{display:none}
+.s3-q{display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px dashed var(--line,#2a3a40);border-radius:8px;font-size:13px}
+.s3-q .n{flex:none;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.s3-q .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.s3-keys{display:block;margin-top:6px;font-size:11px;opacity:.7}
+/* Morning standup: one row per agent. */
+.m-card.standup .su-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:4px 0;font-size:13px}
+.m-card.standup .su-row>.s3-link:first-child{min-width:52px;font-weight:600;text-align:left}
+
+/* Names show only on hover (or keyboard focus): the tag fades in, rises 4 px and settles with a slight overshoot; the
+   sprite lifts a pixel and brightens. Leaving fades it out faster than it came. */
+.s3-tag{opacity:0;translate:0 4px;scale:.95;pointer-events:none;transition:opacity .12s ease-in,translate .12s ease-in,scale .12s ease-in}
+.s3-agent:hover .s3-tag,.s3-agent:focus-visible .s3-tag{opacity:1;translate:0 0;scale:1;transition:opacity .16s ease-out,translate .2s cubic-bezier(.2,.8,.2,1),scale .2s cubic-bezier(.2,.8,.2,1)} /* everyday hover: no bounce */
+.s3-agent .s3-av{transition:translate .18s cubic-bezier(.2,.8,.2,1),filter .18s ease-out}
+.s3-agent:hover .s3-av{translate:0 -2px;filter:brightness(1.12) drop-shadow(0 2px 0 rgba(0,0,0,.22))}
+@media (prefers-reduced-motion: reduce){.s3-tag,.s3-agent .s3-av{transition:opacity .12s}.s3-agent:hover .s3-av{translate:none}}
+.s3-agent:hover,.s3-agent:focus-visible,.s3-agent:active{background:none!important;box-shadow:none!important;outline:none}
+.s3-tag{font-size:11px;padding:1px 6px}
+/* You and Nib on the agents' layer (crew.js body): stacked with them by depth. */
+.s3-body{position:absolute;left:0;top:0;pointer-events:none;transform-origin:50% 100%}
+.s3-body svg{width:100%;height:100%;image-rendering:pixelated;display:block}
+.s3-float{z-index:1000}
+#s3-layer.s3-night .s3-body{filter:brightness(.3) saturate(.6);transition:filter .9s linear .2s}
