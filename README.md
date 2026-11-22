@@ -8,6 +8,8 @@ Source: [Samarthk2709/cantina-simulator](https://github.com/Samarthk2709/cantina
 
 `main` holds the integrated game. Develop on branches and merge after review; `legacy-cantina-game` preserves the earlier game. Use `Samarthk2709` for pushes and `samarthk@cantina.security` for commits. Production hosting has its own configuration; see Hosting below.
 
+The [3D redesign](https://github.com/Samarthk2709/cantina-simulator/tree/3d-redesign) lives on `3d-redesign`, with its original 21 development commits preserved. It has not been merged into `main`.
+
 1. **Meet Nib** (`meet.html`). The dark room, the lamp, Nib. Accepting the job fades into the office.
 2. **First job together** (`/`). 5 bugs and 1 critical in the office. Nib already knows your name from Stage 1.
 3. **Hire help** (same page). The Stage 2 ending, or the goal button once the first job is done, starts chapter 3. The same save continues: same money, rep and tools, plus Pip and Moss. The goal is Elite (60 rep) with at least 5 bugs from agents. A fifth program, **Parcelly**, opens only in chapter 3, so the team always has fresh work.
