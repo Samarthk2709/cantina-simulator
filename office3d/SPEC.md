@@ -21,6 +21,17 @@ and a short exit animation when the window closes. It does not need 1:1 contact 
 - Agent terminals, lounge, any other usable station: sit + type, or sit back on sofa.
 Animations may be authored clips or procedural bone animation. Each must be distinct.
 
+## 1b. No glitches (hard gate, owner rule 2026-11-21)
+Nothing may look unnatural or glitchy. In particular:
+- No interpenetration: no part of the robot (or Nib) may sit inside another object: sofa, chair, desk,
+  walls, safe, racks, props. Sitting means resting ON the seat surface; hands touch surfaces, not sink into them.
+- No floating: feet/seat contact the floor/seat; props rest on surfaces.
+- No foot sliding, popping, snapping between poses, T/A-pose flashes, or camera clipping inside geometry.
+- No z-fighting, flickering, missing textures, black screens/boards, or objects poking through walls.
+The reviewer checks this both visually (every shot + every interaction frame sequence) and with an automated
+interpenetration test (robot part volumes vs scene collision geometry over each interaction), reported as a
+pass/fail gate with the offending station, frame and objects.
+
 ## 2. Performance & resource budgets (hard gates)
 Measured on this Mac Mini, Chrome (GPU, Metal), 1920x1080, default quality (no `?q=` param).
 
@@ -57,6 +68,10 @@ Accessibility of hardware:
   interaction animation is playing. `leave()` ends it (exit anim).
 - `stats()` → `{ fps, frameMs, calls, triangles, textures, geometries, gpuMB, quality, pixelRatio }`.
 - `quality(q)` setter as today.
+- `robot` → the robot's root Object3D (its parts are named meshes/bones, e.g. `hand_L`, `pelvis`, `foot_R`).
+- `colliders()` → array of `{ name, station?, box: THREE.Box3 | mesh: THREE.Mesh, contact?: 'seat'|'surface' }`
+  for furniture/props/walls (kept as invisible proxies even when render geometry is merged). Surfaces the robot is
+  meant to touch are flagged with `contact` so touching (not penetrating) them is allowed.
 
 ## 4. Visual review rubric (reviewer)
 Score 1-10 vs the 30 refs in work/gta6-reference/indoor (world) and vs high-quality stylised 3D games (character):
@@ -64,3 +79,17 @@ Score 1-10 vs the 30 refs in work/gta6-reference/indoor (world) and vs high-qual
 materials, appeal, animation), 5 Interaction animations (clarity, distinctness, smoothness), 6 Image cleanliness
 (no grain/noise/aliasing/banding, smooth), 7 Overall cohesion.
 Approval: every visual score >= 8 AND every budget in section 2 passes.
+
+## 5. Goal / definition of done (orchestrator)
+Done = the persistent reviewer APPROVES one build where, in the same harness run:
+- all 7 rubric scores >= 8 (world vs GTA 6 interior refs; robot character vs high-quality stylised games; clean image);
+- the section-1b glitch gate passes (zero interpenetration / floating / camera clipping findings);
+- every section-2 budget passes, incl. p5 >= 25 fps on this Mac Mini at 1080p and the CPU-throttled low tier;
+- E at every station plays its own visible interaction animation and opens that station's window; exit anim on close;
+- the game still plays end to end (no console errors, saves, 2D fallback works), and the owner sees a loading
+  screen, not the old 2D office.
+Process: builder round -> same reviewer re-measures + re-scores (with deltas) -> builder fixes top items -> repeat.
+"No improvement" round = no rubric score rises and no failing budget is fixed.
+Escalation (owner rule, 2026-11-21): after 3 consecutive no-improvement rounds, hand implementation to a Fable
+(claude-fable-5-2) builder agent for 2 rounds, reviewed by the same reviewer. If those 2 rounds still bring no
+improvement (5 in a row), stop and check in with the owner. Never loosen the rubric or budgets to get an approval.
