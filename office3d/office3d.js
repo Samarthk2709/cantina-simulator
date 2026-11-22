@@ -750,7 +750,8 @@ function mergeStatic() {
   scene.traverse(o => {
     if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || !o.visible || isDyn(o)) return;
     const g = o.geometry; if (!g.attributes.position || g.morphAttributes.position) return;
-    const flags = '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0) + '|' + o.layers.mask + '|' + o.renderOrder + '|' + (o.userData.noAO ? 1 : 0) + '|' + (o.userData.city ? 1 : 0);
+    // shadow casting is not part of the key: a bucket casts if any member does (shadow maps here are mostly baked once)
+    const flags = '|' + (o.receiveShadow ? 1 : 0) + '|' + o.layers.mask + '|' + o.renderOrder + '|' + (o.userData.noAO ? 1 : 0) + '|' + (o.userData.city ? 1 : 0);
     const m = o.material, vc = vcSig(m);
     const key = (vc ? 'VC' + vc : m.uuid) + flags;
     (buckets.get(key) || buckets.set(key, []).get(key)).push(o);
@@ -774,7 +775,8 @@ function mergeStatic() {
     let mg; try { mg = mergeGeometries(geos, false); } catch { mg = null; }
     geos.forEach(g => g.dispose()); if (!mg) continue;
     const o0 = objs[0], m = new THREE.Mesh(mg, vc ? vcMaterial(o0.material) : o0.material);
-    m.castShadow = o0.castShadow; m.receiveShadow = o0.receiveShadow; m.layers.mask = o0.layers.mask; m.renderOrder = o0.renderOrder; m.userData = { ...o0.userData, merged: true };
+    { const tri = o => (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; let ct = 0, all = 0; for (const o of objs) { const t = tri(o); all += t; if (o.castShadow) ct += t; } m.castShadow = ct > all * 0.5; }
+    m.receiveShadow = o0.receiveShadow; m.layers.mask = o0.layers.mask; m.renderOrder = o0.renderOrder; m.userData = { ...o0.userData, merged: true };
     m.matrixAutoUpdate = false; scene.add(m); merged += objs.length;
     for (const o of objs) victims.push(o);
   }

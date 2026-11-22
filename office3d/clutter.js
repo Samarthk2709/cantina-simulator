@@ -65,8 +65,6 @@ export function placeClutter(scene, use) {
   // floor: a backpack by the founder's desk, shoes by the sofa, cable runs, boxes in the corner
   const hu = use.hunt; if (hu) { put('backpack', hu.spot[0] + 1.25, hu.spot[1] - 0.95, -0.01, 0.03, 0.4); }
   put('shoes', 4.55, 9.35, -0.01, 0.03, 0.2);
-  put('cable', 9.2, 3.4, -0.01, 0.03, 0.1); put('cable', 3.6, 3.9, -0.01, 0.03, 1.4);
-  put('boxes', 13.6, 4.4, -0.01, 0.03, 0.2); put('paperBall', 8.3, 4.2, -0.01, 0.03);
   // clusters where the camera looks: the east bookshelf, the lounge, the HQ credenza, the founder's desk
   const X1 = 14.25;
   [[0.12, 6.05, 'boxSmall'], [0.59, 6.1, 'plant'], [0.59, 5.9, 'figure'], [1.06, 6.05, 'trophy'], [1.06, 6.18, 'frame'], [1.53, 6.0, 'magazines'], [1.53, 6.18, 'mugF'], [2.0, 6.05, 'boxSmall']]

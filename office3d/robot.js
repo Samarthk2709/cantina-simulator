@@ -366,7 +366,7 @@ function locomotion(ph, a, run) {
 }
 // --- station poses ---
 // Seated: pelvis rests on a seat whose top is at `seatTop` (thigh undersides touch it), feet planted on the floor.
-function seated(p, seatTop = 0.42, footZ = 0.4) {
+function seated(p, seatTop = 0.43, footZ = 0.4) {
   p.root[1] -= 0.86 - (seatTop + 0.102);
   p.feet = [[0.12, 0.08, footZ], [-0.12, 0.08, footZ]];
 }
@@ -393,14 +393,14 @@ const STATION = {
     return p;
   },
   chairMove(q) { // q: 0 seated on a swivel chair .. 1 standing 0.4 m in front of it; feet stay planted throughout
-    const p = blank(), { h, v } = chairProg(q), drop = 0.86 - (0.42 + 0.102);
+    const p = blank(), { h, v } = chairProg(q), drop = 0.86 - (0.43 + 0.102);
     p.root[1] -= drop * (1 - v); const fz = 0.4 * (1 - h); p.feet = [[0.12, 0.08, fz], [-0.12, 0.08, fz]];
     const lean = Math.sin(Math.PI * Math.min(1, q * 1.3)) * 0.32; addTo(p, 'chest', lean); addTo(p, 'spine', lean * 0.4);
     addTo(p, 'lSh', -0.5 * (1 - v), 0, 0.1); addTo(p, 'rSh', -0.5 * (1 - v), 0, -0.1); addTo(p, 'lEl', -0.7 * (1 - v)); addTo(p, 'rEl', -0.7 * (1 - v));
     if (v < 0.9) p.hands = { l: [0.17, 0.6 + 0.2 * v, 0.02 + 0.08 * v], r: [-0.17, 0.6 + 0.2 * v, 0.02 + 0.08 * v] };
     return p;
   },
-  sit(t) { return sitIdle(t, 0.42, 0.4); },
+  sit(t) { return sitIdle(t, 0.43, 0.4); },
   sitSofa(t) { return sitIdle(t, SOFA_SEAT + 0.05, 0.45); },
   hunt(t) { // sit, type, glance between the three monitors
     const p = blank(); seated(p);
