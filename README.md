@@ -1,6 +1,12 @@
 # First Office · Stages 1–3
 
-Stages 1–3 of the [roadmap](../../work/ROADMAP.md) as one game: one server, one address, one save.
+An office game about building a security company with Nib and a team of AI agents: one server, one address, one save.
+
+## Repository
+
+Source: [Samarthk2709/cantina-simulator](https://github.com/Samarthk2709/cantina-simulator), under the Cantina GitHub account **Samarthk2709**. The repository keeps its original name; the game is **First Office**. Play at [first-office-seven.vercel.app](https://first-office-seven.vercel.app).
+
+`main` holds the integrated game. Develop on branches and merge after review; `legacy-cantina-game` preserves the earlier game. Use `Samarthk2709` for pushes and `samarthk@cantina.security` for commits. Production hosting has its own configuration; see Hosting below.
 
 1. **Meet Nib** (`meet.html`). The dark room, the lamp, Nib. Accepting the job fades into the office.
 2. **First job together** (`/`). 5 bugs and 1 critical in the office. Nib already knows your name from Stage 1.
@@ -9,10 +15,14 @@ Stages 1–3 of the [roadmap](../../work/ROADMAP.md) as one game: one server, on
 ## Run
 
 ```sh
-node outputs/first-office/server.cjs
+git clone https://github.com/Samarthk2709/cantina-simulator.git first-office
+cd first-office
+node server.cjs
 ```
 
-Open **http://localhost:55188/**. A new browser starts at Stage 1. The server reads `DEEPINFRA_API_KEY` from `./.env` or `../cantina-game/.env`, and the key never reaches the browser. Without a key, Nib's Stage 1 lines use a local llama-server on :8088 if one is running, otherwise scripted lines, and agents use scripted lines. Change the port with `FIRST_OFFICE_PORT`.
+Requires Node.js; the server uses built-in modules, so no dependency install is needed. Commands in this README run from the repository root. In the larger CantinaVideoGame workspace, that directory is `outputs/first-office`.
+
+Open **http://localhost:55188/**. A new browser starts at Stage 1. For AI dialogue, copy `.env.example` to `.env` and add your own `DEEPINFRA_API_KEY`; `GOOGLE_CLIENT_ID` optionally enables Google sign-in. The server also supports the older `../cantina-game/.env` location. Keys never reach the browser. Without an AI key, Nib's Stage 1 lines use a local llama-server on :8088 if one is running, otherwise scripted lines, and agents use scripted lines. Change the port with `FIRST_OFFICE_PORT`.
 
 **Menu → Chapters** replays Stage 1, restarts the first job, or jumps to chapter 3 with a finished first job (for testing).
 
@@ -208,18 +218,18 @@ Each of the seven office stations moves on its own, reacts when you walk up, ope
 ## Verify
 
 ```sh
-node --test outputs/first-office/tests/engine.cjs      # rules
-node outputs/first-office/tests/pacing.cjs             # Stage 2 balance
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/browser.cjs   # Stage 2 playthrough → chapter 3 button (server running)
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/flow.cjs      # Stage 1 → office → chapter 3 agents (model blocked)
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/stage3-play.cjs   # plays chapter 3 to Elite at 10× (model blocked)
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/customize.cjs # character editor, unlocks, your look in the office and chapter 3
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
-node outputs/first-office/tests/perf-compare.cjs median.json run1.json run2.json --base perf/60fps/baseline.json   # median and % vs baseline
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/session-log.cjs   # session log: clicks, dialogue, AI calls, actions, errors, no passwords (server running)
-node --test outputs/first-office/tests/ai-limit.cjs   # 30 AI messages / 90 calls an hour per player
-node outputs/first-office/tests/abuse-eval.cjs        # live: 100 abuse prompts + 10 controls (about 330 calls, ~$0.02)
-NODE_PATH=<dir with playwright> node outputs/first-office/tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
+node --test tests/engine.cjs      # rules
+node tests/pacing.cjs             # Stage 2 balance
+NODE_PATH=<dir with playwright> node tests/browser.cjs   # Stage 2 playthrough → chapter 3 button (server running)
+NODE_PATH=<dir with playwright> node tests/flow.cjs      # Stage 1 → office → chapter 3 agents (model blocked)
+NODE_PATH=<dir with playwright> node tests/stage3-play.cjs   # plays chapter 3 to Elite at 10× (model blocked)
+NODE_PATH=<dir with playwright> node tests/customize.cjs # character editor, unlocks, your look in the office and chapter 3
+NODE_PATH=<dir with playwright> node tests/perf.cjs --json out.json   # CPU, restyles, layouts, painted frames in 5 cases
+node tests/perf-compare.cjs median.json run1.json run2.json --base perf/60fps/baseline.json   # median and % vs baseline
+NODE_PATH=<dir with playwright> node tests/session-log.cjs   # session log: clicks, dialogue, AI calls, actions, errors, no passwords (server running)
+node --test tests/ai-limit.cjs   # 30 AI messages / 90 calls an hour per player
+node tests/abuse-eval.cjs        # live: 100 abuse prompts + 10 controls (about 330 calls, ~$0.02)
+NODE_PATH=<dir with playwright> node tests/memory.cjs    # heap, nodes and listeners over a long chapter 3 session
 ```
 
 `stage3-play` reached Elite on day 9–10 in six of six runs after Parcelly was added (earlier: day 8–10 in four runs): 30–60 s at 10×, about 5–10 minutes at normal speed. Each run had 2–5 penalties before the rules went on.
@@ -284,7 +294,7 @@ When you're signed in, nobody can edit their score: the server owns the game.
 - **How it runs:** `vercel.json` builds `public/` with `scripts/build-public.cjs`, which copies only browser files (HTML, JS, CSS, assets, `original/`, `stage3/`, `stations/`). Every `/api/*` request goes to `api/index.js`, which exports `server.cjs`'s `handler`. `.vercelignore` keeps `.env`, `data/`, tests, evidence and docs out of the upload.
 - **Storage:** Upstash Redis through the Vercel Marketplace (`store.cjs` uses `KV_REST_API_URL` and `KV_REST_API_TOKEN`). Vercel's disk doesn't keep files between requests, so the store is required.
 - **Env vars (production):** `DEEPINFRA_API_KEY` and `SESSION_SECRET` are set. `KV_REST_*` comes from the Upstash integration. `GOOGLE_CLIENT_ID` is optional.
-- **Deploy:** run `vercel deploy --prod --yes --scope samarthk-6445s-projects` from `outputs/first-office`, which is linked through `.vercel/`, gitignored.
+- **Deploy:** run `vercel deploy --prod --yes --scope samarthk-6445s-projects` from the repository root, which is linked through `.vercel/`, gitignored. A fresh clone needs its own Vercel project link and deployment credentials.
 - **Live since 2026-11-02:** a preview, then production, were both checked end to end. Sign-up, a taken username, a wrong password, sign-in on a second browser with the save and look synced, and the leaderboard under the username all passed against Upstash. `server.cjs`, `.env`, `data/` and `.git/` return 404. POSTs accept an `https://` Origin, which the first deploy was missing. To call protected previews, use `vercel curl`, and pass bodies with `--data-raw`, because `-d` is the CLI's own debug flag.
 
 ## Session log (2026-11-04)
