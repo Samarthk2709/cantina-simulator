@@ -18,9 +18,9 @@ function palette() {
     orm.set([255, rough * 255, metal * 255, 255], id * 4);
     const e = new THREE.Color(emHex); em.set([e.r * 255, e.g * 255, e.b * 255, 255], id * 4);
   };
-  set(PAL.ivory, 0xe6e0d4, 0.4, 0.0);
-  set(PAL.ivoryDark, 0xc9c2b4, 0.45, 0.0);
-  set(PAL.orange, 0xd4561f, 0.4, 0.0);
+  set(PAL.ivory, 0xd6d1c6, 0.46, 0.0);
+  set(PAL.ivoryDark, 0xb9b3a7, 0.5, 0.0);
+  set(PAL.orange, 0xb65a36, 0.45, 0.0);
   set(PAL.graphite, 0x34373c, 0.38, 0.75);
   set(PAL.rubber, 0x161719, 0.82, 0.0);
   set(PAL.visor, 0x07090c, 0.06, 0.2);
@@ -34,7 +34,7 @@ function palette() {
   const sh = new Uint8Array(N * 4); for (let i = 0; i < N; i++) { const rub = i === PAL.rubber || i === PAL.sole; sh.set(rub ? [120, 124, 130, 255] : [0, 0, 0, 255], i * 4); }
   const m = new THREE.MeshPhysicalMaterial({
     map: tex(col, true), roughnessMap: tex(orm), metalnessMap: tex(orm), emissiveMap: tex(em, true), emissive: 0xffffff, emissiveIntensity: 2.2,
-    roughness: 1, metalness: 1, clearcoat: 0.6, clearcoatMap: tex(cc), clearcoatRoughness: 0.38, envMapIntensity: 1.0, sheen: 1.0, sheenColor: 0xffffff, sheenColorMap: tex(sh, true), sheenRoughness: 0.45,
+    roughness: 1, metalness: 1, clearcoat: 0.35, clearcoatMap: tex(cc), clearcoatRoughness: 0.52, envMapIntensity: 1.0, sheen: 1.0, sheenColor: 0xffffff, sheenColorMap: tex(sh, true), sheenRoughness: 0.45,
   });
   // micro detail: fine noise in roughness, a faint orange-peel bump on the paint, and worn edges (bevels show bare
   // metal where the surface curves hardest), all computed from bind-pose position so it sticks to the parts.
@@ -56,10 +56,12 @@ float rn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     float l1 = 1.0 - smoothstep(0.0, fwidth(u1) * 1.2 + 0.01, abs(fract(u1) - 0.5) - 0.46), l2 = 1.0 - smoothstep(0.0, fwidth(u2) * 1.2 + 0.01, abs(fract(u2) - 0.5) - 0.47);
     float scr = max(l1, l2) * sp * 0.6; roughnessFactor = clamp(roughnessFactor + scr * 0.25, 0.04, 1.0); diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.12 + 0.02, scr * 0.5); }
   // cavities (baked per vertex): darker and less shiny where parts tuck into each other
-  diffuseColor.rgb *= mix(0.42, 1.0, vAO); roughnessFactor = mix(min(1.0, roughnessFactor + 0.25), roughnessFactor, vAO);`)
+  { float cav = 1.0 - vAO, dn = rn(vRP * 22.0); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.27, 0.23), cav * (0.5 + 0.3 * dn)); // dust/grime packed in the cavities
+    diffuseColor.rgb *= mix(0.5, 1.0, vAO); roughnessFactor = mix(min(1.0, roughnessFactor + 0.35), roughnessFactor, vAO);
+    float tops = smoothstep(0.6, 0.95, normalize(vNormal).y * 0.0 + rn(vRP * 3.0)) * 0.12; diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.52, 0.47), tops); }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   { float curv = clamp(length(fwidth(normal)) * 9.0, 0.0, 1.0); float painted = step(0.55, dot(diffuseColor.rgb, vec3(0.33)));
-    float wear = smoothstep(0.62, 0.9, curv * 0.85 + rn(vRP * 55.0) * 0.45 + rn(vRP * 9.0) * 0.25) * painted;
+    float wear = smoothstep(0.58, 0.86, curv * 0.8 + rn(vRP * 30.0) * 0.45 + rn(vRP * 6.0) * 0.3) * painted;
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.31, 0.33), wear * 0.75);
     metalnessFactor = mix(metalnessFactor, 0.85, wear * 0.7); roughnessFactor = mix(roughnessFactor, 0.45, wear);
     vec3 bump = vec3(rn(vRP * 140.0) - 0.5, rn(vRP * 140.0 + 7.0) - 0.5, 0.0) * 0.06 * painted; normal = normalize(normal + bump); }`);
@@ -144,28 +146,24 @@ export function buildRobot() {
   const hub = (bone, r, w, x, y, z) => { part(bone, cyl(r, r, w, 22), P.graphite, x, y, z, 0, 0, Math.PI / 2); part(bone, cyl(r * 0.55, r * 0.55, w + 0.012, 16), P.chrome, x, y, z, 0, 0, Math.PI / 2); };
   const screw = (bone, x, y, z, rx = 0, ry = 0) => part(bone, cyl(0.006, 0.006, 0.004, 8), P.chrome, x, y, z, rx + Math.PI / 2, ry, 0);
 
-  // --- head ---
-  part('head', pillow(taper(rb(0.3, 0.26, 0.27, 0.085, 5), 1.0, 0.84), 0.08, 0.3), P.ivory, 0, 0.12, 0); // helmet: rounded crown, wide jaw
-  part('head', rb(0.15, 0.01, 0.17, 0.004), P.ivoryDark, 0, 0.2505, -0.01);           // crown hatch (flat top panel)
-  part('head', pillow(taper(rb(0.30, 0.045, 0.085, 0.02, 4), 0.92, 1.0), 0.25), P.ivory, 0, 0.212, 0.118, -0.32, 0, 0); // brow hood over the visor
-  part('head', rb(0.2, 0.05, 0.075, 0.022), P.graphite, 0, 0.012, 0.098);                // jaw block
-  for (let i = -1; i <= 1; i++) part('head', rb(0.012, 0.11, 0.07, 0.005), P.graphite, i * 0.035, 0.15, -0.14); // rear cooling fins
-  part('head', rb(0.312, 0.018, 0.29, 0.009), P.seam, 0, 0.055, 0);           // seam band around the head
-  part('head', rb(0.06, 0.03, 0.2, 0.012), P.orange, 0, 0.255, -0.02);         // crest ridge
-  part('head', rb(0.258, 0.135, 0.05, 0.035, 4), P.visor, 0, 0.13, 0.125);     // glass visor
-  part('head', rb(0.272, 0.149, 0.04, 0.04, 4), P.graphite, 0, 0.13, 0.115);   // visor bezel
-  for (const s of [-1, 1]) {
-    part('head', cyl(0.055, 0.055, 0.03, 24), P.graphite, s * 0.158, 0.12, 0, 0, 0, Math.PI / 2); // ear pods
-    part('head', tor(0.045, 0.007), P.orange, s * 0.175, 0.12, 0, 0, Math.PI / 2, 0);
-    part('head', cyl(0.022, 0.022, 0.012, 16), P.chrome, s * 0.176, 0.12, 0, 0, 0, Math.PI / 2);
-  }
-  part('head', cyl(0.004, 0.004, 0.12, 6), P.graphite, 0.17, 0.22, -0.03, 0, 0, -0.25); // antenna
-  part('head', sph(0.012, 10, 8), P.led, 0.185, 0.28, -0.03);
-  for (const [x, y] of [[-0.11, 0.21], [0.11, 0.21]]) screw('head', x, y, 0.13);
-  for (const s of [-1, 1]) screw('head', s * 0.06, 0.256, 0.06);
-  for (const s of [-1, 1]) { part('head', rb(0.012, 0.09, 0.06, 0.005), P.ivoryDark, s * 0.152, 0.2, -0.07); part('head', rb(0.004, 0.06, 0.004, 0.002), P.seam, s * 0.152, 0.07, 0.1); }
-  part('head', rb(0.12, 0.03, 0.02, 0.01), P.graphite, 0, 0.03, 0.128);             // chin vent
-  for (let i = 0; i < 3; i++) part('head', rb(0.09, 0.004, 0.022, 0.002), P.seam, 0, 0.022 + i * 0.008, 0.13);
+  // --- head: one clean silhouette. A smooth skull that sweeps up and back, a wrap visor, and a single asymmetric
+  // sensor pod on the right side carrying the antenna (the left side stays clean) ---
+  { const g = rb(0.29, 0.26, 0.29, 0.11, 6); g.computeBoundingBox(); const bb = g.boundingBox, pa = g.attributes.position;
+    for (let i = 0; i < pa.count; i++) { const t = (pa.getY(i) - bb.min.y) / (bb.max.y - bb.min.y), z = pa.getZ(i);
+      pa.setZ(i, (z < 0 ? z * (1 + 0.32 * t * t) : z * (1 - 0.1 * t)) - 0.035 * t * t); pa.setX(i, pa.getX(i) * (1 - 0.1 * t * t)); }
+    g.computeVertexNormals(); part('head', g, P.ivory, 0, 0.12, 0.01); }
+  part('head', tor(0.148, 0.004, 48), P.seam, 0, 0.045, -0.005, Math.PI / 2, 0, 0);     // one panel line around the jaw
+  part('head', rb(0.2, 0.045, 0.07, 0.02), P.graphite, 0, 0.012, 0.1);                 // jaw
+  part('head', rb(0.262, 0.13, 0.05, 0.04, 4), P.visor, 0, 0.13, 0.128);                // glass visor
+  part('head', rb(0.274, 0.142, 0.04, 0.045, 4), P.graphite, 0, 0.13, 0.118);           // visor bezel
+  // sensor pod (robot's right)
+  part('head', cyl(0.068, 0.062, 0.07, 28), P.graphite, -0.16, 0.14, -0.01, 0, 0, Math.PI / 2);
+  part('head', tor(0.058, 0.008, 32), P.orange, -0.197, 0.14, -0.01, 0, Math.PI / 2, 0);
+  part('head', cyl(0.032, 0.032, 0.012, 20), P.chrome, -0.2, 0.14, -0.01, 0, 0, Math.PI / 2);
+  part('head', sph(0.018, 12, 10), P.led, -0.205, 0.14, -0.01);
+  part('head', cyl(0.004, 0.004, 0.15, 6), P.graphite, -0.17, 0.25, -0.04, 0, 0, 0.2);    // antenna off the pod
+  part('head', sph(0.011, 10, 8), P.led, -0.185, 0.325, -0.04);
+  part('head', cyl(0.034, 0.034, 0.01, 20), P.ivoryDark, 0.148, 0.12, -0.01, 0, 0, Math.PI / 2); // flush cap on the left
   // eyes (own bone, so they can blink / glance)
   for (const s of [-1, 1]) part('eyes', rb(0.05, 0.034, 0.012, 0.016), P.eye, s * 0.052, 0, 0.0);
   part('eyes', rb(0.04, 0.006, 0.01, 0.003), P.eye, 0, -0.045, 0.0); // a small mouth line
@@ -409,7 +407,7 @@ const STATION = {
     addTo(p, 'chest', 0.16, 0, 0); addTo(p, 'spine', 0.05);
     const ty = (side, ph) => { addTo(p, side + 'Sh', -0.98 + Math.sin(t * 9 + ph) * 0.04, 0, (side === 'l' ? 1 : -1) * 0.2); addTo(p, side + 'El', -0.62 + Math.sin(t * 11 + ph) * 0.05, side === 'l' ? -0.3 : 0.3); addTo(p, side + 'Wr', 0.35 + Math.sin(t * 13 + ph) * 0.1); addTo(p, side + 'Fi', -0.6 + Math.sin(t * 17 + ph) * 0.35); };
     ty('l', 0); ty('r', 1.7);
-    p.hands = { l: [0.21, 0.805 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.55 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.805 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.55 + Math.sin(t * 1.1) * 0.02] };
+    p.hands = { l: [0.21, 0.798 + Math.max(0, Math.sin(t * 9)) * 0.012, 0.55 + Math.sin(t * 1.3) * 0.02], r: [-0.01, 0.798 + Math.max(0, Math.sin(t * 9 + 2.1)) * 0.012, 0.55 + Math.sin(t * 1.1) * 0.02] };
     const g = Math.sin(t * 0.55), glance = g > 0.35 ? 0.42 : g < -0.35 ? -0.42 : 0;
     addTo(p, 'head', 0.06, glance, 0); addTo(p, 'neck', 0, glance * 0.3, 0);
     return p;

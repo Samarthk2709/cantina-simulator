@@ -241,9 +241,9 @@ function buildPlayer() {
   player = new THREE.Group(); player.name = 'robot'; player.add(robot.mesh); scene.add(player);
   // soft key + cool rim on the character (keeps the robot readable against the dark room)
   charLight = new THREE.PointLight(0xffe6cc, 0.8, 2.6, 2); scene.add(charLight);
-  rimLight = new THREE.PointLight(0x9fbfff, 0.75, 2.4, 2); scene.add(rimLight);
+  rimLight = new THREE.PointLight(0xffe4cc, 0.45, 2.4, 2); scene.add(rimLight);
   // soft contact shadow blob under the feet
-  const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; })());
+  const blobT = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31); gr.addColorStop(0, 'rgba(0,0,0,.7)'); gr.addColorStop(0.45, 'rgba(0,0,0,.32)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c; })());
   const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: blobT, transparent: true, depthWrite: false })); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.006; blob.userData.noAO = true; blob.userData.dynamic = true; blob.name = 'robot_contact_shadow'; scene.add(blob); player.userData.blob = blob;
   player.traverse(o => (o.userData.dynamic = true));
 }
@@ -346,7 +346,7 @@ const USE = {
   stats: { spot: [12.165, 2.74, Math.PI / 2], stand: [11.65, 2.9] },
   training: { spot: [11.55, 7.82, Math.PI], stand: [11.58, 8.7] },
   forge: { spot: [3.75, 8.71, Math.PI], stand: [3.75, 9.3] },
-  hq: { spot: [7.25, 1.53, Math.PI], stand: [7.25, 2.45] },
+  hq: { spot: [7.25, 1.56, Math.PI], stand: [7.25, 2.45] },
   rig: { spot: [12.38, 9.4, 0], stand: [11.6, 9.4], step: 0.15 },
   terminals: { spot: [13.125, 7.38, 0], stand: [13.125, 6.75] },
   lounge: { spot: [3.05, 9.8, Math.PI], seat: 'sofa', side: [3.05, 9.25], stand: [2.4, 9.0] },

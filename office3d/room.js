@@ -717,11 +717,31 @@ function dressWalls() {
   for (const [x0, x1, z] of [[1.4, 4.4, Z0 + 0.03], [10.6, 13.6, Z0 + 0.03], [5.2, 9.2, Z1 - 0.03]]) { const c = cyl(0.007, 0.007, x1 - x0, dark, (x0 + x1) / 2, 0.012, z, null, 6, false); c.rotation.z = Math.PI / 2; const c2 = cyl(0.005, 0.005, x1 - x0, dark, (x0 + x1) / 2, 0.025, z + 0.004, null, 6, false); c2.rotation.z = Math.PI / 2; }
   for (const [z0, z1] of [[1.6, 4.4], [5.6, 9.4]]) { const c = cyl(0.007, 0.007, z1 - z0, dark, X1 - 0.03, 0.012, (z0 + z1) / 2, null, 6, false); c.rotation.x = Math.PI / 2; }
 }
+// The open middle of the floor: a two-chair seating nook by the rug, a whiteboard trolley, a cable protector across
+// the floor, bins, standing plants and a stack of gear boxes; everything sits off the walking lanes to the stations.
+function dressFloor() {
+  const M = C.M, L = M.leatherBrown, dark = std(0x26282b, 0.5, 0.3), white = std(0xe8e6df, 0.5);
+  const armchair = (x, z, ry) => { const g = group(null, x, 0, z, ry); rbox(0.7, 0.18, 0.66, 0.04, L, 0, 0.19, 0, g); rbox(0.56, 0.12, 0.5, 0.05, L, 0, 0.34, 0.04, g);
+    rbox(0.7, 0.42, 0.14, 0.05, L, 0, 0.5, -0.27, g); for (const s of [-1, 1]) rbox(0.12, 0.2, 0.62, 0.04, L, s * 0.29, 0.38, 0.0, g); for (const s of [-1, 1]) for (const t of [-1, 1]) box(0.04, 0.1, 0.04, dark, s * 0.3, 0.05, t * 0.27, 1, g, false); };
+  armchair(9.35, 4.05, Math.PI / 2 + 0.35); armchair(10.55, 4.5, -Math.PI / 2 - 0.25);
+  { const t = group(null, 9.95, 0, 4.2); cyl(0.3, 0.3, 0.03, M.walnut, 0, 0.47, 0, t, 28); cyl(0.03, 0.03, 0.45, dark, 0, 0.23, 0, t, 10, false); cyl(0.2, 0.22, 0.02, dark, 0, 0.01, 0, t, 20, false);
+    books(t, -0.05, 0.485, 0.05, 3, 0.4); const mg = cyl(0.04, 0.036, 0.095, white, 0.14, 0.533, -0.08, t, 14, false); void mg; }
+  // whiteboard trolley (double-sided board on a wheeled frame), facing the room
+  { const g = group(null, 4.6, 0, 4.62, 0); for (const s of [-1, 1]) { box(0.035, 1.6, 0.035, M.alu, s * 0.6, 0.85, 0, 1, g, false); box(0.035, 0.035, 0.46, M.alu, s * 0.6, 0.06, 0, 1, g, false); for (const t of [-1, 1]) { const w = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), dark); w.position.set(s * 0.6, 0.025, t * 0.21); g.add(w); } }
+    box(1.16, 0.78, 0.025, white, 0, 1.15, 0, 1, g); box(1.2, 0.025, 0.04, M.alu, 0, 1.55, 0, 1, g, false); box(1.2, 0.025, 0.04, M.alu, 0, 0.75, 0, 1, g, false); box(0.9, 0.025, 0.06, M.alu, 0, 0.74, 0.03, 1, g, false);
+    for (let i = 0; i < 4; i++) { const n = box(0.09, 0.09, 0.004, std([0xf3d34a, 0xff8fbf, 0x8de3ff, 0xb9f59a][i], 0.5), -0.4 + i * 0.13, 1.3 - (i % 2) * 0.12, 0.015, 1, g, false); n.rotation.z = (i - 1.5) * 0.05; }
+    for (let i = 0; i < 5; i++) box(0.3 + (i % 3) * 0.12, 0.012, 0.004, std(0x1f3b8f, 0.5), -0.3 + (i % 2) * 0.25, 1.05 - i * 0.07, 0.014, 1, g, false); }
+  // cable protector across the floor from the founder's desk (low enough to walk over)
+  { const c = box(1.6, 0.02, 0.14, std(0x2b2d31, 0.7), 5.55, 0.01, 5.0, 1, null, false); c.rotation.y = 0.25; const y = box(1.6, 0.003, 0.03, std(0xd9b42a, 0.5), 5.55, 0.021, 5.0, 1, null, false); y.rotation.y = 0.25; }
+  place('metal_trash_can', 8.85, 0, 4.85, 0.4, 0.55); place('metal_trash_can', 2.25, 0, 6.55, 1.1, 0.5);
+  place('potted_plant_04', 4.45, 0, 6.45, 0.7, 1.7); place('pachira_aquatica_01', 8.75, 0, 9.25, 2.6, 0.7, null, { pick: /_b$/ });
+  place('plastic_crate_02', 7.85, 0, 9.3, 0.15, 0.9); place('plastic_crate_02', 7.85, 0.3, 9.3, 0.25, 0.9); place('cardboard_box_01', 8.25, 0, 9.4, -0.3, 0.8);
+}
 function buildDecor() {
   const M = C.M;
   sconce(X1 - 0.01, 2.15, 4.45, -Math.PI / 2); sconce(X1 - 0.01, 2.15, 6.7, -Math.PI / 2); sconce(X1 - 0.01, 2.15, 8.05, -Math.PI / 2);
   sconce(6.1, 2.1, Z1 - 0.01, Math.PI); sconce(8.3, 2.1, Z1 - 0.01, Math.PI);
-  dressWalls();
+  dressWalls(); dressFloor();
   // corner plants (solid tiles in the 2D office)
   place('pachira_aquatica_01', 1.15, 0, 1.15, 0.3, 0.9, null, { pick: /_b$/ });
   place('pachira_aquatica_01', 13.9, 0, 1.15, 1.2, 0.85, null, { pick: /_c$/ });
